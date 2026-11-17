@@ -578,6 +578,32 @@ final class ProcExtra {
                 if (!o.isEmpty()) r.add("scoreboard objectives modify " + o + " displayname " + textJson(or(s.get("name"), o), s.get("color")));
             }
             case "sidebar_clear" -> r.add("scoreboard objectives setdisplay " + or(s.get("slot"), "sidebar"));
+            case "real_time" -> {
+                String o = obj(s, "objective");
+                if (o.isEmpty()) return true;
+                if (ctx.target.isMod()) r.add(ScreenGen.command(ctx) + " time " + o);
+                else r.add("# the computer's clock needs a mod loader target");
+            }
+            case "open_screen", "show_overlay", "hide_overlay" -> {
+                String name = s.get("screen").trim();
+                if (!(ctx.p.byName(ElementType.SCREEN, name) instanceof modstudio.core.Systems.CustomScreen sc)) {
+                    r.add("# unknown screen " + name);
+                } else if (!ctx.target.isMod()) {
+                    r.add("# custom screens need a mod loader target");
+                } else if (s.kind.equals("open_screen")) {
+                    r.add(ScreenGen.message(ctx, sel(s), sc, sc.overlay() ? "show" : "open"));
+                    if (sc.overlay()) r.add("tag " + sel(s) + " add " + ScreenGen.tag(ctx, sc));
+                } else {
+                    boolean show = s.kind.equals("show_overlay");
+                    String t = or(s.get("target"), "@a");
+                    r.add("tag " + t + (show ? " add " : " remove ") + ScreenGen.tag(ctx, sc));
+                    r.add(ScreenGen.message(ctx, t, sc, show ? "show" : "hide"));
+                }
+            }
+            case "close_screen" -> {
+                if (ctx.target.isMod()) r.add(ScreenGen.closeMessage(ctx, sel(s)));
+                else r.add("# custom screens need a mod loader target");
+            }
             case "score_to_storage" -> {
                 String o = obj(s, "objective");
                 if (!o.isEmpty()) r.add("execute store result storage " + ns + ":data " + or(s.get("path"), "saved") + " int 1 run scoreboard players get " + single(sel(s)) + " " + o);

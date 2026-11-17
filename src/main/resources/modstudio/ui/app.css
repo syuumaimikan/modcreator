@@ -751,3 +751,61 @@
     -fx-background-radius: 6;
     -fx-padding: 8 10 8 10;
 }
+
+.list-card.selected-card {
+    -fx-background-color: -color-accent-subtle;
+    -fx-border-color: -color-accent-emphasis;
+    -fx-border-radius: 6;
+}
+
+.screen-canvas {
+    -fx-border-color: -color-border-default;
+    -fx-border-width: 1;
+    -fx-background-color: #000000;
+}
+
+/* ------------------------------------------------------------------ shader node graph */
+
+.shader-node {
+    -fx-background-color: -color-bg-default;
+    -fx-border-color: -color-border-default;
+    -fx-border-width: 1;
+    -fx-background-radius: 7;
+    -fx-border-radius: 7;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.20), 8, 0, 0, 2);
+}
+
+.shader-node.selected {
+    -fx-border-color: -color-accent-emphasis;
+    -fx-border-width: 2;
+}
+
+.shader-node-title {
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+    -fx-font-size: 12px;
+    -fx-background-radius: 6 6 0 0;
+    -fx-cursor: move;
+}
+
+.shader-node-close {
+    -fx-padding: 2;
+    -fx-background-color: transparent;
+}
+
+.shader-node-close .ui-icon {
+    -fx-icon-color: rgba(255, 255, 255, 0.85);
+}
+
+.shader-port {
+    -fx-cursor: crosshair;
+}
+
+.shader-value {
+    -fx-font-size: 11.5px;
+    -fx-padding: 1 6 1 6;
+}
+
+.shader-preview .canvas {
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.18), 6, 0, 0, 1);
+}

@@ -90,6 +90,13 @@ public final class Compat {
                 if ((pack || paper || t == Target.RESOURCEPACK) && !th.buttons.isEmpty()) a.notes.add(I18n.t("compat.theme_buttons"));
                 if (th.tooltip && p.mcVersions().stream().anyMatch(v -> !v.atLeast(McVersion.V1_21_4))) a.notes.add(I18n.t("compat.theme_tooltip_old"));
             }
+            case Systems.IconFont f -> {
+                if (bedrock) a.none("compat.java_only");
+                else if (pack || paper) a.notes.add(I18n.t("compat.icon_pack"));
+            }
+            case Systems.CustomScreen sc -> {
+                if (!mod) a.none("compat.screen_mod_only");
+            }
             case Elements.Potion po -> {
                 if (bedrock) a.none("compat.java_only");
                 else if (paper || pack) a.fallback("compat.potion_item");
@@ -303,10 +310,11 @@ public final class Compat {
                 if (old && (Validator.needsMacro(s.p) || (s.cond != null && Validator.needsMacro(s.cond.p)))) a.fallback("compat.macro_old");
             }
             if (bedrock && Logic.STEPS.containsKey(s.kind) && LogicExtra.isExtra(s.kind) && LogicExtra.bedrockCommand(s) == null && !LogicExtra.BODY.contains(s.kind)
-                    && !LogicExtra.BEDROCK_TEXT.contains(s.kind))
+                    && !LogicExtra.BEDROCK_TEXT.contains(s.kind) && !LogicExtra.MOD_ONLY.contains(s.kind))
                 a.fallback("compat.extra_java_only");
             if (old && !bedrock && List.of("return_value", "return_fail").contains(s.kind)) a.fallback("compat.stop_old");
             if (!bedrock && p.mcVersions().stream().anyMatch(v -> !v.components()) && List.of("item_glint", "scale").contains(s.kind)) a.fallback("compat.step_new");
+            if (!t.isMod() && LogicExtra.MOD_ONLY.contains(s.kind)) a.fallback("compat.screen_mod_only");
             if (bedrock && s.kind.equals("shoot")) a.fallback("compat.shoot_bedrock");
             if (bedrock && List.of("modify_item", "give_loot", "show_dialog", "spawn_trader").contains(s.kind)) a.fallback("compat.step_java_only");
             if (bedrock && (s.kind.equals("play_animation") || s.kind.equals("stop_animation"))) a.fallback("compat.animation_bedrock");

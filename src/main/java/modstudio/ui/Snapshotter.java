@@ -76,7 +76,8 @@ public final class Snapshotter {
                 {"painting", "ruby_sunset"}, {"song", "ruby_waltz"}, {"block", "ruby_berry_bush"}, {"cutscene", "ruby_intro"},
                 {"model", "ruby_golem"}, {"multiblock", "ruby_crusher"}, {"model", "ruby_crusher"},
                 {"predicate", "ruby_night"}, {"item_modifier", "ruby_blessing"}, {"dialog", "ruby_welcome"}, {"trader", "ruby_merchant"},
-                {"keybind", "ruby_dash"}, {"recipe", "ruby_rush_brewing"}, {"loot_table", "dungeon_rubies"}};
+                {"keybind", "ruby_dash"}, {"recipe", "ruby_rush_brewing"}, {"loot_table", "dungeon_rubies"},
+                {"screen", "ruby_menu"}, {"screen", "ruby_hud"}, {"icon_font", "ruby_icons"}, {"theme", "ruby_theme"}, {"potion", "ruby_vigor"}, {"shader", "ruby_shimmer"}};
         int k = 40;
         for (String[] pn : named) {
             int num = k++;
@@ -126,6 +127,16 @@ public final class Snapshotter {
             });
             add(() -> shot(w.scene(), (pos < 0.6 ? "73" : "74") + "-multiblock-assembly"));
         }
+        // the node graph and the live preview of the shimmer shader, further down its editor
+        add(() -> {
+            var v = w.workspaceView();
+            v.show("shader");
+            w.workspace().project.elements.stream().filter(e -> e.name.equals("ruby_shimmer")).findFirst().ifPresent(e -> v.openElement(e.uid));
+        });
+        for (String part : new String[]{".shader-graph", ".shader-preview"}) {
+            add(() -> scrollTo(w.scene(), part));
+            add(() -> shot(w.scene(), (part.contains("graph") ? "78" : "79") + "-shader-" + part.substring(8)));
+        }
         add(() -> {
             var ws = w.workspace();
             var v = w.workspaceView();
@@ -166,6 +177,46 @@ public final class Snapshotter {
             });
             pt.play();
         });
+        // the new project dialog with a data pack chosen: no Java package, a namespace instead of a mod id
+        add(() -> {
+            PauseTransition pt = new PauseTransition(Duration.millis(500));
+            pt.setOnFinished(e -> {
+                for (javafx.stage.Window win : new ArrayList<>(javafx.stage.Window.getWindows())) {
+                    if (win == w.stage || win.getScene() == null || win.getScene().getRoot().lookup(".dialog-pane") == null) continue;
+                    for (javafx.scene.Node node : win.getScene().getRoot().lookupAll(".toggle-button")) {
+                        if (node instanceof javafx.scene.control.ToggleButton tb && "datapack".equals(tb.getUserData())) tb.setSelected(true);
+                    }
+                    PauseTransition later = new PauseTransition(Duration.millis(400));
+                    later.setOnFinished(x -> {
+                        shot(win.getScene(), "82-new-datapack");
+                        win.hide();
+                    });
+                    later.play();
+                }
+            });
+            pt.play();
+            Platform.runLater(() -> NewProjectDialog.show(w));
+        });
+        add(() -> {
+        });
+        // a data pack project: the sidebar leaves out what data packs cannot make
+        add(() -> {
+            modstudio.core.Project dp = new modstudio.core.Project();
+            dp.meta.name = "My Data Pack";
+            dp.meta.modId = "mydatapack";
+            dp.meta.targets = new ArrayList<>(List.of("datapack", "resourcepack"));
+            dp.meta.mcVersions = new ArrayList<>(List.of("1.21.1"));
+            dp.meta.mcVersion = "1.21.1";
+            try {
+                Path file = dir.resolve("datapack-test").resolve("mydatapack.msproj");
+                Files.createDirectories(file.getParent());
+                modstudio.core.ProjectIO.save(dp, file);
+                w.openWorkspace(dp, file);
+            } catch (java.io.IOException ex) {
+                ex.printStackTrace();
+            }
+        });
+        add(() -> shot(w.scene(), "83-datapack-workspace"));
         add(() -> {
         });
         add(() -> {
@@ -209,6 +260,18 @@ public final class Snapshotter {
         PauseTransition pt = new PauseTransition(Duration.millis(700));
         pt.setOnFinished(e -> next());
         pt.play();
+    }
+
+    /** Scrolls the editor so the first node matching the selector is at the top of the view. */
+    private static void scrollTo(Scene scene, String selector) {
+        for (javafx.scene.Node node : scene.getRoot().lookupAll(".scroll-pane")) {
+            if (!(node instanceof javafx.scene.control.ScrollPane sp) || sp.getContent() == null) continue;
+            javafx.scene.Node target = sp.getContent().lookup(selector);
+            if (target == null || target == sp.getContent()) continue;
+            double y = sp.getContent().sceneToLocal(target.localToScene(0, 0)).getY();
+            double range = sp.getContent().getLayoutBounds().getHeight() - sp.getViewportBounds().getHeight();
+            if (range > 0) sp.setVvalue(Math.max(0, Math.min(1, (y - 60) / range)));
+        }
     }
 
     private void shot(Scene scene, String name) {

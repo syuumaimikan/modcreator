@@ -49,6 +49,8 @@ public final class AssetGen {
         rigAssets(byBase);
         overrides(byBase);
         menuArt();
+        iconFont();
+        screenTextures();
         armor(true);
         gameplay(true);
         tooltips();
@@ -63,12 +65,16 @@ public final class AssetGen {
         for (Systems.Shader s : ctx.all(Systems.Shader.class)) {
             if (!Shaders.inRange(s, ctx.v) || s.program.isBlank()) continue;
             String name = s.program.trim();
+            // A graph is exported as GLSL: an include becomes a function, a core program its original source with the
+            // graph applied. A graph without a usable original source is left out (the validator says why).
+            String fragment = ShaderNodes.fragment(s);
             if (s.kind.equals("include")) {
-                if (!s.fragment.isBlank()) ctx.files.text(asset("minecraft", "shaders/include/" + name + ".glsl"), s.fragment);
+                if (!fragment.isBlank()) ctx.files.text(asset("minecraft", "shaders/include/" + name + ".glsl"), fragment);
                 continue;
             }
+            if (s.graph() && (!ShaderNodes.patchable(s.fragment) || ShaderNodes.order(s.nodes) == null)) continue;
             if (!s.vertex.isBlank()) ctx.files.text(asset("minecraft", "shaders/core/" + name + ".vsh"), s.vertex);
-            if (!s.fragment.isBlank()) ctx.files.text(asset("minecraft", "shaders/core/" + name + ".fsh"), s.fragment);
+            if (!fragment.isBlank()) ctx.files.text(asset("minecraft", "shaders/core/" + name + ".fsh"), fragment);
         }
     }
 
@@ -113,6 +119,50 @@ public final class AssetGen {
         providers.add(J.obj("type", "space", "advances", advances));
         for (JsonObject b : bitmaps) providers.add(b);
         ctx.files.json(asset(ctx.ns, "font/menu.json"), J.obj("providers", providers));
+    }
+
+    /**
+     * Icon fonts: each icon is a bitmap glyph in the default font (fonts of all packs are merged, so the vanilla
+     * characters stay), plus the space characters behind {space:N}.
+     */
+    private void iconFont() {
+        List<Systems.IconFont> fonts = ctx.all(Systems.IconFont.class);
+        if (fonts.isEmpty()) return;
+        JsonArray providers = new JsonArray();
+        JsonObject advances = new JsonObject();
+        for (int bit = 0; bit < Icons.SPACE_BITS; bit++) {
+            advances.addProperty(String.valueOf((char) (Icons.SPACE + bit)), 1 << bit);
+            advances.addProperty(String.valueOf((char) (Icons.SPACE + Icons.SPACE_BITS + bit)), -(1 << bit));
+        }
+        providers.add(J.obj("type", "space", "advances", advances));
+        int i = 0;
+        for (Systems.IconFont f : fonts) {
+            for (Systems.Icon ic : f.icons) {
+                if (ic.name == null || ic.name.isBlank()) continue;
+                char ch = Icons.charOf(i++);
+                TextureAsset t = ctx.p.texture(ic.texture);
+                if (t == null) continue;
+                String file = "font/icons/" + Ids.toId(ic.name) + ".png";
+                ctx.files.bytes(asset(ctx.ns, "textures/" + file), t.animated() ? Images.png(t.firstFrame(), t.width, t.width) : t.bytes());
+                int h = Math.max(1, Math.min(256, ic.height));
+                JsonArray chars = new JsonArray();
+                chars.add(String.valueOf(ch));
+                providers.add(J.obj("type", "bitmap", "file", ctx.ns + ":" + file, "ascent", Math.min(h, ic.ascent), "height", h, "chars", chars));
+            }
+        }
+        ctx.files.json(asset("minecraft", "font/default.json"), J.obj("providers", providers));
+    }
+
+    /** Images of custom screens, drawn by the mod's own code (animated ones frame by frame). */
+    private void screenTextures() {
+        for (Systems.CustomScreen s : ctx.all(Systems.CustomScreen.class)) {
+            for (Systems.ScreenWidget w : s.widgets) {
+                TextureAsset t = ctx.p.texture(w.texture);
+                if (t == null) continue;
+                String path = asset(ctx.ns, "textures/gui/screen/" + t.name + ".png");
+                if (written.add(path)) ctx.files.bytes(path, t.bytes());
+            }
+        }
     }
 
     /** Custom model data overrides on vanilla base items (before 1.21.4, which selects models with item_model). */
@@ -264,7 +314,9 @@ public final class AssetGen {
 
     public void lang() {
         for (var e : Localization.files(ctx.p).entrySet()) {
-            ctx.files.json(asset(ctx.ns, "lang/" + e.getKey() + ".json"), J.el(e.getValue()));
+            Map<String, String> values = new LinkedHashMap<>();
+            e.getValue().forEach((k, v) -> values.put(k, Icons.apply(v, GenContext.glyphs())));
+            ctx.files.json(asset(ctx.ns, "lang/" + e.getKey() + ".json"), J.el(values));
         }
     }
 
@@ -279,6 +331,7 @@ public final class AssetGen {
         rigAssets(byBase);
         overrides(byBase);
         menuArt();
+        iconFont();
         armor(false);
         gameplay(false);
         tooltips();

@@ -4,7 +4,9 @@ import modstudio.core.Elements.Step;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Elements for game systems: mobs and bosses, particle effects, structures, biomes, dimensions, inventory menus,
@@ -360,6 +362,18 @@ public final class Systems {
 
     // ------------------------------------------------------------------ shaders
 
+    /** A node of a shader graph: its kind, place on the canvas, input values and the outputs its inputs read. */
+    public static final class ShaderNode {
+        public String id = "";
+        public String type = "output";
+        public double x;
+        public double y;
+        /** Values of inputs that are not connected (numbers, "x, y" vectors or #RRGGBB colours). */
+        public Map<String, String> values = new LinkedHashMap<>();
+        /** Input port to "nodeId:outputPort". */
+        public Map<String, String> links = new LinkedHashMap<>();
+    }
+
     /** A GLSL shader in the resource pack: replaces a vanilla core shader program or provides an include file. */
     public static final class Shader extends Element {
         /** core: vertex and fragment program of a vanilla core shader. include: a .glsl file for #moj_import. */
@@ -370,6 +384,13 @@ public final class Systems {
         /** Exported only for these Minecraft versions; empty means no limit (shader sources change between versions). */
         public String minVersion = "";
         public String maxVersion = "";
+        /** code: the GLSL is written by hand. nodes: a node graph builds it (see ShaderNodes). */
+        public String mode = "code";
+        public List<ShaderNode> nodes = new ArrayList<>();
+
+        public boolean graph() {
+            return mode.equals("nodes");
+        }
 
         @Override public ElementType type() { return ElementType.SHADER; }
         @Override public String subtitle() { return kind + "  " + program; }
@@ -451,6 +472,89 @@ public final class Systems {
             int n = textures.size() + (glint.equals("keep") ? 0 : 1) + (splashes.isBlank() ? 0 : 1) + (tooltip ? 1 : 0) + buttons.size();
             return n + " changes";
         }
+    }
+
+    // ------------------------------------------------------------------ icon fonts and custom screens
+
+    /** One icon of an icon font: written as :name: in any text, drawn from a project texture. */
+    public static final class Icon {
+        public String name = "star";
+        /** Project texture id. */
+        public String texture = "";
+        /** Drawn height in text pixels (the normal font is 8 high). */
+        public int height = 9;
+        /** Pixels above the text baseline; the rest hangs below. */
+        public int ascent = 8;
+    }
+
+    /** Icons added to the game's default font, so chat, titles, item names, signs and menus can show them. */
+    public static final class IconFont extends Element {
+        public List<Icon> icons = new ArrayList<>();
+
+        @Override public ElementType type() { return ElementType.ICON_FONT; }
+        @Override public String subtitle() { return icons.size() + " icons"; }
+    }
+
+    /** A widget of a custom screen or HUD overlay. */
+    public static final class ScreenWidget {
+        /** panel, image, text, button, bar, item, entity */
+        public String kind = "text";
+        /** top_left, top, top_right, left, center, right, bottom_left, bottom, bottom_right */
+        public String anchor = "center";
+        /** Offset of the top-left corner from the anchor point, in GUI pixels. */
+        public int x;
+        public int y;
+        public int width = 80;
+        public int height = 20;
+        /** Text, button label or bar label; may use {score:objective}, {player}, {time}, {media_title} and other values. */
+        public String text = "";
+        /** Text, fill or bar colour. */
+        public String color = "#FFFFFF";
+        /** Background, border or empty-bar colour. */
+        public String color2 = "#202020";
+        public int opacity = 100;
+        /** Project texture id for images, panels, buttons and bars. */
+        public String texture = "";
+        public String item = "minecraft:diamond";
+        /** Entity id, or player for the viewer. */
+        public String entity = "player";
+        public double scale = 1;
+        /** Bar value: health, food, xp, level, air, armor or score:objective. */
+        public String value = "health";
+        /** Bar maximum: a number, score:objective, or blank for the value's own maximum. */
+        public String max = "";
+        /** Buttons: close, screen, procedure, url, command. */
+        public String action = "close";
+        /** Screen name, procedure name, address or command, depending on the action. */
+        public String target = "";
+        public String tooltip = "";
+        /** none, fade_in, slide_up, slide_down, slide_left, slide_right, pop, pulse, bob, blink, look_around */
+        public String animation = "none";
+        public double speed = 1;
+        /** left, center, right */
+        public String align = "left";
+        public boolean shadow = true;
+    }
+
+    /** A screen drawn by the mod on the client: opened like a menu, or shown on the HUD as an overlay. */
+    public static final class CustomScreen extends Element {
+        /** screen (takes the mouse, closes with Esc) or overlay (drawn over the game) */
+        public String mode = "screen";
+        public String title = "";
+        /** Darken the game behind the screen. */
+        public boolean dim = true;
+        /** Pause a single-player game while the screen is open. */
+        public boolean pause;
+        /** Ticks between score updates of an overlay. */
+        public int refresh = 20;
+        public List<ScreenWidget> widgets = new ArrayList<>();
+
+        public boolean overlay() {
+            return mode.equals("overlay");
+        }
+
+        @Override public ElementType type() { return ElementType.SCREEN; }
+        @Override public String subtitle() { return mode + "  " + widgets.size(); }
     }
 
     public static final class DialogButton {

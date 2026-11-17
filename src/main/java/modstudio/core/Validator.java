@@ -68,6 +68,53 @@ public final class Validator {
                 case StatusEffect se -> {
                     if (p.texture(se.icon) == null) r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.effect_icon", se.name)));
                 }
+                case Systems.IconFont f -> {
+                    java.util.Set<String> iconNames = new java.util.HashSet<>();
+                    for (Element other : p.elements) {
+                        if (other == f) break;
+                        if (other instanceof Systems.IconFont of) for (Systems.Icon ic : of.icons) iconNames.add(ic.name.trim());
+                    }
+                    for (Systems.Icon ic : f.icons) {
+                        String n = ic.name == null ? "" : ic.name.trim();
+                        if (!n.matches("[a-z0-9_]+"))
+                            r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.icon_name", f.name, n)));
+                        else if (!iconNames.add(n))
+                            r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.icon_duplicate", f.name, n)));
+                        if (p.texture(ic.texture) == null)
+                            r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.icon_texture", f.name, n)));
+                    }
+                }
+                case Systems.CustomScreen sc -> {
+                    for (Target t : p.targets()) {
+                        if (!t.isMod() && t != Target.RESOURCEPACK)
+                            r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.screen_unsupported", sc.name, I18n.t("target." + t.id))));
+                    }
+                    for (Systems.ScreenWidget w : sc.widgets) {
+                        String label = w.kind + (w.text.isBlank() ? "" : " \"" + w.text + "\"");
+                        String target = w.target == null ? "" : w.target.trim();
+                        if (w.kind.equals("image") && p.texture(w.texture) == null)
+                            r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.screen_texture", sc.name, label)));
+                        if (!w.kind.equals("button")) continue;
+                        if (sc.overlay())
+                            r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.screen_overlay_button", sc.name, label)));
+                        switch (w.action) {
+                            case "screen" -> {
+                                if (!(p.byName(ElementType.SCREEN, target) instanceof Systems.CustomScreen to) || to.overlay())
+                                    r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.screen_target", sc.name, label, target)));
+                            }
+                            case "procedure" -> {
+                                if (p.byName(ElementType.PROCEDURE, target) == null)
+                                    r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.screen_procedure", sc.name, label, target)));
+                            }
+                            case "url" -> {
+                                if (!target.matches("https?://.+"))
+                                    r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.theme_url", sc.name, label)));
+                            }
+                            default -> {
+                            }
+                        }
+                    }
+                }
                 case Systems.Theme th -> {
                     for (Systems.TextureOverride o : th.textures) {
                         if (o.path.isBlank() || p.texture(o.texture) == null)
@@ -400,14 +447,16 @@ public final class Validator {
                     boolean include = sh.kind.equals("include");
                     if (prog.isEmpty() || !prog.matches("[a-z0-9_./-]+"))
                         r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.shader_program", sh.name, prog)));
-                    if (sh.fragment.isBlank() && (include || sh.vertex.isBlank()))
+                    if (!sh.graph() && sh.fragment.isBlank() && (include || sh.vertex.isBlank()))
                         r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.shader_empty", sh.name)));
+                    for (String k : ShaderNodes.check(sh))
+                        r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.shader_graph", sh.name, I18n.t(k))));
                     McVersion min = McVersion.orNull(sh.minVersion), max = McVersion.orNull(sh.maxVersion);
                     if (min != null && max != null && !max.atLeast(min))
                         r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.shader_range", sh.name)));
                     if (p.mcVersions().stream().noneMatch(v -> Shaders.inRange(sh, v)))
                         r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.shader_no_version", sh.name)));
-                    List<String> issues = new ArrayList<>(Shaders.check(sh.fragment, !include));
+                    List<String> issues = new ArrayList<>(sh.graph() && include ? List.of() : Shaders.check(sh.fragment, !include));
                     if (!include) issues.addAll(Shaders.check(sh.vertex, true));
                     for (String k : new LinkedHashSet<>(issues))
                         r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.shader_code", sh.name, I18n.t(k))));

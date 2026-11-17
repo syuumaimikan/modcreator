@@ -6,10 +6,13 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import modstudio.build.GameDirs;
 import modstudio.core.McVersion;
+import modstudio.core.ShaderNodes;
 import modstudio.core.Shaders;
 import modstudio.core.Systems.Shader;
 import modstudio.ui.Ui;
 import modstudio.ui.controls.CodeEditor;
+import modstudio.ui.controls.ShaderGraphView;
+import modstudio.ui.controls.ShaderPreview;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -18,7 +21,8 @@ import java.util.List;
 /**
  * Shader editor: picks the vanilla core program (or include file) to replace, the Minecraft versions it is written
  * for, and edits the GLSL with highlighting, helper snippets, quick checks and an import of the original source
- * from a Minecraft client installed on this computer.
+ * from a Minecraft client installed on this computer. In node mode the colour is built from a node graph instead,
+ * with a live preview; a core program then needs its original source, which the graph is applied to.
  */
 final class ShaderEditor extends EditorBase<Shader> {
     private final CodeEditor fragment = new CodeEditor("glsl");
@@ -28,6 +32,10 @@ final class ShaderEditor extends EditorBase<Shader> {
     private final Tab fragmentTab = new Tab();
     private final VBox checks = new VBox(4);
     private final Label usage = Ui.help("");
+    private final CodeEditor generated = new CodeEditor("glsl");
+    private final VBox graphChecks = new VBox(4);
+    private ShaderGraphView graph;
+    private ShaderPreview preview;
     private ComboBox<String> program;
     private ComboBox<String> minBox;
     private ComboBox<String> maxBox;
@@ -45,6 +53,16 @@ final class ShaderEditor extends EditorBase<Shader> {
             program.getItems().setAll(Shaders.names(c.p, v));
             updateTabs();
         });
+        f.choice(t("field.shader_mode"), List.of("code", "nodes"), x -> t("shader.mode." + x), () -> e.mode, v -> {
+            // An include leaving node mode without code of its own keeps the generated GLSL to go on with by hand.
+            if (v.equals("code") && e.graph() && e.kind.equals("include") && e.fragment.isBlank()) fragment.setText(ShaderNodes.fragment(e));
+            e.mode = v;
+            if (e.graph() && ShaderNodes.output(e.nodes) == null) {
+                e.nodes.clear();
+                e.nodes.addAll(ShaderNodes.starter());
+                if (graph != null) graph.rebuild();
+            }
+        }, t("help.shader_mode"));
         program = MachineEditors.ref(f, t("field.shader_program"), Shaders.names(c.p, e.kind), false, () -> e.program, v -> e.program = v,
                 t("help.shader_program"));
         List<String> versions = new ArrayList<>();
@@ -54,7 +72,26 @@ final class ShaderEditor extends EditorBase<Shader> {
         maxBox = f.choice(t("field.shader_max"), versions, x -> x.isEmpty() ? t("shader.any_version") : x, () -> e.maxVersion, v -> e.maxVersion = v,
                 t("help.shader_versions"));
 
+        f.section(t("section.shader_graph"), t("help.shader_graph"));
+        f.sectionShowIf(e::graph);
+        if (e.graph() && ShaderNodes.output(e.nodes) == null) e.nodes.addAll(ShaderNodes.starter());
+        graph = f.add(new ShaderGraphView(e.nodes, f::changed));
+        f.add(graphChecks);
+
+        f.section(t("section.shader_preview"), t("help.shader_preview"));
+        f.sectionShowIf(e::graph);
+        preview = f.add(new ShaderPreview(c.p, e.nodes));
+
+        f.section(t("section.shader_generated"), t("help.shader_generated"));
+        f.sectionShowIf(e::graph);
+        generated.setEditable(false);
+        generated.setPrefHeight(300);
+        f.add(generated);
+
         f.section(t("section.code"), t("help.shader_code"));
+        f.sectionShowIf(() -> !e.graph() || !e.kind.equals("include"));
+        f.add(Ui.help(t("shader.base_help")));
+        f.showIf(e::graph);
         MenuButton imp = new MenuButton(t("shader.import"));
         imp.setGraphic(Ui.icon("mdi2i-import"));
         imp.setOnShowing(ev -> fillImportMenu(imp));
@@ -148,8 +185,14 @@ final class ShaderEditor extends EditorBase<Shader> {
     @Override
     protected void refresh() {
         checks.getChildren().clear();
+        graphChecks.getChildren().clear();
         boolean include = e.kind.equals("include");
-        addChecks(include ? t("shader.source") : t("shader.fragment"), Shaders.check(e.fragment, !include));
+        if (e.graph()) {
+            preview.recompile();
+            generated.setText(ShaderNodes.fragment(e));
+            for (String k : ShaderNodes.check(e)) graphChecks.getChildren().add(Ui.label(t(k), "warning-text"));
+        }
+        if (!e.graph() || !include) addChecks(include ? t("shader.source") : t("shader.fragment"), Shaders.check(e.fragment, !include));
         if (!include) addChecks(t("shader.vertex"), Shaders.check(e.vertex, true));
         int n = 0;
         for (McVersion v : c.p.mcVersions()) if (Shaders.inRange(e, v)) n++;

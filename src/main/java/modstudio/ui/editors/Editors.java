@@ -40,6 +40,8 @@ public final class Editors {
             case Systems.Menu m -> new InterfaceEditors.MenuEditor(c, m);
             case Systems.Hud h -> new InterfaceEditors.HudEditor(c, h);
             case Systems.Theme th -> new ThemeEditor(c, th);
+            case Systems.IconFont fo -> new ScreenEditors.IconFontEditor(c, fo);
+            case Systems.CustomScreen sc -> new ScreenEditors.ScreenEditor(c, sc);
             case Systems.ApiRequest r -> new InterfaceEditors.ApiRequestEditor(c, r);
             case Systems.Resource r -> new MachineEditors.ResourceEditor(c, r);
             case Systems.Machine m -> new MachineEditors.MachineEditor(c, m);
@@ -190,6 +192,37 @@ public final class Editors {
                 Logic.defaults(Logic.MODIFIER_FUNCTIONS.get(fn.kind), fn.p);
                 fn.p.put("text", title);
                 im.functions.add(fn);
+            }
+            case Systems.IconFont fo -> fo.icons.add(new Systems.Icon());
+            case Systems.CustomScreen sc -> {
+                sc.title = title;
+                Systems.ScreenWidget panel = new Systems.ScreenWidget();
+                panel.kind = "panel";
+                panel.width = 176;
+                panel.height = 100;
+                panel.x = -88;
+                panel.y = -50;
+                panel.color = "#C6C6C6";
+                panel.color2 = "#373737";
+                panel.animation = "pop";
+                Systems.ScreenWidget head = new Systems.ScreenWidget();
+                head.text = title;
+                head.color = "#404040";
+                head.shadow = false;
+                head.align = "center";
+                head.x = -88;
+                head.y = -42;
+                head.width = 176;
+                head.height = 10;
+                head.animation = "fade_in";
+                Systems.ScreenWidget close = new Systems.ScreenWidget();
+                close.kind = "button";
+                close.text = "OK";
+                close.color2 = "#6B6B6B";
+                close.x = -40;
+                close.y = 22;
+                close.animation = "fade_in";
+                sc.widgets.addAll(java.util.List.of(panel, head, close));
             }
             case Systems.Dialog d -> {
                 d.title = title;

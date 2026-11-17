@@ -41,7 +41,9 @@ public enum ElementType {
     CUTSCENE("cutscene", Systems.Cutscene.class, Systems.Cutscene::new),
     DIALOG("dialog", Systems.Dialog.class, Systems.Dialog::new),
     TRADER("trader", Systems.Trader.class, Systems.Trader::new),
-    THEME("theme", Systems.Theme.class, Systems.Theme::new);
+    THEME("theme", Systems.Theme.class, Systems.Theme::new),
+    ICON_FONT("icon_font", Systems.IconFont.class, Systems.IconFont::new),
+    SCREEN("screen", Systems.CustomScreen.class, Systems.CustomScreen::new);
 
     public final String id;
     public final Class<? extends Element> cls;

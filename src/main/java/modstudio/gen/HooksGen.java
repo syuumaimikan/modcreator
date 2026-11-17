@@ -40,6 +40,7 @@ final class HooksGen {
         if (hasLoot()) lootClass();
         if (hasBrewing()) brewingClass();
         if (hasClient()) clientClass(forgeEventBus7);
+        if (ScreenGen.has(ctx)) new ScreenGen(ctx).clientClass(loader, forgeEventBus7);
     }
 
     // ------------------------------------------------------------------ loot tables
@@ -270,7 +271,7 @@ final class HooksGen {
 
     /** Whether the mod has client-only code (ModClient). */
     boolean hasClient() {
-        return hasKeys() || hasCutscenes() || !tooltipColorItems().isEmpty() || !screenButtons().isEmpty();
+        return hasKeys() || hasCutscenes() || !tooltipColorItems().isEmpty() || !screenButtons().isEmpty() || ScreenGen.has(ctx);
     }
 
     /** Buttons that UI themes add to the title and pause screens. */
@@ -333,6 +334,7 @@ final class HooksGen {
                     s.imp("net.fabricmc.fabric.api.client.screen.v1.ScreenEvents", "net.fabricmc.fabric.api.client.screen.v1.Screens");
                     s.l("ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> addButtons(screen, Screens.getButtons(screen)::add));");
                 }
+                if (ScreenGen.has(ctx)) s.l(ScreenGen.initCall(loader));
                 s.l("}");
             }
             case NEOFORGE -> {
@@ -351,6 +353,7 @@ final class HooksGen {
                     s.imp("net.neoforged.neoforge.client.event.ScreenEvent");
                     s.l("NeoForge.EVENT_BUS.addListener(ModClient::onScreenInit);");
                 }
+                if (ScreenGen.has(ctx)) s.l(ScreenGen.initCall(loader));
                 s.l("}");
                 s.blank();
                 if (ctx.components()) {
@@ -387,6 +390,7 @@ final class HooksGen {
                         s.l("MinecraftForge.EVENT_BUS.addListener(ModClient::onScreenInit);");
                     }
                 }
+                if (ScreenGen.has(ctx)) s.l(ScreenGen.initCall(loader));
                 s.l("}");
                 s.blank();
                 if (ctx.v.atLeast(McVersion.V1_20_4)) {

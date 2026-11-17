@@ -119,7 +119,7 @@ public final class WorkspaceView extends BorderPane {
         section(box, I18n.t("nav.gameplay"));
         for (ElementType t : List.of(ElementType.STATUS_EFFECT, ElementType.POTION, ElementType.ENCHANTMENT, ElementType.DAMAGE_TYPE, ElementType.PAINTING, ElementType.SONG)) typeItem(box, t);
         section(box, I18n.t("nav.presentation"));
-        for (ElementType t : List.of(ElementType.CUTSCENE, ElementType.DIALOG, ElementType.THEME)) typeItem(box, t);
+        for (ElementType t : List.of(ElementType.CUTSCENE, ElementType.DIALOG, ElementType.SCREEN, ElementType.THEME, ElementType.ICON_FONT)) typeItem(box, t);
         section(box, I18n.t("nav.logic"));
         for (ElementType t : List.of(ElementType.PROCEDURE, ElementType.COMMAND, ElementType.KEYBIND, ElementType.CODE_FILE)) typeItem(box, t);
         section(box, I18n.t("nav.world"));
@@ -140,13 +140,48 @@ public final class WorkspaceView extends BorderPane {
         return sp;
     }
 
+    /** Section headers with the element types listed under them, hidden when none of the types fit the project. */
+    private final java.util.Map<Label, java.util.List<ElementType>> sectionTypes = new java.util.LinkedHashMap<>();
+    private Label currentSection;
+
     private void section(VBox box, String title) {
         Label l = Ui.label(title.toUpperCase(), "nav-header");
         box.getChildren().add(l);
+        currentSection = l;
+        sectionTypes.put(l, new java.util.ArrayList<>());
     }
 
     private void typeItem(VBox box, ElementType t) {
         item(box, t.id, Ui.typeIcon(t), I18n.t("types." + t.id));
+        if (currentSection != null) sectionTypes.get(currentSection).add(t);
+    }
+
+    /**
+     * Shows only the element types the project's targets can export (and types it already has), so a data pack or
+     * resource pack project is not offered blocks, machines or Java code.
+     */
+    public void updateNav() {
+        for (var e : sectionTypes.entrySet()) {
+            boolean any = false;
+            for (ElementType t : e.getValue()) {
+                boolean on = modstudio.core.ProjectScope.available(ws.project, t);
+                NavItem n = nav.get(t.id);
+                if (n != null) {
+                    n.setVisible(on);
+                    n.setManaged(on);
+                }
+                any |= on;
+            }
+            if (e.getValue().isEmpty()) continue;
+            e.getKey().setVisible(any);
+            e.getKey().setManaged(any);
+        }
+        NavItem secrets = nav.get("secrets");
+        if (secrets != null) {
+            boolean on = modstudio.core.ProjectScope.available(ws.project, ElementType.API_REQUEST);
+            secrets.setVisible(on);
+            secrets.setManaged(on);
+        }
     }
 
     private void item(VBox box, String id, String icon, String text) {
@@ -208,6 +243,7 @@ public final class WorkspaceView extends BorderPane {
     }
 
     private void updateCounts() {
+        updateNav();
         for (ElementType t : ElementType.values()) {
             NavItem n = nav.get(t.id);
             if (n == null) continue;

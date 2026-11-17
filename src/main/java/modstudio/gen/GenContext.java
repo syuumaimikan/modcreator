@@ -25,6 +25,15 @@ public final class GenContext {
         this.pkg = p.meta.packageName;
         this.pkgPath = pkg.replace('.', '/');
         this.mainClass = mainClass(p);
+        GLYPHS.set(target == Target.BEDROCK ? java.util.Map.of() : Icons.glyphs(p));
+    }
+
+    /** Icon characters of the project being generated on this thread (see Icons). */
+    private static final ThreadLocal<java.util.Map<String, String>> GLYPHS = ThreadLocal.withInitial(java.util.Map::of);
+
+    /** Icon characters of the project being generated. */
+    public static java.util.Map<String, String> glyphs() {
+        return GLYPHS.get();
     }
 
     public static String mainClass(Project p) {
@@ -106,7 +115,7 @@ public final class GenContext {
     /** Converts "&a" style colour codes into section signs. */
     public static String legacy(String s) {
         if (s == null) return "";
-        return s.replaceAll("&([0-9a-fk-orA-FK-OR])", "§$1");
+        return Icons.apply(s, GLYPHS.get()).replaceAll("&([0-9a-fk-orA-FK-OR])", "§$1");
     }
 
     public static String rlNew(boolean modern, String nsExpr, String pathExpr) {

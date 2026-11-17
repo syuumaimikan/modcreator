@@ -723,6 +723,7 @@ public final class DataGen {
         new InterfaceGen(ctx, pc, load, tick, joinCalls).generate();
         new MachineGen(ctx, pc, root, realItems, tick).generate();
         new CutsceneGen(ctx, pc, tick, joinCalls).generate();
+        new ScreenGen(ctx).refreshFunction(pc.functions, load);
         if (!joinCalls.isEmpty()) {
             load.add("scoreboard objectives add " + ns + ".left minecraft.custom:minecraft.leave_game");
             tick.add("execute as @a[tag=!" + ns + ".joined] at @s run function " + ns + ":_join");

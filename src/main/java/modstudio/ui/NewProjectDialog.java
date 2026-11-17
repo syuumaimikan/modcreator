@@ -2,6 +2,7 @@ package modstudio.ui;
 
 import modstudio.ui.controls.VersionPicker;
 
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.scene.Node;
 import javafx.scene.control.*;
@@ -28,6 +29,28 @@ public final class NewProjectDialog {
     private NewProjectDialog() {}
 
     public record Result(Project project, Path file) {}
+
+    /** What the project makes, with the targets each choice selects ("custom" keeps the user's own choice). */
+    private static final Map<String, List<Target>> KINDS = new LinkedHashMap<>();
+
+    static {
+        KINDS.put("mod", List.of(Target.FABRIC, Target.NEOFORGE));
+        KINDS.put("datapack", List.of(Target.DATAPACK, Target.RESOURCEPACK));
+        KINDS.put("resourcepack", List.of(Target.RESOURCEPACK));
+        KINDS.put("plugin", List.of(Target.PAPER, Target.RESOURCEPACK));
+        KINDS.put("bedrock", List.of(Target.BEDROCK));
+        KINDS.put("custom", List.of());
+    }
+
+    private static String defaultName(ProjectScope.Kind k) {
+        return switch (k) {
+            case DATAPACK -> "My Data Pack";
+            case RESOURCEPACK -> "My Resource Pack";
+            case PLUGIN -> "My Plugin";
+            case BEDROCK -> "My Add-on";
+            default -> "My Mod";
+        };
+    }
 
     public static Optional<Result> show(MainWindow main) {
         Dialog<Result> d = new Dialog<>();
@@ -83,11 +106,47 @@ public final class NewProjectDialog {
         mc.selectedProperty().addListener((o, a, b) -> syncTargets.run());
         syncTargets.run();
 
+        // What the project makes: picks the targets and the wording of the fields below.
+        ToggleGroup kindGroup = new ToggleGroup();
+        javafx.scene.layout.FlowPane kindBox = new javafx.scene.layout.FlowPane(6, 6);
+        Label kindHelp = Ui.help("");
+        boolean[] applyingKind = {false};
+        for (var k : KINDS.entrySet()) {
+            ToggleButton tb = new ToggleButton(I18n.t("newproject.kind." + k.getKey()));
+            tb.setUserData(k.getKey());
+            tb.setToggleGroup(kindGroup);
+            tb.setSelected(k.getKey().equals("mod"));
+            kindBox.getChildren().add(tb);
+        }
+        kindHelp.setText(I18n.t("newproject.kind.mod.desc"));
+        kindGroup.selectedToggleProperty().addListener((o, a, b) -> {
+            if (b == null) {
+                // keep one choice selected
+                if (a != null) a.setSelected(true);
+                return;
+            }
+            String k = (String) b.getUserData();
+            kindHelp.setText(I18n.t("newproject.kind." + k + ".desc"));
+            List<Target> pick = KINDS.get(k);
+            if (pick.isEmpty()) return;
+            applyingKind[0] = true;
+            for (var e : targets.entrySet()) if (!e.getValue().isDisabled()) e.getValue().setSelected(pick.contains(e.getKey()));
+            applyingKind[0] = false;
+            syncTargets.run();
+        });
+        // choosing targets by hand switches to the custom choice
+        targets.values().forEach(cb -> cb.selectedProperty().addListener((o, a, b) -> {
+            if (applyingKind[0]) return;
+            for (Toggle tg : kindGroup.getToggles()) if ("custom".equals(tg.getUserData())) tg.setSelected(true);
+        }));
+
         // Keep mod id and package in sync with the name until the user edits them.
         boolean[] modIdEdited = {false};
         boolean[] pkgEdited = {false};
+        boolean[] nameEdited = {false};
         boolean[] syncing = {false};
         name.textProperty().addListener((o, a, b) -> {
+            if (!syncing[0]) nameEdited[0] = true;
             if (!modIdEdited[0]) {
                 syncing[0] = true;
                 String id = Ids.toId(b).replace("_", "");
@@ -133,12 +192,52 @@ public final class NewProjectDialog {
         c1.setPrefWidth(460);
         g.getColumnConstraints().addAll(c0, c1);
         int r = 0;
+        r = row(g, r, I18n.t("newproject.kind"), new VBox(4, kindBox, kindHelp), null);
         r = row(g, r, I18n.t("field.project_name"), name, null);
-        r = row(g, r, I18n.t("field.mod_id"), modId, I18n.t("help.mod_id"));
-        r = row(g, r, I18n.t("field.package"), pkg, I18n.t("help.package"));
+        Label idLabel = new Label(I18n.t("field.mod_id"));
+        Label idHelp = Ui.help(I18n.t("help.mod_id"));
+        r = row(g, r, idLabel, new VBox(4, modId, idHelp));
+        Label pkgLabel = new Label(I18n.t("field.package"));
+        VBox pkgBox = new VBox(4, pkg, Ui.help(I18n.t("help.package")));
+        r = row(g, r, pkgLabel, pkgBox);
         r = row(g, r, I18n.t("field.authors"), author, null);
         r = row(g, r, I18n.t("field.mc_versions"), mc, I18n.t("help.mc_versions"));
         r = row(g, r, I18n.t("field.targets"), tgrid, null);
+        // the wording follows what is being made: a data pack has a namespace and no Java package
+        Runnable wording = () -> {
+            List<Target> chosen = new ArrayList<>();
+            targets.forEach((t, cb) -> {
+                if (cb.isSelected()) chosen.add(t);
+            });
+            ProjectScope.Kind k = ProjectScope.kind(chosen);
+            switch (k) {
+                case MOD, MIXED -> {
+                    idLabel.setText(I18n.t("field.mod_id"));
+                    idHelp.setText(I18n.t("help.mod_id"));
+                }
+                case PLUGIN -> {
+                    idLabel.setText(I18n.t("field.plugin_id"));
+                    idHelp.setText(I18n.t("help.plugin_id"));
+                }
+                default -> {
+                    idLabel.setText(I18n.t("field.namespace"));
+                    idHelp.setText(I18n.t("help.namespace"));
+                }
+            }
+            boolean code = ProjectScope.hasCode(chosen);
+            for (Node n : List.of(pkgLabel, pkgBox)) {
+                n.setVisible(code);
+                n.setManaged(code);
+            }
+            if (!nameEdited[0] && !chosen.isEmpty()) {
+                syncing[0] = true;
+                name.setText(defaultName(k));
+                syncing[0] = false;
+            }
+            var scene = d.getDialogPane().getScene();
+            if (scene != null && scene.getWindow() != null) scene.getWindow().sizeToScene();
+        };
+        targets.values().forEach(cb -> cb.selectedProperty().addListener((o, a, b) -> Platform.runLater(wording)));
         r = row(g, r, I18n.t("field.location"), new VBox(4, locRow, fileLabel), null);
         g.add(err, 1, r);
 
@@ -154,7 +253,7 @@ public final class NewProjectDialog {
             String msg = null;
             if (name.getText().isBlank()) msg = I18n.t("newproject.err_name");
             else if (!Ids.MODID.matcher(id).matches()) msg = I18n.t("problem.modid_invalid", id);
-            else if (!Ids.PACKAGE.matcher(pkg.getText().trim()).matches()) msg = I18n.t("problem.package_invalid", pkg.getText());
+            else if (hasCode(targets) && !Ids.PACKAGE.matcher(pkg.getText().trim()).matches()) msg = I18n.t("problem.package_invalid", pkg.getText());
             else if (targets.values().stream().noneMatch(CheckBox::isSelected)) msg = I18n.t("problem.no_targets");
             else if (location.getText().isBlank()) msg = I18n.t("newproject.err_location");
             else if (Files.exists(file)) msg = I18n.t("newproject.err_exists");
@@ -194,6 +293,24 @@ public final class NewProjectDialog {
             return new Result(p, file);
         });
         return d.showAndWait();
+    }
+
+    private static boolean hasCode(Map<Target, CheckBox> targets) {
+        List<Target> chosen = new ArrayList<>();
+        targets.forEach((t, cb) -> {
+            if (cb.isSelected()) chosen.add(t);
+        });
+        return ProjectScope.hasCode(chosen);
+    }
+
+    private static int row(GridPane g, int r, Label l, Node control) {
+        l.getStyleClass().add("form-label");
+        l.setMinWidth(Region.USE_PREF_SIZE);
+        g.add(l, 0, r);
+        g.add(control, 1, r);
+        GridPane.setValignment(l, javafx.geometry.VPos.TOP);
+        GridPane.setMargin(l, new Insets(6, 0, 0, 0));
+        return r + 1;
     }
 
     private static int row(GridPane g, int r, String label, Node control, String help) {

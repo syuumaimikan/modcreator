@@ -25,6 +25,9 @@ public final class LogicExtra {
     public static final Set<String> BODY = Set.of("as_entities", "at_entities", "in_dimension", "facing_entity", "on_relation", "summon_run",
             "positioned_over", "rotated");
 
+    /** Steps that need the mod's client or server code (custom screens and the computer's clock). */
+    public static final Set<String> MOD_ONLY = Set.of("open_screen", "close_screen", "show_overlay", "hide_overlay", "real_time");
+
     static final String[] SLOTS = {"weapon.mainhand", "weapon.offhand", "armor.head", "armor.chest", "armor.legs", "armor.feet",
             "hotbar.0", "hotbar.1", "hotbar.2", "hotbar.3", "hotbar.4", "hotbar.5", "hotbar.6", "hotbar.7", "hotbar.8"};
 
@@ -237,6 +240,13 @@ public final class LogicExtra {
         Logic.step("score_from_time", "math", Param.of("holder", PType.TEXT, "#time"), objective);
         Logic.step("score_from_position", "math", target, Param.choice("axis", "y", "x", "y", "z"), objective);
         Logic.step("score_random", "math", target, objective, Param.of("min", PType.INT, "1"), Param.of("max", PType.INT, "100"));
+        Logic.step("real_time", "math", Param.of("objective", PType.TEXT, "clock"));
+
+        // ---------------------------------------------------------------- custom screens (mod loaders)
+        Logic.step("open_screen", "interface", Param.ref("screen", "screen"), target);
+        Logic.step("close_screen", "interface", target);
+        Logic.step("show_overlay", "interface", Param.ref("screen", "screen"), Param.of("target", PType.SELECTOR, "@a"));
+        Logic.step("hide_overlay", "interface", Param.ref("screen", "screen"), Param.of("target", PType.SELECTOR, "@a"));
 
         // ---------------------------------------------------------------- players and progress
         Logic.step("advancement_grant", "player", target, Param.of("advancement", PType.TEXT, "minecraft:story/root"));

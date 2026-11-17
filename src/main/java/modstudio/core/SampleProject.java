@@ -301,6 +301,7 @@ public final class SampleProject {
         for (String s : List.of("grayscale", "hue_shift", "tint", "pulse", "emissive")) glsl.append(Shaders.SNIPPETS.get(s)).append('\n');
         effects.fragment = glsl.toString();
         p.elements.add(effects);
+        p.elements.add(shimmer());
         armor(p, red);
         gameplay(p, red);
         crop(p, red);
@@ -927,6 +928,103 @@ public final class SampleProject {
         blessing.steps.add(step("modifier_add", "attribute", "movement_speed", "name", "shrine_speed", "amount", "0.1", "operation", "add_multiplied_total"));
 
         p.elements.addAll(List.of(night, bless, merchant, rules, welcome, glow, theme, blessing));
+        screens(p, ruby, blessing);
+    }
+
+    private static TextureAsset texture(Project p, String name) {
+        return p.textures.stream().filter(t -> t.name.equals(name)).findFirst().orElse(null);
+    }
+
+    private static Systems.ScreenWidget widget(String kind, String anchor, int x, int y, int w, int h, String... kv) {
+        Systems.ScreenWidget sw = new Systems.ScreenWidget();
+        sw.kind = kind;
+        sw.anchor = anchor;
+        sw.x = x;
+        sw.y = y;
+        sw.width = w;
+        sw.height = h;
+        for (int i = 0; i + 1 < kv.length; i += 2) {
+            String v = kv[i + 1];
+            switch (kv[i]) {
+                case "text" -> sw.text = v;
+                case "color" -> sw.color = v;
+                case "color2" -> sw.color2 = v;
+                case "texture" -> sw.texture = v;
+                case "item" -> sw.item = v;
+                case "entity" -> sw.entity = v;
+                case "value" -> sw.value = v;
+                case "max" -> sw.max = v;
+                case "action" -> sw.action = v;
+                case "target" -> sw.target = v;
+                case "tooltip" -> sw.tooltip = v;
+                case "animation" -> sw.animation = v;
+                case "align" -> sw.align = v;
+                case "opacity" -> sw.opacity = Integer.parseInt(v);
+                case "shadow" -> sw.shadow = Boolean.parseBoolean(v);
+                case "speed" -> sw.speed = Double.parseDouble(v);
+                default -> throw new IllegalArgumentException(kv[i]);
+            }
+        }
+        return sw;
+    }
+
+    /** Icon font, a shrine menu screen and a HUD overlay with live values. */
+    private static void screens(Project p, Elements.Command ruby, Procedure blessing) {
+        String ns = p.meta.modId;
+        TextureAsset gem = texture(p, "ruby");
+        TextureAsset glowTex = texture(p, "ruby_glow");
+        Systems.IconFont icons = new Systems.IconFont();
+        icons.name = "ruby_icons";
+        icons.notes = "Write :ruby: or :spark: in any text.";
+        Systems.Icon rubyIcon = new Systems.Icon();
+        rubyIcon.name = "ruby";
+        rubyIcon.texture = gem == null ? "" : gem.id;
+        Systems.Icon spark = new Systems.Icon();
+        spark.name = "spark";
+        spark.texture = glowTex == null ? "" : glowTex.id;
+        spark.height = 7;
+        spark.ascent = 7;
+        icons.icons.addAll(List.of(rubyIcon, spark));
+
+        Systems.CustomScreen menu = new Systems.CustomScreen();
+        menu.name = "ruby_menu";
+        menu.title = "Ruby Shrine";
+        menu.notes = "Opened with /ruby menu. Buttons run the blessing, open the wiki or close it.";
+        menu.widgets.add(widget("panel", "center", -110, -75, 220, 150, "color", "#2B0A12", "color2", "#E0115F", "opacity", "92", "animation", "pop"));
+        menu.widgets.add(widget("text", "center", -110, -66, 220, 10, "text", ":ruby: &cRuby Shrine :ruby:", "align", "center", "animation", "fade_in"));
+        menu.widgets.add(widget("entity", "center", -100, -50, 50, 76, "entity", "player"));
+        menu.widgets.add(widget("text", "center", -44, -48, 150, 30, "text", "Welcome, &e{player}&r!\nDay {day}, {game_time}\n&7Playing: {media}",
+                "animation", "slide_left"));
+        menu.widgets.add(widget("item", "center", -44, -14, 16, 16, "item", ns + ":ruby", "tooltip", "Ruby", "animation", "bob", "speed", "0.5"));
+        menu.widgets.add(widget("bar", "center", -22, -10, 120, 8, "value", "health", "color", "#E04050", "color2", "#30101A", "text", "{value}/{max}"));
+        menu.widgets.add(widget("image", "center", 84, -66, 16, 16, "texture", glowTex == null ? "" : glowTex.id, "animation", "pulse"));
+        menu.widgets.add(widget("button", "center", -100, 32, 96, 20, "text", ":spark: Blessing", "color2", "#7A1A2E", "action", "procedure",
+                "target", blessing.name, "tooltip", "Blesses the sword in your hand", "animation", "slide_up"));
+        menu.widgets.add(widget("button", "center", 4, 32, 96, 20, "text", "Wiki", "color2", "#3A3A3A", "action", "url",
+                "target", "https://example.com/ruby-wiki", "animation", "slide_up"));
+        menu.widgets.add(widget("button", "center", -30, 56, 60, 14, "text", "Close", "color2", "#3A3A3A", "action", "close"));
+
+        Systems.CustomScreen hud = new Systems.CustomScreen();
+        hud.name = "ruby_hud";
+        hud.mode = "overlay";
+        hud.refresh = 10;
+        hud.notes = "Shown with /ruby menu; hidden by the shrine's own command.";
+        hud.widgets.add(widget("panel", "top_left", 4, 4, 112, 38, "color", "#000000", "color2", "#E0115F", "opacity", "60", "animation", "slide_right"));
+        hud.widgets.add(widget("text", "top_left", 9, 9, 100, 10, "text", ":ruby: &f{score:shrine_visits} &7visits"));
+        hud.widgets.add(widget("text", "top_left", 9, 20, 100, 10, "text", "&7{time}  {fps} fps"));
+        hud.widgets.add(widget("bar", "top_left", 9, 32, 100, 5, "value", "score:shrine_luck", "max", "6", "color", "#FFAA00", "color2", "#402000"));
+
+        Procedure open = new Procedure();
+        open.name = "open_ruby_menu";
+        open.trigger = "manual";
+        open.notes = "Opens the shrine menu, shows the HUD and stores the computer clock.";
+        open.steps.add(step("real_time", "objective", "ruby_clock"));
+        open.steps.add(step("open_screen", "screen", menu.name, "target", "@s"));
+        open.steps.add(step("show_overlay", "screen", hud.name, "target", "@s"));
+        open.steps.add(step("message", "text", ":ruby: The shrine opens.", "color", "red"));
+        ruby.branches.add(branch("menu", 0, step("function", "function", ns + ":procedures/" + open.name)));
+        ruby.branches.add(branch("hide", 0, step("hide_overlay", "screen", hud.name, "target", "@s"), step("close_screen", "target", "@s")));
+        p.elements.addAll(List.of(icons, menu, hud, open));
     }
 
     private static PredicateTerm term(String kind, String... kv) {
@@ -1086,6 +1184,37 @@ public final class SampleProject {
     }
 
     /** A ruby armor set: the material with generated worn textures and the four pieces. */
+    /**
+     * An include built from nodes: drifting noise times a slow pulse makes the colour glow red. It needs no original
+     * source, so it exports for every version; core shaders call ms_ruby_shimmer(color, uv, time, screen).
+     */
+    private static Systems.Shader shimmer() {
+        Systems.Shader s = new Systems.Shader();
+        s.name = "ruby_shimmer";
+        s.kind = "include";
+        s.program = "ruby_shimmer";
+        s.mode = "nodes";
+        Systems.ShaderNode in = ShaderNodes.create("input_color", "n1", 16, 16);
+        Systems.ShaderNode scroll = ShaderNodes.create("uv_scroll", "n2", 16, 150);
+        scroll.values.put("speed", "0.05, 0.12");
+        Systems.ShaderNode noise = ShaderNodes.create("smooth_noise", "n3", 226, 150);
+        noise.links.put("uv", "n2:out");
+        noise.values.put("scale", "5");
+        Systems.ShaderNode pulse = ShaderNodes.create("pulse", "n4", 226, 300);
+        pulse.values.put("speed", "0.5");
+        Systems.ShaderNode mul = ShaderNodes.create("multiply", "n5", 436, 210);
+        mul.links.put("a", "n3:out");
+        mul.links.put("b", "n4:out");
+        Systems.ShaderNode glow = ShaderNodes.create("emissive", "n6", 646, 16);
+        glow.links.put("color", "n1:out");
+        glow.values.put("glow", "#99132F");
+        glow.links.put("strength", "n5:out");
+        Systems.ShaderNode out = ShaderNodes.create("output", "out", 856, 16);
+        out.links.put("color", "n6:out");
+        s.nodes.addAll(List.of(in, scroll, noise, pulse, mul, glow, out));
+        return s;
+    }
+
     private static void armor(Project p, int color) {
         ArmorMaterial m = new ArmorMaterial();
         m.name = "ruby";

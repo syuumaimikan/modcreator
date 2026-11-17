@@ -941,7 +941,7 @@ public final class JavaCommon {
     }
 
     public boolean hasCommands() {
-        return !ctx.all(Elements.Command.class).isEmpty() || new BridgeGen(ctx).modNeeded();
+        return !ctx.all(Elements.Command.class).isEmpty() || new BridgeGen(ctx).modNeeded() || ScreenGen.needsCommand(ctx);
     }
 
     public void commands() {
@@ -965,10 +965,12 @@ public final class JavaCommon {
             s.l("}));");
         }
         if (modstudio.gen.InterfaceGen.needsBridge(ctx.p)) s.l("ModBridge.register(dispatcher);");
+        if (ScreenGen.needsCommand(ctx)) s.l("ModUiCommand.register(dispatcher);");
         s.l("}");
         s.l("}");
         ctx.files.text(ctx.javaDir() + "ModCommands.java", s.toString());
         bridge.mod();
+        if (ScreenGen.needsCommand(ctx)) new ScreenGen(ctx).serverClass();
     }
 
     /** itemKey/blockKey helpers on the main class for 1.21.2+ registry ids. */

@@ -25,6 +25,16 @@ public final class OverviewPage extends StackPane implements WorkspaceView.Page 
     private final GridPane stats = new GridPane();
     private final VBox versions = new VBox(12);
     private final Label targetWarning = Ui.help("");
+    private Label idLabel = new Label();
+
+    /** Mod ID, plugin ID or namespace, depending on what the project makes. */
+    private String idLabel() {
+        return switch (ProjectScope.kind(p)) {
+            case MOD, MIXED -> t("field.mod_id");
+            case PLUGIN -> t("field.plugin_id");
+            default -> t("field.namespace");
+        };
+    }
 
     public OverviewPage(WorkspaceView view) {
         this.view = view;
@@ -67,6 +77,7 @@ public final class OverviewPage extends StackPane implements WorkspaceView.Page 
         f.text(t("field.website"), () -> p.meta.website, v -> p.meta.website = v.trim());
         TextField pkg = f.text(t("field.package"), () -> p.meta.packageName, v -> p.meta.packageName = v.trim(), t("help.package"));
         pkg.textProperty().addListener((o, a, b) -> Ui.setDanger(pkg, !Ids.PACKAGE.matcher(b.trim()).matches()));
+        f.showIf(() -> ProjectScope.hasCode(p.targets()));
         f.row(t("field.icon"), new TextureField(view.ws, view.window(), p.meta.icon, () -> "icon", "gem", v -> {
             p.meta.icon = v;
             f.changed();
@@ -100,6 +111,9 @@ public final class OverviewPage extends StackPane implements WorkspaceView.Page 
                 refreshTargets();
                 rebuildVersions();
                 f.changed();
+                updateStats();
+                idLabel.setText(idLabel());
+                view.updateNav();
             });
             boxes.add(cb);
             Label kind = Ui.label(t("kind_target." + t.kind.name().toLowerCase()), "chip");
@@ -114,6 +128,7 @@ public final class OverviewPage extends StackPane implements WorkspaceView.Page 
         // Versions
         f.section(t("overview.toolchain"), t("overview.toolchain_help"));
         f.add(versions);
+        f.sectionShowIf(() -> ProjectScope.hasCode(p.targets()) || p.targets().contains(Target.BEDROCK));
         rebuildVersions();
     }
 
@@ -145,7 +160,8 @@ public final class OverviewPage extends StackPane implements WorkspaceView.Page 
         tf.focusedProperty().addListener((o, a, b) -> {
             if (!b) commit.run();
         });
-        f.row(t("field.mod_id"), new VBox(4, tf, err), t("help.mod_id_change"));
+        Node r = f.row(idLabel(), new VBox(4, tf, err), t("help.mod_id_change"));
+        if (r instanceof HBox box && box.getChildren().get(0) instanceof Label l) idLabel = l;
     }
 
     private void refreshTargets() {
@@ -202,6 +218,7 @@ public final class OverviewPage extends StackPane implements WorkspaceView.Page 
         stats.getChildren().clear();
         int i = 0;
         for (ElementType type : ElementType.values()) {
+            if (!ProjectScope.available(p, type)) continue;
             int n = p.ofType(type).size();
             Label count = Ui.label(String.valueOf(n), "stat-number");
             Label name = Ui.label(I18n.t("types." + type.id), "text-muted", "text-small");
