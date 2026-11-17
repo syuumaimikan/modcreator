@@ -128,6 +128,7 @@ abstract class EditorBase<T extends Element> {
         String help = e.type() == ElementType.CODE_FILE ? t("help.name_codefile")
                 : e.type().allowsPath() ? t("help.name_path") : t("help.name", c.ns());
         f.row(t("field.name"), box, help);
+        f.area(t("field.notes"), () -> e.notes == null ? "" : e.notes, v -> e.notes = v, 2, t("help.notes"));
     }
 
     private String nameError(String n) {

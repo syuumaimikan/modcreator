@@ -22,7 +22,7 @@ public final class FabricGen {
 
     private boolean needsClient() {
         for (Block b : ctx.all(Block.class)) if (b.cutout()) return true;
-        return hooks.hasKeys();
+        return hooks.hasClient();
     }
 
     public void generate() {
@@ -173,7 +173,7 @@ public final class FabricGen {
             if (sectionLayers) s.l("BlockRenderLayerMap.putBlock(" + jc.blockRef(b.name) + ", ChunkSectionLayer.CUTOUT);");
             else s.l("BlockRenderLayerMap.INSTANCE.putBlock(" + jc.blockRef(b.name) + ", RenderType.cutout());");
         }
-        if (hooks.hasKeys()) s.l("ModKeys.init();");
+        if (hooks.hasClient()) s.l("ModClient.init();");
         s.l("}");
         s.l("}");
         ctx.files.text(ctx.javaDir() + ctx.mainClass + "Client.java", s.toString());

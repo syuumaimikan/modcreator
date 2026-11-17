@@ -127,6 +127,14 @@ public final class Workspace {
         return img;
     }
 
+    private Thumbnails thumbnails;
+
+    /** Small pictures of elements for lists. */
+    public Thumbnails thumbnails() {
+        if (thumbnails == null) thumbnails = new Thumbnails(this);
+        return thumbnails;
+    }
+
     /** Image for an item or block id when it belongs to the project. */
     public Image itemImage(String id, int size) {
         Element e = project.itemLike(id);

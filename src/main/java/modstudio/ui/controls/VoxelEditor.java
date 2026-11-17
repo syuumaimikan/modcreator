@@ -11,7 +11,9 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
+import modstudio.core.BlockModels;
 import modstudio.core.Ids;
+import modstudio.core.VanillaAssets;
 import modstudio.core.Systems.Volume;
 import modstudio.i18n.I18n;
 import modstudio.ui.Ui;
@@ -20,7 +22,8 @@ import java.util.Map;
 
 /**
  * Layer-by-layer block editor for structures and multiblock patterns. The left grid edits one Y layer
- * (left click paints the selected palette block, right click clears), the right view shows the whole volume.
+ * (left click paints the selected palette block, right click clears), the right view shows the whole volume in 3D
+ * with the real block models.
  */
 public final class VoxelEditor extends VBox {
     private static final double CELL = 22;
@@ -29,7 +32,10 @@ public final class VoxelEditor extends VBox {
     private final Runnable onChange;
     private final IdField.Env env;
     private final Canvas grid = new Canvas();
-    private final Canvas iso = new Canvas(360, 320);
+    private final BlockScene3D view;
+    private final CheckBox upToLayer = new CheckBox(I18n.t("voxel.up_to_layer"));
+    private final Label viewNote = Ui.muted("");
+    private BlockModels models;
     private final ListView<Integer> palette = new ListView<>();
     private final Slider layer = new Slider();
     private final Label layerLabel = new Label();
@@ -45,6 +51,7 @@ public final class VoxelEditor extends VBox {
         this.keepLabel = keepLabel;
         v.ensure();
         getStyleClass().add("voxel-editor");
+        view = new BlockScene3D(env.ws(), 420, 340);
 
         Spinner<Integer> sx = Form.intSpinner(1, 48, v.sx, n -> resize(n, v.sy, v.sz));
         Spinner<Integer> sy = Form.intSpinner(1, 48, v.sy, n -> resize(v.sx, n, v.sz));
@@ -77,9 +84,17 @@ public final class VoxelEditor extends VBox {
                     setGraphic(null);
                     return;
                 }
-                javafx.scene.shape.Rectangle sw = new javafx.scene.shape.Rectangle(14, 14, item < 0 ? Color.TRANSPARENT : color(v.palette.get(item)));
-                sw.setStroke(Color.GRAY);
-                setGraphic(sw);
+                javafx.scene.image.Image icon = item < 0 ? null : icon(v.palette.get(item));
+                if (icon != null) {
+                    javafx.scene.image.ImageView iv = new javafx.scene.image.ImageView(icon);
+                    iv.setFitWidth(16);
+                    iv.setFitHeight(16);
+                    setGraphic(iv);
+                } else {
+                    javafx.scene.shape.Rectangle sw = new javafx.scene.shape.Rectangle(14, 14, item < 0 ? Color.TRANSPARENT : color(v.palette.get(item)));
+                    sw.setStroke(Color.GRAY);
+                    setGraphic(sw);
+                }
                 setText(item < 0 ? keepLabel : v.palette.get(item));
             }
         });
@@ -99,13 +114,22 @@ public final class VoxelEditor extends VBox {
         Button remove = Ui.iconButton("mdi2d-delete-outline", I18n.t("voxel.remove_block"), this::removePaletteEntry);
         VBox paletteBox = new VBox(6, Ui.label(I18n.t("voxel.palette"), "param-label"), palette, newBlock, Ui.hbox(6, add, remove));
         paletteBox.setPrefWidth(260);
+        paletteBox.setMinWidth(250);
 
         grid.setOnMousePressed(this::paint);
         grid.setOnMouseDragged(this::paint);
         VBox gridBox = new VBox(6, Ui.label(I18n.t("voxel.layer_view"), "param-label"), new ScrollPane(grid));
         ((ScrollPane) gridBox.getChildren().get(1)).setPrefViewportHeight(300);
         ((ScrollPane) gridBox.getChildren().get(1)).setPrefViewportWidth(320);
-        VBox isoBox = new VBox(6, Ui.label(I18n.t("voxel.view_3d"), "param-label"), iso);
+        upToLayer.selectedProperty().addListener((o, a, b) -> drawView());
+        Button home = Ui.iconButton("mdi2f-fit-to-screen-outline", I18n.t("voxel.view_home"), view::home);
+        HBox viewBar = Ui.hbox(8, Ui.label(I18n.t("voxel.view_3d"), "param-label"), Ui.spacer(), upToLayer, home);
+        viewBar.setAlignment(Pos.CENTER_LEFT);
+        gridBox.setMinWidth(Math.min(340, v.sx * CELL + 24));
+        viewNote.setWrapText(true);
+        VBox isoBox = new VBox(6, viewBar, view, viewNote);
+        isoBox.setMinWidth(320);
+        HBox.setHgrow(isoBox, Priority.ALWAYS);
         HBox main = new HBox(14, paletteBox, gridBox, isoBox);
         getChildren().addAll(size, layerRow, main, info, Ui.help(I18n.t("voxel.help")));
         setPadding(new Insets(4, 0, 0, 0));
@@ -117,6 +141,7 @@ public final class VoxelEditor extends VBox {
 
     /** Re-reads the volume after it was replaced (for example by an import). */
     public void reload() {
+        models = null;
         v.ensure();
         refreshPalette();
         updateLayerRange();
@@ -188,7 +213,43 @@ public final class VoxelEditor extends VBox {
         layerLabel.setText(I18n.t("voxel.layer", y(), v.sy - 1));
         info.setText(I18n.t("voxel.info", v.sx, v.sy, v.sz, v.count()));
         drawGrid();
-        drawIso();
+        drawView();
+    }
+
+    private BlockModels models() {
+        if (models == null) {
+            var ws = env.ws();
+            models = new BlockModels(ws.project, VanillaAssets.get(ws.project.mc()));
+            viewNote.setText(models.hasVanilla() ? I18n.t("voxel.view_note") : I18n.t("voxel.view_no_game"));
+        }
+        return models;
+    }
+
+    /** Small picture of a block: the texture on its top, or null for a plain colour. */
+    private javafx.scene.image.Image icon(String id) {
+        BlockModels.Shape s = models().shape(id);
+        if (s.icon() == null || s.icon().startsWith("color:")) return null;
+        return BlockScene3D.image(env.ws(), s.icon(), 32);
+    }
+
+    private void drawView() {
+        if (v.palette.isEmpty() && v.count() == 0) {
+            view.show(java.util.List.of(), v.sx, v.sy, v.sz);
+            return;
+        }
+        BlockModels bm = models();
+        java.util.List<BlockScene3D.Placed> blocks = new java.util.ArrayList<>();
+        int top = upToLayer.isSelected() ? y() : v.sy - 1;
+        for (int y = 0; y <= top; y++)
+            for (int z = 0; z < v.sz; z++)
+                for (int x = 0; x < v.sx; x++) {
+                    int idx = v.get(x, y, z);
+                    if (idx < 0 || idx >= v.palette.size()) continue;
+                    BlockModels.Shape s = bm.shape(v.palette.get(idx));
+                    if (s.quads().isEmpty()) continue;
+                    blocks.add(new BlockScene3D.Placed(x, y, z, s));
+                }
+        view.show(blocks, v.sx, v.sy, v.sz);
     }
 
     private void drawGrid() {
@@ -203,8 +264,14 @@ public final class VoxelEditor extends VBox {
             for (int x = 0; x < v.sx; x++) {
                 int idx = v.get(x, y, z);
                 if (idx >= 0 && idx < v.palette.size()) {
-                    g.setFill(color(v.palette.get(idx)));
-                    g.fillRect(x * CELL + 1, z * CELL + 1, CELL - 1, CELL - 1);
+                    javafx.scene.image.Image img = icon(v.palette.get(idx));
+                    if (img != null) {
+                        g.setImageSmoothing(false);
+                        g.drawImage(img, x * CELL + 1, z * CELL + 1, CELL - 1, CELL - 1);
+                    } else {
+                        g.setFill(color(v.palette.get(idx)));
+                        g.fillRect(x * CELL + 1, z * CELL + 1, CELL - 1, CELL - 1);
+                    }
                 } else if (y > 0 && v.get(x, y - 1, z) >= 0) {
                     g.setFill(dark ? Color.web("#21262d") : Color.web("#eaeef2"));
                     g.fillRect(x * CELL + 1, z * CELL + 1, CELL - 1, CELL - 1);
@@ -213,43 +280,6 @@ public final class VoxelEditor extends VBox {
         g.setStroke(dark ? Color.web("#30363d") : Color.web("#d0d7de"));
         for (int x = 0; x <= v.sx; x++) g.strokeLine(x * CELL + 0.5, 0, x * CELL + 0.5, v.sz * CELL);
         for (int z = 0; z <= v.sz; z++) g.strokeLine(0, z * CELL + 0.5, v.sx * CELL, z * CELL + 0.5);
-    }
-
-    private void drawIso() {
-        GraphicsContext g = iso.getGraphicsContext2D();
-        double w = iso.getWidth(), h = iso.getHeight();
-        boolean dark = Ui.dark();
-        g.setFill(dark ? Color.web("#161b22") : Color.web("#f6f8fa"));
-        g.fillRect(0, 0, w, h);
-        double span = v.sx + v.sz;
-        double s = Math.min((w - 20) / (span * 0.866), (h - 20) / (span * 0.5 + v.sy));
-        s = Math.max(2, Math.min(24, s));
-        double ox = w / 2 + (v.sx - v.sz) * 0.866 * s / 2 - (v.sx - v.sz) * 0.866 * s / 2;
-        double oy = h - 10 - (v.sx + v.sz) * 0.5 * s;
-        int cur = y();
-        for (int y = 0; y < v.sy; y++)
-            for (int z = v.sz - 1; z >= 0; z--)
-                for (int x = v.sx - 1; x >= 0; x--) {
-                    int idx = v.get(x, y, z);
-                    if (idx < 0 || idx >= v.palette.size()) continue;
-                    String id = v.palette.get(idx);
-                    if (Ids.full(id).equals("minecraft:air")) continue;
-                    Color c = color(id);
-                    if (y > cur) c = c.deriveColor(0, 0.4, 1, 0.35);
-                    double px = ox + (x - z) * 0.866 * s;
-                    double py = oy + (x + z) * 0.5 * s - y * s;
-                    cube(g, px, py, s, c);
-                }
-    }
-
-    private static void cube(GraphicsContext g, double x, double y, double s, Color c) {
-        double dx = 0.866 * s, dy = 0.5 * s;
-        g.setFill(c.brighter());
-        g.fillPolygon(new double[]{x, x + dx, x, x - dx}, new double[]{y - dy, y, y + dy, y}, 4);
-        g.setFill(c);
-        g.fillPolygon(new double[]{x - dx, x, x, x - dx}, new double[]{y, y + dy, y + dy + s, y + s}, 4);
-        g.setFill(c.darker());
-        g.fillPolygon(new double[]{x, x + dx, x + dx, x}, new double[]{y + dy, y, y + s, y + dy + s}, 4);
     }
 
     private static final Map<String, String> COLORS = Map.ofEntries(
@@ -275,7 +305,7 @@ public final class VoxelEditor extends VBox {
             Map.entry("snow_block", "#f9fefe"), Map.entry("hay_block", "#a68b0c"), Map.entry("iron_bars", "#8a8b88"),
             Map.entry("cauldron", "#4a4a4a"), Map.entry("anvil", "#454545"), Map.entry("piston", "#9b8a6b"));
 
-    static Color color(String id) {
+    public static Color color(String id) {
         String path = Ids.path(Ids.full(id));
         int b = path.indexOf('[');
         if (b >= 0) path = path.substring(0, b);

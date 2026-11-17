@@ -9,6 +9,7 @@ import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.stage.DirectoryChooser;
 import modstudio.core.*;
@@ -54,13 +55,20 @@ public final class NewProjectDialog {
         GridPane tgrid = new GridPane();
         tgrid.setHgap(16);
         tgrid.setVgap(6);
+        ColumnConstraints tc0 = new ColumnConstraints();
+        tc0.setMinWidth(Region.USE_PREF_SIZE);
+        ColumnConstraints tc1 = new ColumnConstraints();
+        tc1.setHgrow(Priority.ALWAYS);
+        tgrid.getColumnConstraints().addAll(tc0, tc1);
         int i = 0;
         for (Target t : Target.values()) {
             CheckBox cb = new CheckBox(I18n.t("target." + t.id));
             cb.setSelected(t == Target.NEOFORGE || t == Target.FABRIC);
             cb.setTooltip(new Tooltip(I18n.t("target." + t.id + ".desc")));
             targets.put(t, cb);
+            cb.setMinWidth(Region.USE_PREF_SIZE);
             Label desc = Ui.help(I18n.t("target." + t.id + ".desc"));
+            desc.setWrapText(true);
             tgrid.add(cb, 0, i);
             tgrid.add(desc, 1, i);
             i++;
@@ -133,7 +141,6 @@ public final class NewProjectDialog {
         r = row(g, r, I18n.t("field.targets"), tgrid, null);
         r = row(g, r, I18n.t("field.location"), new VBox(4, locRow, fileLabel), null);
         g.add(err, 1, r);
-        g.setPadding(new Insets(8, 0, 0, 0));
 
         d.getDialogPane().setContent(g);
         ButtonType create = new ButtonType(I18n.t("action.create"), ButtonBar.ButtonData.OK_DONE);

@@ -705,3 +705,38 @@
 .mc-button-off {
     -fx-text-fill: #c0c0c0;
 }
+
+/* Dialogs: keep text away from the window edges (author rules win over code-set padding) */
+.dialog-pane > .content {
+    -fx-padding: 18 24 4 24;
+}
+
+.dialog-pane:no-header > .content {
+    -fx-padding: 20 24 4 24;
+}
+
+.dialog-pane:header > .header-panel {
+    -fx-padding: 16 24 14 24;
+}
+
+.dialog-pane > .button-bar > .container {
+    -fx-padding: 18 24 18 24;
+}
+
+.dialog-pane > .expandable-content {
+    -fx-padding: 12 24 12 24;
+}
+
+.dialog-pane {
+    -fx-max-width: 960;
+}
+
+/* Element list thumbnails */
+.element-thumb {
+    -fx-background-color: -color-bg-subtle;
+    -fx-background-radius: 6;
+}
+
+.element-note {
+    -fx-font-style: italic;
+}

@@ -3,6 +3,7 @@ package modstudio.gen;
 import com.google.gson.JsonObject;
 import modstudio.core.CameraPath;
 import modstudio.core.McVersion;
+import modstudio.core.Systems;
 import modstudio.core.Systems.CameraEvent;
 import modstudio.core.Systems.Cutscene;
 
@@ -11,7 +12,8 @@ import java.util.*;
 /**
  * Cutscenes as data pack functions, shared by every Java target. The viewer switches to spectator mode and spectates
  * an item display that is teleported along the precomputed path every tick (1.20.2+ smooths the moves on the client
- * with teleport_duration). A marker keeps the start position. Frames are found with a binary tree of functions, so a
+ * with teleport_duration, and mod clients replace the camera's position and angles with the exact path because entity
+ * packets round angles to 1.4 degrees). A marker keeps the start position. Frames are found with a binary tree of functions, so a
  * long cutscene costs a few checks per tick.
  *
  * <p>Scores: {@code <ns>.cs} cutscene number on the camera, {@code <ns>.cst} tick, {@code <ns>.cid} pairs the viewer
@@ -19,6 +21,8 @@ import java.util.*;
  */
 public final class CutsceneGen {
     private static final int LEAF = 8;
+    /** Client-side smoothing of the camera moves, in ticks; 0 on the tick of a cut. */
+    static final int SMOOTH = 3;
 
     private final GenContext ctx;
     private final ProcCompiler pc;
@@ -93,7 +97,9 @@ public final class CutsceneGen {
         pc.functions.put(dir + "/play", List.of("execute unless entity @s[tag=" + on + "] run function " + fn + "/start"));
 
         StringBuilder camNbt = new StringBuilder("{Tags:[\"" + cam + "\",\"" + ns + ".cs_new\"]");
-        if (ctx.v.atLeast(McVersion.V1_20_4)) camNbt.append(",teleport_duration:1");
+        // the name tells mod clients which path to follow
+        camNbt.append(",CustomName:").append(ItemSpec.textArg(ctx, J.compact(new com.google.gson.JsonPrimitive(cameraName(ns, c)))));
+        if (smoothing()) camNbt.append(",teleport_duration:" + SMOOTH);
         camNbt.append('}');
         String firstPos = relative ? pos(first, true) : pos(first, false);
         pc.functions.put(dir + "/start", List.of(
@@ -167,11 +173,53 @@ public final class CutsceneGen {
         pc.functions.put(dir + "/finish", finish);
     }
 
+    private boolean smoothing() {
+        return ctx.v.atLeast(McVersion.V1_20_4);
+    }
+
+    /** Custom name of the camera entity. */
+    static String cameraName(String ns, Cutscene c) {
+        return ns + ":" + c.name;
+    }
+
+    /** Ticks where a key with the cut easing jumps the camera. */
+    static Set<Integer> cuts(Cutscene c) {
+        Set<Integer> r = new HashSet<>();
+        for (Systems.CameraKey k : c.keys) if ("cut".equals(k.easing) && k.time > 0) r.add((int) Math.ceil(k.time * 20 - 1e-6));
+        return r;
+    }
+
+    /**
+     * The path sampled once per tick for mod clients: x y z yaw pitch per tick, separated by spaces, in chunks that
+     * fit a class file constant. Positions are offsets from the start position when the cutscene is relative.
+     */
+    static List<String> samples(Cutscene c) {
+        List<String> chunks = new ArrayList<>();
+        StringBuilder sb = new StringBuilder();
+        int end = CameraPath.ticks(c);
+        for (int k = 0; k <= end; k++) {
+            CameraPath.Pose p = CameraPath.at(c, k / 20.0);
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(num(p.x())).append(' ').append(num(p.y())).append(' ').append(num(p.z())).append(' ')
+                    .append(num(p.yaw())).append(' ').append(num(p.pitch()));
+            if (sb.length() > 40000) {
+                chunks.add(sb.toString());
+                sb.setLength(0);
+            }
+        }
+        if (sb.length() > 0) chunks.add(sb.toString());
+        return chunks;
+    }
+
     private void tree(String dir, String name, int lo, int hi, Cutscene c, boolean relative) {
         List<String> lines = new ArrayList<>();
         if (hi - lo + 1 <= LEAF) {
+            Set<Integer> cuts = smoothing() ? cuts(c) : Set.of();
             for (int k = lo; k <= hi; k++) {
                 CameraPath.Pose p = CameraPath.at(c, k / 20.0);
+                // a cut jumps at once: no smoothing from the tick before it to the tick after
+                if (cuts.contains(k + 1)) lines.add("execute if score @s " + cst + " matches " + k + " run data merge entity @s {teleport_duration:0}");
+                if (cuts.contains(k - 1)) lines.add("execute if score @s " + cst + " matches " + k + " run data merge entity @s {teleport_duration:" + SMOOTH + "}");
                 lines.add("execute if score @s " + cst + " matches " + k + " run tp @s " + pos(p, relative) + " " + num(p.yaw()) + " " + num(p.pitch()));
             }
         } else {

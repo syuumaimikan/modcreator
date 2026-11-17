@@ -26,7 +26,7 @@ import java.util.function.Supplier;
  * selected node is edited in the side panel. The graph edits the same step tree as the block and script views.
  */
 public final class FlowGraph extends BorderPane {
-    private static final double W = 206, H = 60, GAP = 30, HGAP = 36, ADD = 22, INDENT = 36;
+    private static final double W = 224, H = 74, START_H = 56, GAP = 30, HGAP = 36, ADD = 22, INDENT = 36;
 
     private final IdField.Env env;
     private final List<Step> steps;
@@ -96,8 +96,8 @@ public final class FlowGraph extends BorderPane {
         Region startNode = startNode();
         startNode.relocate(20, 16);
         canvas.getChildren().add(startNode);
-        double[] port = {20 + W / 2, 16 + 40};
-        End end = list(steps, 20, 16 + 40 + GAP, port);
+        double[] port = {20 + W / 2, 16 + START_H};
+        End end = list(steps, 20, 16 + START_H + GAP, port);
         canvas.setPrefSize(Math.max(W + 60, end.w + 60), end.h + 120);
         if (selected != null && !contains(steps, selected)) selected = null;
         showInspector();
@@ -173,12 +173,15 @@ public final class FlowGraph extends BorderPane {
         Label t = Ui.label(I18n.t("graph.start"), "flow-node-title");
         t.setGraphic(Ui.icon("mdi2p-play-circle-outline"));
         Label s = Ui.label(start.get(), "flow-node-summary");
-        VBox box = new VBox(2, t, s);
+        s.setTextOverrun(OverrunStyle.ELLIPSIS);
+        VBox box = new VBox(3, t, s);
         box.getStyleClass().addAll("flow-node", "flow-start");
-        box.setPrefSize(W, 40);
-        box.setMinSize(W, 40);
-        box.setMaxSize(W, 40);
-        box.setPadding(new Insets(4, 10, 4, 10));
+        box.setAlignment(Pos.CENTER_LEFT);
+        box.setPrefSize(W, START_H);
+        box.setMinSize(W, START_H);
+        box.setMaxSize(W, START_H);
+        box.setPadding(new Insets(6, 12, 6, 12));
+        Tooltip.install(box, new Tooltip(I18n.t("graph.start") + "\n" + start.get()));
         return box;
     }
 
@@ -196,16 +199,28 @@ public final class FlowGraph extends BorderPane {
         del.getStyleClass().add("flow-node-button");
         HBox head = Ui.hbox(4, title, Ui.spacer(), del);
         head.setAlignment(Pos.CENTER_LEFT);
+        title.setTextOverrun(OverrunStyle.ELLIPSIS);
+        title.setMinWidth(0);
+        HBox.setHgrow(title, Priority.ALWAYS);
         Label sum = Ui.label(summary(s), "flow-node-summary");
-        sum.setWrapText(false);
+        // two lines of summary fit; longer text ends with an ellipsis and shows in full on hover
+        sum.setWrapText(true);
+        sum.setTextOverrun(OverrunStyle.ELLIPSIS);
+        sum.setMinHeight(0);
+        sum.setMaxHeight(H - 38);
         summaries.put(s, sum);
         VBox box = new VBox(2, head, sum);
+        Tooltip tip = new Tooltip();
+        tip.textProperty().bind(title.textProperty().concat("\n").concat(sum.textProperty()));
+        tip.setWrapText(true);
+        tip.setMaxWidth(420);
+        Tooltip.install(box, tip);
         box.getStyleClass().addAll("flow-node", "step-" + cat);
         if (s == selected) box.getStyleClass().add("flow-selected");
         box.setPrefSize(W, H);
         box.setMinSize(W, H);
         box.setMaxSize(W, H);
-        box.setPadding(new Insets(4, 6, 4, 10));
+        box.setPadding(new Insets(6, 6, 6, 12));
         box.setOnMouseClicked(e -> {
             selected = s;
             nodes.values().forEach(n -> n.getStyleClass().remove("flow-selected"));

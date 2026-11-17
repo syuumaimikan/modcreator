@@ -320,7 +320,7 @@ public final class ModelView3D extends Pane {
         if (value == null || value.isBlank()) value = model.textures.values().stream().filter(v -> v != null && !v.isBlank()).findFirst().orElse(null);
         if (value == null) return null;
         TextureAsset t = ws.project.texture(value);
-        if (t == null) return null;
+        if (t == null) return BlockScene3D.image(ws, value, 256);
         String cacheKey = t.id + ":" + t.png.hashCode() + ":" + t.frameTime;
         Image img = images.get(cacheKey);
         if (img == null) {

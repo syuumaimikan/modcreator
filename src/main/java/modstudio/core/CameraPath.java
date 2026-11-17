@@ -65,9 +65,26 @@ public final class CameraPath {
         return 0.5 * (2 * p1 + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u2 + (-p0 + 3 * p1 - 3 * p2 + p3) * u3);
     }
 
-    private static double lerpAngle(double a, double b, double u) {
-        double d = ((b - a) % 360 + 540) % 360 - 180;
-        return a + d * u;
+    /**
+     * Cubic Hermite step between keys i and i + 1. The slope at a key is the central difference over time, so the
+     * speed does not jump at keys even when they are unevenly spaced; the first and last keys start and stop gently.
+     * Keys where ok is false do not bend the curve (their slope is zero).
+     */
+    static double hermite(double[] time, double[] v, boolean[] ok, int i, double u) {
+        double span = time[i + 1] - time[i];
+        double m0 = slope(time, v, ok, i) * span, m1 = slope(time, v, ok, i + 1) * span;
+        double u2 = u * u, u3 = u2 * u;
+        return (2 * u3 - 3 * u2 + 1) * v[i] + (u3 - 2 * u2 + u) * m0 + (-2 * u3 + 3 * u2) * v[i + 1] + (u3 - u2) * m1;
+    }
+
+    private static double slope(double[] time, double[] v, boolean[] ok, int i) {
+        if (i <= 0 || i >= v.length - 1 || !ok[i - 1] || !ok[i] || !ok[i + 1]) return 0;
+        double dt = time[i + 1] - time[i - 1];
+        return dt <= 1e-9 ? 0 : (v[i + 1] - v[i - 1]) / dt;
+    }
+
+    private static double wrap(double d) {
+        return ((d % 360) + 540) % 360 - 180;
     }
 
     public static Pose at(Cutscene c, double t) {
@@ -81,28 +98,70 @@ public final class CameraPath {
         CameraKey a = k.get(i), b = k.get(i + 1);
         double span = b.time - a.time;
         double u = span <= 1e-9 ? 1 : (t - a.time) / span;
+        boolean smooth = "smooth".equals(b.easing) && span > 1e-9;
         double e = ease(b.easing, u);
+
+        int n = k.size();
+        double[] time = new double[n], yaw = new double[n], pitch = new double[n];
+        boolean[] all = new boolean[n], look = new boolean[n];
+        for (int j = 0; j < n; j++) {
+            CameraKey kj = k.get(j);
+            double[] r = rotation(kj);
+            time[j] = kj.time;
+            // unwrapped, so turning from 170 to -170 goes 20 degrees and not 340
+            yaw[j] = j == 0 ? r[0] : yaw[j - 1] + wrap(r[0] - yaw[j - 1]);
+            pitch[j] = r[1];
+            all[j] = true;
+            look[j] = kj.lookAt;
+        }
         double x, y, z;
-        if ("smooth".equals(b.easing)) {
-            CameraKey p0 = i > 0 ? k.get(i - 1) : a, p3 = i + 2 < k.size() ? k.get(i + 2) : b;
-            x = catmull(p0.x, a.x, b.x, p3.x, e);
-            y = catmull(p0.y, a.y, b.y, p3.y, e);
-            z = catmull(p0.z, a.z, b.z, p3.z, e);
+        if (smooth) {
+            x = hermite(time, values(k, 0), all, i, u);
+            y = hermite(time, values(k, 1), all, i, u);
+            z = hermite(time, values(k, 2), all, i, u);
         } else {
             x = a.x + (b.x - a.x) * e;
             y = a.y + (b.y - a.y) * e;
             z = a.z + (b.z - a.z) * e;
         }
-        double yaw, pitch;
+        double ry, rp;
         if (a.lookAt && b.lookAt) {
-            double[] r = look(x, y, z, a.tx + (b.tx - a.tx) * e, a.ty + (b.ty - a.ty) * e, a.tz + (b.tz - a.tz) * e);
-            yaw = r[0];
-            pitch = r[1];
+            double tx, ty, tz;
+            if (smooth) {
+                tx = hermite(time, values(k, 3), look, i, u);
+                ty = hermite(time, values(k, 4), look, i, u);
+                tz = hermite(time, values(k, 5), look, i, u);
+            } else {
+                tx = a.tx + (b.tx - a.tx) * e;
+                ty = a.ty + (b.ty - a.ty) * e;
+                tz = a.tz + (b.tz - a.tz) * e;
+            }
+            double[] r = look(x, y, z, tx, ty, tz);
+            ry = r[0];
+            rp = r[1];
+        } else if (smooth) {
+            ry = hermite(time, yaw, all, i, u);
+            rp = hermite(time, pitch, all, i, u);
         } else {
-            double[] ra = rotation(a), rb = rotation(b);
-            yaw = lerpAngle(ra[0], rb[0], e);
-            pitch = ra[1] + (rb[1] - ra[1]) * e;
+            ry = yaw[i] + (yaw[i + 1] - yaw[i]) * e;
+            rp = pitch[i] + (pitch[i + 1] - pitch[i]) * e;
         }
-        return new Pose(x, y, z, yaw, Math.max(-90, Math.min(90, pitch)));
+        return new Pose(x, y, z, wrap(ry), Math.max(-90, Math.min(90, rp)));
+    }
+
+    private static double[] values(List<CameraKey> k, int field) {
+        double[] r = new double[k.size()];
+        for (int j = 0; j < r.length; j++) {
+            CameraKey kj = k.get(j);
+            r[j] = switch (field) {
+                case 0 -> kj.x;
+                case 1 -> kj.y;
+                case 2 -> kj.z;
+                case 3 -> kj.tx;
+                case 4 -> kj.ty;
+                default -> kj.tz;
+            };
+        }
+        return r;
     }
 }

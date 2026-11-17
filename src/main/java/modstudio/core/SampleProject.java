@@ -727,6 +727,10 @@ public final class SampleProject {
         crusher(p, ruby);
         dialogs(p, ruby);
         hooks(p);
+        for (Element e : p.elements) {
+            if (e instanceof Elements.Item && e.name.equals("ruby")) e.notes = "Main material. Drops from ruby ore and buys everything in the ruby shop.";
+            if (e instanceof Systems.Multiblock && e.name.equals("ruby_crusher")) e.notes = "Crushes ores into extra raw metal. Build it with an iron block core.";
+        }
     }
 
     /**

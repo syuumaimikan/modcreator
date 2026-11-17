@@ -5,6 +5,7 @@ import modstudio.core.Elements.LootTable;
 import modstudio.core.Elements.Recipe;
 import modstudio.core.Ids;
 import modstudio.core.McVersion;
+import modstudio.core.Systems.Cutscene;
 import modstudio.core.Systems.KeyBind;
 import modstudio.gen.JavaCommon.Loader;
 
@@ -38,7 +39,7 @@ final class HooksGen {
     void classes(boolean forgeEventBus7) {
         if (hasLoot()) lootClass();
         if (hasBrewing()) brewingClass();
-        if (hasKeys()) keysClass(forgeEventBus7);
+        if (hasClient()) clientClass(forgeEventBus7);
     }
 
     // ------------------------------------------------------------------ loot tables
@@ -147,10 +148,10 @@ final class HooksGen {
     /** Forge and NeoForge: lines for the mod constructor, where the mod bus is called modBus. */
     void forgeConstructor(Src s) {
         if (hasBrewing() && !ctx.components()) s.l("modBus.addListener(ModBrewing::setup);");
-        if (hasKeys()) {
+        if (hasClient()) {
             if (neo()) s.imp("net.neoforged.fml.loading.FMLEnvironment", "net.neoforged.api.distmarker.Dist");
             else s.imp("net.minecraftforge.fml.loading.FMLEnvironment", "net.minecraftforge.api.distmarker.Dist");
-            s.l("if (FMLEnvironment.dist == Dist.CLIENT) ModKeys.init(modBus);");
+            s.l("if (FMLEnvironment.dist == Dist.CLIENT) ModClient.init(modBus);");
         }
     }
 
@@ -260,6 +261,16 @@ final class HooksGen {
 
     // ------------------------------------------------------------------ key bindings
 
+    /** Cutscene cameras follow the exact path on mod clients; display entities interpolate their moves from 1.20.2. */
+    boolean hasCutscenes() {
+        return ctx.v.atLeast(McVersion.V1_20_4) && !ctx.all(Cutscene.class).isEmpty();
+    }
+
+    /** Whether the mod has client-only code (ModClient). */
+    boolean hasClient() {
+        return hasKeys() || hasCutscenes();
+    }
+
     boolean hasKeys() {
         return !ctx.all(KeyBind.class).isEmpty();
     }
@@ -272,35 +283,45 @@ final class HooksGen {
         return k.category.equals("mod") || k.category.isBlank() ? "key.categories." + ns : "key.categories." + k.category;
     }
 
-    /** Client-only class: the key mappings, their registration and the tick that sends the trigger command. */
-    private void keysClass(boolean forgeEventBus7) {
+    /**
+     * Client-only class: the key mappings with the tick that sends their trigger command, and the cutscene camera,
+     * whose position and angles are set from the exact path every tick.
+     */
+    private void clientClass(boolean forgeEventBus7) {
         Src s = new Src(ctx.pkg);
-        s.imp("com.mojang.blaze3d.platform.InputConstants", "net.minecraft.client.KeyMapping", "net.minecraft.client.Minecraft");
-        s.l("/** Key bindings. Pressing one sends /trigger " + KeyGen.objective(ctx.ns) + " set <number>; the data pack runs the key's function. */");
-        s.l("public final class ModKeys {");
-        List<KeyBind> keys = ctx.all(KeyBind.class);
+        s.imp("net.minecraft.client.Minecraft");
+        List<KeyBind> keys = hasKeys() ? ctx.all(KeyBind.class) : List.of();
+        List<Cutscene> scenes = hasCutscenes() ? ctx.all(Cutscene.class) : List.of();
+        s.l("/** Client-only hooks: key bindings (they send /trigger " + KeyGen.objective(ctx.ns) + " set <number>) and the cutscene camera. */");
+        s.l("public final class ModClient {");
+        if (!keys.isEmpty()) s.imp("com.mojang.blaze3d.platform.InputConstants", "net.minecraft.client.KeyMapping");
         for (KeyBind k : keys) {
             String key = k.key == null || k.key.isBlank() ? "key.keyboard.unknown" : k.key.trim();
             String type = key.startsWith("key.mouse.") ? "MOUSE" : "KEYSYM";
             s.l("public static final KeyMapping " + Ids.toConst(k.name) + " = new KeyMapping(" + Src.str(keyName(ctx.ns, k)) + ", InputConstants.Type." + type
                     + ", InputConstants.getKey(" + Src.str(key) + ").getValue(), " + Src.str(keyCategory(ctx.ns, k)) + ");");
         }
+        if (!scenes.isEmpty()) cutsceneFields(s, scenes);
         s.blank();
-        s.l("private ModKeys() {").l("}");
+        s.l("private ModClient() {").l("}");
         s.blank();
         switch (loader) {
             case FABRIC -> {
-                s.imp("net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper", "net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents");
+                s.imp("net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents");
                 s.l("public static void init() {");
+                if (!keys.isEmpty()) s.imp("net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper");
                 for (KeyBind k : keys) s.l("KeyBindingHelper.registerKeyBinding(" + Ids.toConst(k.name) + ");");
                 s.l("ClientTickEvents.END_CLIENT_TICK.register(client -> tick());");
                 s.l("}");
             }
             case NEOFORGE -> {
-                s.imp("net.neoforged.bus.api.IEventBus", "net.neoforged.neoforge.common.NeoForge", "net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent");
+                s.imp("net.neoforged.bus.api.IEventBus", "net.neoforged.neoforge.common.NeoForge");
                 s.l("public static void init(IEventBus modBus) {");
-                s.l("modBus.addListener(ModKeys::register);");
-                s.l("NeoForge.EVENT_BUS.addListener(ModKeys::onTick);");
+                if (!keys.isEmpty()) {
+                    s.imp("net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent");
+                    s.l("modBus.addListener(ModClient::register);");
+                }
+                s.l("NeoForge.EVENT_BUS.addListener(ModClient::onTick);");
                 s.l("}");
                 s.blank();
                 if (ctx.components()) {
@@ -312,17 +333,18 @@ final class HooksGen {
                 }
             }
             case FORGE -> {
-                s.imp("net.minecraftforge.client.event.RegisterKeyMappingsEvent", "net.minecraftforge.event.TickEvent");
+                s.imp("net.minecraftforge.event.TickEvent");
+                if (!keys.isEmpty()) s.imp("net.minecraftforge.client.event.RegisterKeyMappingsEvent");
                 if (forgeEventBus7) {
                     s.imp("net.minecraftforge.eventbus.api.bus.BusGroup");
                     s.l("public static void init(BusGroup modBus) {");
-                    s.l("RegisterKeyMappingsEvent.getBus(modBus).addListener(ModKeys::register);");
-                    s.l("TickEvent.ClientTickEvent.Post.BUS.addListener(ModKeys::onTick);");
+                    if (!keys.isEmpty()) s.l("RegisterKeyMappingsEvent.getBus(modBus).addListener(ModClient::register);");
+                    s.l("TickEvent.ClientTickEvent.Post.BUS.addListener(ModClient::onTick);");
                 } else {
                     s.imp("net.minecraftforge.eventbus.api.IEventBus", "net.minecraftforge.common.MinecraftForge");
                     s.l("public static void init(IEventBus modBus) {");
-                    s.l("modBus.addListener(ModKeys::register);");
-                    s.l("MinecraftForge.EVENT_BUS.addListener(ModKeys::onTick);");
+                    if (!keys.isEmpty()) s.l("modBus.addListener(ModClient::register);");
+                    s.l("MinecraftForge.EVENT_BUS.addListener(ModClient::onTick);");
                 }
                 s.l("}");
                 s.blank();
@@ -333,7 +355,7 @@ final class HooksGen {
                 }
             }
         }
-        if (!fabric()) {
+        if (!fabric() && !keys.isEmpty()) {
             s.blank();
             s.l("private static void register(RegisterKeyMappingsEvent event) {");
             for (KeyBind k : keys) s.l("event.register(" + Ids.toConst(k.name) + ");");
@@ -343,12 +365,89 @@ final class HooksGen {
         s.l("private static void tick() {");
         s.l("Minecraft mc = Minecraft.getInstance();");
         for (int i = 0; i < keys.size(); i++) s.l("while (" + Ids.toConst(keys.get(i).name) + ".consumeClick()) press(mc, " + (i + 1) + ");");
+        if (!scenes.isEmpty()) s.l("camera(mc);");
+        s.l("}");
+        if (!keys.isEmpty()) {
+            s.blank();
+            s.l("private static void press(Minecraft mc, int key) {");
+            s.l("if (mc.player != null && mc.getConnection() != null) mc.getConnection().sendCommand(" + Src.str("trigger " + KeyGen.objective(ctx.ns) + " set ") + " + key);");
+            s.l("}");
+        }
+        if (!scenes.isEmpty()) cutsceneCamera(s);
+        s.l("}");
+        ctx.files.text(ctx.javaDir() + "ModClient.java", s.toString());
+    }
+
+    private void cutsceneFields(Src s, List<Cutscene> scenes) {
+        s.blank();
+        s.l("// Cutscene paths sampled per tick (x y z yaw pitch). The data pack moves the camera entity too, but entity");
+        s.l("// packets round angles to 1.4 degrees, so the client follows the exact path instead.");
+        StringBuilder names = new StringBuilder(), rel = new StringBuilder();
+        for (Cutscene c : scenes) {
+            if (names.length() > 0) {
+                names.append(", ");
+                rel.append(", ");
+            }
+            names.append(Src.str(CutsceneGen.cameraName(ctx.ns, c)));
+            rel.append(!"absolute".equals(c.space));
+        }
+        s.l("private static final String[] CUTSCENES = {" + names + "};");
+        s.l("private static final boolean[] RELATIVE = {" + rel + "};");
+        s.l("private static final String[][] PATHS = {");
+        for (Cutscene c : scenes) {
+            s.l("{");
+            for (String chunk : CutsceneGen.samples(c)) s.l(Src.str(chunk) + ",");
+            s.l("},");
+        }
+        s.l("};");
+        s.l("private static final double[][] DECODED = new double[CUTSCENES.length][];");
+        s.l("private static int cameraId = -1;");
+        s.l("private static double anchorX, anchorY, anchorZ;");
+    }
+
+    private void cutsceneCamera(Src s) {
+        s.imp("net.minecraft.world.entity.Entity", "net.minecraft.world.entity.Display", "net.minecraft.util.Mth");
+        s.blank();
+        s.l("private static double[] path(int index) {");
+        s.l("if (DECODED[index] == null) {");
+        s.l("String[] parts = String.join(\" \", PATHS[index]).trim().split(\" \");");
+        s.l("double[] d = new double[parts.length];");
+        s.l("for (int i = 0; i < parts.length; i++) d[i] = Double.parseDouble(parts[i]);");
+        s.l("DECODED[index] = d;");
+        s.l("}");
+        s.l("return DECODED[index];");
         s.l("}");
         s.blank();
-        s.l("private static void press(Minecraft mc, int key) {");
-        s.l("if (mc.player != null && mc.getConnection() != null) mc.getConnection().sendCommand(" + Src.str("trigger " + KeyGen.objective(ctx.ns) + " set ") + " + key);");
+        s.l("/** Sets the spectated cutscene camera to the path at this tick and the one before, so frames blend between exact poses. */");
+        s.l("private static void camera(Minecraft mc) {");
+        s.l("Entity cam = mc.getCameraEntity();");
+        s.l("if (cam == null || cam == mc.player || !(cam instanceof Display) || cam.getCustomName() == null) {");
+        s.l("cameraId = -1;");
+        s.l("return;");
         s.l("}");
+        s.l("int index = java.util.Arrays.asList(CUTSCENES).indexOf(cam.getCustomName().getString());");
+        s.l("if (index < 0) return;");
+        s.l("double[] d = path(index);");
+        s.l("int n = d.length / 5;");
+        s.l("int t = Math.max(0, Math.min(n - 1, cam.tickCount - 1));");
+        s.l("int p = Math.max(0, t - 1);");
+        s.l("if (cameraId != cam.getId()) {");
+        s.l("// a relative cutscene starts where the camera appeared");
+        s.l("cameraId = cam.getId();");
+        s.l("boolean rel = RELATIVE[index];");
+        s.l("anchorX = rel ? cam.getX() - d[t * 5] : 0;");
+        s.l("anchorY = rel ? cam.getY() - d[t * 5 + 1] : 0;");
+        s.l("anchorZ = rel ? cam.getZ() - d[t * 5 + 2] : 0;");
         s.l("}");
-        ctx.files.text(ctx.javaDir() + "ModKeys.java", s.toString());
+        s.l("cam.xo = anchorX + d[p * 5];");
+        s.l("cam.yo = anchorY + d[p * 5 + 1];");
+        s.l("cam.zo = anchorZ + d[p * 5 + 2];");
+        s.l("cam.setPos(anchorX + d[t * 5], anchorY + d[t * 5 + 1], anchorZ + d[t * 5 + 2]);");
+        s.l("float yawO = (float) d[p * 5 + 3];");
+        s.l("cam.yRotO = yawO;");
+        s.l("cam.setYRot(yawO + Mth.wrapDegrees((float) d[t * 5 + 3] - yawO));");
+        s.l("cam.xRotO = (float) d[p * 5 + 4];");
+        s.l("cam.setXRot((float) d[t * 5 + 4]);");
+        s.l("}");
     }
 }

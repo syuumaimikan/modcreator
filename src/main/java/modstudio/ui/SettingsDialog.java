@@ -1,6 +1,5 @@
 package modstudio.ui;
 
-import javafx.geometry.Insets;
 import javafx.scene.control.*;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
@@ -54,7 +53,6 @@ public final class SettingsDialog {
         GridPane g = new GridPane();
         g.setHgap(12);
         g.setVgap(12);
-        g.setPadding(new Insets(8, 0, 0, 0));
         g.addRow(0, Ui.label(I18n.t("settings.language"), "form-label"), lang);
         g.addRow(1, Ui.label(I18n.t("settings.theme"), "form-label"), theme);
         g.addRow(2, Ui.label(I18n.t("settings.jdk"), "form-label"), new VBox(4, jdkRow, detected, Ui.help(I18n.t("settings.jdk_help"))));

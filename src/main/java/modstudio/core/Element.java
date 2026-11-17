@@ -7,6 +7,8 @@ import java.util.Map;
 public abstract class Element {
     public String uid = Ids.uid();
     public String name = "";
+    /** Free notes about the element for the project's authors; shown in lists, never exported. */
+    public String notes = "";
     /** Localized texts: field -> (game language code -> text), e.g. loc["name"]["ja_jp"]. */
     public Map<String, Map<String, String>> loc = new LinkedHashMap<>();
 

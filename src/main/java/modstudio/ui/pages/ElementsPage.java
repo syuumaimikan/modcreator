@@ -48,7 +48,7 @@ public final class ElementsPage extends SplitPane implements WorkspaceView.Page 
         search.textProperty().addListener((o, a, b) -> {
             String q = b.trim().toLowerCase(Locale.ROOT);
             filtered.setPredicate(e -> q.isEmpty() || e.name.toLowerCase(Locale.ROOT).contains(q)
-                    || subtitle(e).toLowerCase(Locale.ROOT).contains(q));
+                    || subtitle(e).toLowerCase(Locale.ROOT).contains(q) || e.notes.toLowerCase(Locale.ROOT).contains(q));
         });
         VBox.setMargin(search, new Insets(0, 12, 8, 12));
 
@@ -207,28 +207,37 @@ public final class ElementsPage extends SplitPane implements WorkspaceView.Page 
                 return;
             }
             Node icon;
-            Image img = switch (e) {
-                case Elements.Item it -> view.ws.texture(it.texture, 32);
-                case Elements.Block b -> view.ws.itemImage(view.ws.ns() + ":" + b.name, 32);
-                case Elements.CreativeTab t -> view.ws.itemImage(t.icon, 32);
-                default -> null;
-            };
+            Image img = view.ws.thumbnails().of(e, 64);
             if (img != null) {
                 ImageView iv = new ImageView(img);
-                iv.setFitWidth(24);
-                iv.setFitHeight(24);
+                iv.setFitWidth(36);
+                iv.setFitHeight(36);
+                iv.setPreserveRatio(true);
                 iv.setSmooth(false);
                 icon = iv;
             } else {
-                icon = Ui.icon(Ui.typeIcon(e.type()), 18);
+                icon = Ui.icon(Ui.typeIcon(e.type()), 20);
             }
             StackPane iconBox = new StackPane(icon);
-            iconBox.setMinSize(28, 28);
-            iconBox.setPrefSize(28, 28);
+            iconBox.getStyleClass().add("element-thumb");
+            iconBox.setMinSize(40, 40);
+            iconBox.setPrefSize(40, 40);
+            iconBox.setMaxSize(40, 40);
             Label name = Ui.label(e.name, "cell-title");
             String sub = subtitle(e);
             VBox text = new VBox(1, name);
             if (sub != null && !sub.isBlank()) text.getChildren().add(Ui.label(sub, "text-muted", "text-small"));
+            if (e.notes != null && !e.notes.isBlank()) {
+                Label note = Ui.label(e.notes.lines().findFirst().orElse(""), "text-muted", "text-small", "element-note");
+                note.setMaxWidth(260);
+                text.getChildren().add(note);
+                Tooltip tip = new Tooltip(e.name + "\n" + e.notes);
+                tip.setWrapText(true);
+                tip.setMaxWidth(420);
+                setTooltip(tip);
+            } else {
+                setTooltip(null);
+            }
             boolean hasError = view.ws.problems().stream().anyMatch(p -> e.uid.equals(p.elementUid()) && p.severity() == Validator.Severity.ERROR);
             HBox row = new HBox(10, iconBox, text);
             row.setAlignment(Pos.CENTER_LEFT);

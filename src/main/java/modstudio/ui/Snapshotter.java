@@ -29,6 +29,8 @@ public final class Snapshotter {
 
     public void start() {
         add(() -> shot(w.scene(), "00-home"));
+        dialogShot(() -> SettingsDialog.show(w), "80-settings");
+        dialogShot(() -> NewProjectDialog.show(w), "81-new-project");
         add(w::openSample);
         String[] pages = {"overview", "textures", "translations", "item", "block", "creative_tab", "sound", "recipe",
                 "loot_table", "advancement", "tag", "function", "procedure", "command", "code_file", "model", "build", "play", "problems"};
@@ -171,6 +173,25 @@ public final class Snapshotter {
             Platform.exit();
         });
         next();
+    }
+
+    /** Opens a modal dialog, captures it once laid out and closes it again. */
+    private void dialogShot(Runnable open, String name) {
+        add(() -> {
+            PauseTransition pt = new PauseTransition(Duration.millis(500));
+            pt.setOnFinished(e -> {
+                for (javafx.stage.Window win : new ArrayList<>(javafx.stage.Window.getWindows())) {
+                    if (win == w.stage || win.getScene() == null || win.getScene().getRoot().lookup(".dialog-pane") == null) continue;
+                    shot(win.getScene(), name);
+                    win.hide();
+                }
+            });
+            pt.play();
+            // showAndWait is not allowed inside the animation callback that runs the steps
+            Platform.runLater(open);
+        });
+        add(() -> {
+        });
     }
 
     private void add(Runnable r) {
