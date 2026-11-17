@@ -55,6 +55,7 @@ final class SimpleEditors {
 
     static final class SoundEditor extends EditorBase<Sound> {
         private final ListView<SoundFile> files = new ListView<>();
+        private javafx.beans.value.ChangeListener<String> playingListener;
 
         SoundEditor(Ctx c, Sound e) {
             super(c, e);
@@ -85,7 +86,13 @@ final class SimpleEditors {
                     }
                     long bytes = (long) (s.data.length() * 0.75);
                     setText(s.fileName + "   " + (bytes / 1024) + " KB");
-                    setGraphic(Ui.icon("mdi2m-music-note-outline"));
+                    String key = "file:" + System.identityHashCode(s);
+                    boolean on = key.equals(modstudio.ui.SoundPlayer.playing().get());
+                    Button play = Ui.iconButton(on ? "mdi2s-stop" : "mdi2p-play", t("sound.preview"), () -> {
+                        if (key.equals(modstudio.ui.SoundPlayer.playing().get())) modstudio.ui.SoundPlayer.stop();
+                        else modstudio.ui.SoundPlayer.play(modstudio.core.Images.decodeBase64(s.data), key);
+                    });
+                    setGraphic(play);
                 }
             });
             Button add = Ui.button(t("sound.import"), "mdi2i-import", this::importFiles);
@@ -97,6 +104,8 @@ final class SimpleEditors {
                 f.changed();
             });
             remove.disableProperty().bind(files.getSelectionModel().selectedItemProperty().isNull());
+            playingListener = (o, a, b) -> files.refresh();
+            modstudio.ui.SoundPlayer.playing().addListener(new javafx.beans.value.WeakChangeListener<>(playingListener));
             f.add(files);
             f.add(Ui.hbox(8, add, remove));
         }

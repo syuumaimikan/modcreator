@@ -740,3 +740,7 @@
 .element-note {
     -fx-font-style: italic;
 }
+
+.texture-badge {
+    -fx-icon-color: -color-accent-fg;
+}

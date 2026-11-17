@@ -23,6 +23,8 @@ public final class IdField extends HBox {
     private final ImageView preview = new ImageView();
     private final Env env;
     private Kind kind;
+    /** Held here so the weak listener on the player lives as long as this field. */
+    private javafx.beans.value.ChangeListener<String> playingListener;
     private boolean optional = true;
 
     public IdField(Env env, Kind kind, String value, Consumer<String> onChange) {
@@ -49,6 +51,21 @@ public final class IdField extends HBox {
         });
         field.setOnAction(e -> normalize());
         getChildren().addAll(preview, field, pick);
+        if (kind == Kind.SOUND) {
+            // play / stop the sound event (project sounds and vanilla sounds of the installed game)
+            Button play = Ui.iconButton("mdi2p-play", I18n.t("sound.preview"), () -> {
+                if (!modstudio.ui.SoundPlayer.toggleEvent(env.ws(), getValue())) {
+                    field.setTooltip(new javafx.scene.control.Tooltip(I18n.t("sound.preview_missing")));
+                }
+            });
+            play.getStyleClass().remove("flat");
+            playingListener = (o, a, b) -> {
+                boolean on = !b.isBlank() && b.equals(getValue());
+                play.setGraphic(Ui.icon(on ? "mdi2s-stop" : "mdi2p-play"));
+            };
+            modstudio.ui.SoundPlayer.playing().addListener(new javafx.beans.value.WeakChangeListener<>(playingListener));
+            getChildren().add(play);
+        }
         validate();
         updatePreview();
     }
@@ -90,7 +107,12 @@ public final class IdField extends HBox {
     }
 
     private void updatePreview() {
-        var img = env.ws().itemImage(field.getText().trim(), 24);
+        String v = field.getText().trim();
+        var img = switch (kind) {
+            // vanilla items and blocks show their game icons when Minecraft is installed
+            case ITEM, ITEM_OR_TAG, BLOCK, BLOCK_OR_TAG -> v.startsWith("#") ? null : env.ws().thumbnails().item(v, 32);
+            default -> env.ws().itemImage(v, 24);
+        };
         preview.setImage(img);
         preview.setVisible(img != null);
         preview.setManaged(img != null);

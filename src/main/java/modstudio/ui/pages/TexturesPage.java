@@ -25,6 +25,13 @@ public final class TexturesPage extends BorderPane implements WorkspaceView.Page
     private final FlowPane grid = new FlowPane(12, 12);
     private final TextField search = new TextField();
     private TextureAsset selected;
+    /** Whether animated textures play in the gallery; kept while the app runs. */
+    private static boolean animate = true;
+    private final java.util.List<Playing> playing = new java.util.ArrayList<>();
+    private final javafx.animation.AnimationTimer timer;
+
+    /** An animated texture on screen: its frames and the view that shows them. */
+    private record Playing(ImageView view, javafx.scene.image.Image[] frames, int frameTime) {}
 
     public TexturesPage(WorkspaceView view) {
         this.view = view;
@@ -36,17 +43,43 @@ public final class TexturesPage extends BorderPane implements WorkspaceView.Page
         search.setPromptText(t("action.search"));
         search.textProperty().addListener((o, a, b) -> reload());
         search.setPrefWidth(220);
+        ToggleButton anim = new ToggleButton(t("textures.animate"));
+        anim.setSelected(animate);
+        anim.setGraphic(Ui.icon(animate ? "mdi2p-pause" : "mdi2p-play"));
+        anim.setTooltip(new Tooltip(t("textures.animate_help")));
+        anim.selectedProperty().addListener((o, a, b) -> {
+            animate = b;
+            anim.setGraphic(Ui.icon(b ? "mdi2p-pause" : "mdi2p-play"));
+            if (!b) for (Playing pl : playing) pl.view().setImage(pl.frames()[0]);
+        });
+        anim.setMinWidth(Region.USE_PREF_SIZE);
         VBox head = new VBox(4, Ui.label(t("page.textures"), "title-2"), Ui.muted(t("textures.subtitle")));
         for (Button b : new Button[]{imp, exportAll, create}) b.setMinWidth(Region.USE_PREF_SIZE);
         search.setMinWidth(140);
         head.setMinWidth(0);
         HBox.setHgrow(head, Priority.ALWAYS);
-        HBox bar = Ui.hbox(8, head, search, imp, exportAll, create);
+        HBox bar = Ui.hbox(8, head, search, anim, imp, exportAll, create);
         bar.setPadding(new Insets(20, 24, 12, 24));
         setTop(bar);
 
         grid.setPadding(new Insets(8, 24, 24, 24));
         setCenter(Ui.scroll(grid));
+        long start = System.nanoTime();
+        timer = new javafx.animation.AnimationTimer() {
+            @Override
+            public void handle(long now) {
+                if (!animate || getScene() == null || playing.isEmpty()) return;
+                long ticks = (now - start) / 50_000_000L;
+                for (Playing pl : playing) {
+                    int f = (int) ((ticks / Math.max(1, pl.frameTime())) % pl.frames().length);
+                    if (pl.view().getImage() != pl.frames()[f]) pl.view().setImage(pl.frames()[f]);
+                }
+            }
+        };
+        sceneProperty().addListener((o, a, b) -> {
+            if (b == null) timer.stop();
+            else timer.start();
+        });
         reload();
     }
 
@@ -61,6 +94,7 @@ public final class TexturesPage extends BorderPane implements WorkspaceView.Page
 
     private void reload() {
         grid.getChildren().clear();
+        playing.clear();
         String q = search.getText().trim().toLowerCase();
         for (TextureAsset tex : p.textures) {
             if (!q.isEmpty() && !tex.name.contains(q)) continue;
@@ -91,6 +125,19 @@ public final class TexturesPage extends BorderPane implements WorkspaceView.Page
         StackPane img = new StackPane(iv);
         img.getStyleClass().add("texture-thumb");
         img.setPrefSize(96, 96);
+        if (tex.animated()) {
+            int n = tex.frames(), w = tex.width;
+            int[] px = tex.pixels();
+            javafx.scene.image.Image[] frames = new javafx.scene.image.Image[n];
+            for (int i = 0; i < n; i++) frames[i] = Ui.pixelImage(java.util.Arrays.copyOfRange(px, i * w * w, (i + 1) * w * w), w, w, 64);
+            iv.setImage(frames[0]);
+            playing.add(new Playing(iv, frames, tex.frameTime));
+            javafx.scene.Node badge = Ui.icon("mdi2m-motion-play-outline", 14);
+            badge.getStyleClass().add("texture-badge");
+            StackPane.setAlignment(badge, Pos.TOP_RIGHT);
+            StackPane.setMargin(badge, new Insets(4));
+            img.getChildren().add(badge);
+        }
         Label name = Ui.label(tex.name, "cell-title");
         name.setMaxWidth(120);
         int u = usage(tex);

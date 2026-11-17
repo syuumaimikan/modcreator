@@ -29,6 +29,8 @@ dependencies {
     implementation 'org.kordamp.ikonli:ikonli-javafx:12.4.0'
     implementation 'org.kordamp.ikonli:ikonli-materialdesign2-pack:12.4.0'
     implementation 'org.gradle:gradle-tooling-api:8.14.7'
+    // Ogg Vorbis decoding for sound previews (JavaFX media cannot play .ogg)
+    implementation 'com.googlecode.soundlibs:jorbis:0.0.17.4'
     runtimeOnly 'org.slf4j:slf4j-nop:1.7.36'
 }
 
