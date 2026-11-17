@@ -54,7 +54,7 @@ public final class BedrockGen {
 
     public void generate() {
         boolean scripts = !ctx.all(Procedure.class).isEmpty() || !ctx.all(Elements.Command.class).isEmpty()
-                || ctx.all(Function.class).stream().anyMatch(f -> f.onLoad);
+                || ctx.all(Function.class).stream().anyMatch(f -> f.onLoad) || !ctx.all(modstudio.core.Systems.Cutscene.class).isEmpty();
         manifests(scripts);
         items();
         blocks();
@@ -668,6 +668,20 @@ public final class BedrockGen {
                     out.append(indent).append("}\n");
                 }
                 case "at_position" -> statements(s.then, out, indent, objectives);
+                case "cutscene_play" -> {
+                    String sel = s.get("target").isBlank() ? "@s" : s.get("target").trim();
+                    String name = js(s.get("cutscene").trim());
+                    if (sel.equals("@s")) {
+                        out.append(indent).append("if (cutscenes[").append(name).append("]) cutscenes[").append(name).append("](self);\n");
+                    } else {
+                        out.append(indent).append("cmd(self, ").append(js("tag " + sel + " add ms_each")).append(");\n");
+                        out.append(indent).append("for (const each of eachTagged()) if (cutscenes[").append(name).append("]) cutscenes[").append(name).append("](each);\n");
+                    }
+                }
+                case "cutscene_stop" -> {
+                    String sel = s.get("target").isBlank() ? "@s" : s.get("target").trim();
+                    out.append(indent).append("cmd(self, ").append(js("camera " + sel + " clear")).append(");\n");
+                }
                 case "stop" -> out.append(indent).append("return;\n");
                 case "repeat" -> {
                     int n = (int) Math.max(1, Math.min(1000, parse(s.get("times"), 1)));
@@ -748,6 +762,7 @@ public final class BedrockGen {
 
                 """);
         Set<String> objectives = new LinkedHashSet<>();
+        sb.append(CutsceneGen.bedrockScript(ctx));
         sb.append("const procedures = {\n");
         for (Procedure p : ctx.all(Procedure.class)) {
             sb.append("  ").append(js(p.name)).append(": (self) => {\n");

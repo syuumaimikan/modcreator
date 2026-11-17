@@ -222,6 +222,11 @@ public final class Validator {
                         r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.unknown_element", m.name, I18n.t("type.multiblock"), m.multiblock)));
                     if (m.io.isEmpty() && m.onCycle.isEmpty()) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.machine_idle", m.name)));
                 }
+                case Systems.Cutscene cs -> {
+                    checkSteps(p, r, e, cs.onEnd);
+                    if (cs.keys.size() < 2) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.cutscene_keys", cs.name)));
+                    if (cs.length() > 600) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.cutscene_long", cs.name)));
+                }
                 case Systems.Multiblock mb -> {
                     mb.ensure();
                     if (mb.coreX >= mb.sx || mb.coreY >= mb.sy || mb.coreZ >= mb.sz)

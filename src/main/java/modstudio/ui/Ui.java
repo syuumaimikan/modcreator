@@ -126,6 +126,7 @@ public final class Ui {
             case MACHINE -> "mdi2c-cog-outline";
             case MULTIBLOCK -> "mdi2c-cube-scan";
             case SHADER -> "mdi2b-blur";
+            case CUTSCENE -> "mdi2m-movie-open-outline";
         };
     }
 

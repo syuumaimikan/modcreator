@@ -306,6 +306,52 @@ public final class Systems {
         @Override public String subtitle() { return kind + "  " + program; }
     }
 
+    // ------------------------------------------------------------------ cutscenes
+
+    /** A camera path the viewer watches from spectator mode, with titles, sounds and commands at set times. */
+    public static final class Cutscene extends Element {
+        /** relative: positions are offsets from where the viewer stands when it starts. absolute: world coordinates. */
+        public String space = "relative";
+        public List<CameraKey> keys = new ArrayList<>();
+        public List<CameraEvent> events = new ArrayList<>();
+        /** Sneaking skips to the end. */
+        public boolean skippable = true;
+        /** Puts the viewer back where the cutscene started. */
+        public boolean returnToStart = true;
+        public List<Step> onEnd = new ArrayList<>();
+
+        public double length() {
+            double m = 0;
+            for (CameraKey k : keys) m = Math.max(m, k.time);
+            for (CameraEvent e : events) m = Math.max(m, e.time);
+            return m;
+        }
+
+        @Override public ElementType type() { return ElementType.CUTSCENE; }
+        @Override public String subtitle() { return keys.size() + " keys  " + Math.round(length() * 10) / 10.0 + "s"; }
+    }
+
+    public static final class CameraKey {
+        /** Seconds from the start. */
+        public double time;
+        public double x, y = 2, z;
+        public double yaw, pitch;
+        /** Look at the target point instead of using yaw and pitch. */
+        public boolean lookAt;
+        public double tx, ty, tz;
+        /** How the camera moves towards this key: smooth (curved path), linear, ease_in, ease_out, ease_in_out, cut. */
+        public String easing = "smooth";
+    }
+
+    public static final class CameraEvent {
+        public double time;
+        /** title, subtitle, actionbar, sound, fade, command */
+        public String kind = "title";
+        public String text = "";
+        public String color = "white";
+        public double duration = 2;
+    }
+
     // ------------------------------------------------------------------ machines
 
     public static final class Resource extends Element {

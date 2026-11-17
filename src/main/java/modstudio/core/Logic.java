@@ -135,6 +135,8 @@ public final class Logic {
         step("timer_start", "interface", Param.ref("hud", "hud"), Param.of("seconds", PType.INT, "0"));
         step("timer_stop", "interface", Param.ref("hud", "hud"));
         step("timer_add", "interface", Param.ref("hud", "hud"), Param.of("seconds", PType.INT, "10"));
+        step("cutscene_play", "interface", Param.ref("cutscene", "cutscene"), target);
+        step("cutscene_stop", "interface", target);
         step("http_request", "web", Param.ref("request", "api_request"));
         step("machine_place", "machine", Param.ref("machine", "machine"), x, y, z);
         step("resource_add", "machine", Param.ref("resource", "resource"), Param.of("amount", PType.TEXT, "100"), Param.of("radius", PType.DECIMAL, "3"));

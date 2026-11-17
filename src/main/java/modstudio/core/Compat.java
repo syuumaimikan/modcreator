@@ -193,6 +193,11 @@ public final class Compat {
             case Systems.Multiblock mb -> {
                 if (bedrock) a.none("compat.java_only");
             }
+            case Systems.Cutscene cs -> {
+                if (bedrock) a.fallback("compat.cutscene_bedrock");
+                else if (p.mcVersions().contains(McVersion.V1_20_1)) a.fallback("compat.cutscene_old");
+                steps(p, cs.onEnd, t, old, a);
+            }
             case Systems.Machine m -> {
                 if (bedrock) a.none("compat.java_only");
                 else if ((paper || pack) && Ids.full(m.block).startsWith(p.meta.modId + ":")) a.none("compat.machine_block");

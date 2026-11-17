@@ -33,7 +33,8 @@ public enum ElementType {
     API_REQUEST("api_request", Systems.ApiRequest.class, Systems.ApiRequest::new),
     RESOURCE("resource", Systems.Resource.class, Systems.Resource::new),
     MACHINE("machine", Systems.Machine.class, Systems.Machine::new),
-    MULTIBLOCK("multiblock", Systems.Multiblock.class, Systems.Multiblock::new);
+    MULTIBLOCK("multiblock", Systems.Multiblock.class, Systems.Multiblock::new),
+    CUTSCENE("cutscene", Systems.Cutscene.class, Systems.Cutscene::new);
 
     public final String id;
     public final Class<? extends Element> cls;

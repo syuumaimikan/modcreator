@@ -710,6 +710,7 @@ public final class DataGen {
         new GameplayGen(ctx, pc, root, realItems, tick, (reg, n, path, value) -> tag(reg, n, path).values.add(value)).generate();
         new InterfaceGen(ctx, pc, load, tick, joinCalls).generate();
         new MachineGen(ctx, pc, root, realItems, tick).generate();
+        new CutsceneGen(ctx, pc, tick, joinCalls).generate();
         if (!joinCalls.isEmpty()) {
             load.add("scoreboard objectives add " + ns + ".left minecraft.custom:minecraft.leave_game");
             tick.add("execute as @a[tag=!" + ns + ".joined] at @s run function " + ns + ":_join");

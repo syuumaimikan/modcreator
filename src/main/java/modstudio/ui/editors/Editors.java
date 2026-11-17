@@ -42,6 +42,7 @@ public final class Editors {
             case Systems.Resource r -> new MachineEditors.ResourceEditor(c, r);
             case Systems.Machine m -> new MachineEditors.MachineEditor(c, m);
             case Systems.Multiblock mb -> new MachineEditors.MultiblockEditor(c, mb);
+            case Systems.Cutscene cs -> new CutsceneEditor(c, cs);
             default -> throw new IllegalArgumentException(e.type().id);
         };
         return ed.build();
@@ -144,6 +145,26 @@ public final class Editors {
                     for (int z = 0; z < 3; z++) mb.set(x, 0, z, x == 1 && z == 1 ? 2 : 0);
                 for (int x = 0; x < 3; x += 2)
                     for (int z = 0; z < 3; z += 2) mb.set(x, 1, z, 1);
+            }
+            case Systems.Cutscene cs -> {
+                // a slow orbit around the start position, looking at it
+                double[][] pts = {{0, 6, -8}, {8, 5, 0}, {0, 4, 8}, {-8, 5, 0}};
+                for (int i = 0; i < pts.length; i++) {
+                    Systems.CameraKey k = new Systems.CameraKey();
+                    k.time = i * 2.5;
+                    k.x = pts[i][0];
+                    k.y = pts[i][1];
+                    k.z = pts[i][2];
+                    k.lookAt = true;
+                    k.ty = 1;
+                    cs.keys.add(k);
+                }
+                Systems.CameraEvent ev = new Systems.CameraEvent();
+                ev.time = 0.5;
+                ev.text = title;
+                ev.color = "gold";
+                ev.duration = 3;
+                cs.events.add(ev);
             }
             case Advancement a -> {
                 a.title = title;

@@ -330,6 +330,12 @@ public final class ProcCompiler {
                     r.add("execute as " + sel(s) + " at @s run function " + ns + ":menus/" + m + "/open");
                 }
             }
+            case "cutscene_play" -> {
+                String cs = s.get("cutscene").trim();
+                if (!hasElement(ElementType.CUTSCENE, cs)) r.add("# unknown cutscene " + cs);
+                else r.add("execute as " + sel(s) + " at @s run function " + CutsceneGen.playFunction(ns, cs));
+            }
+            case "cutscene_stop" -> r.add("execute as " + sel(s) + " if entity @s[tag=" + ns + ".cs_on] run function " + ns + ":cutscene/_stop");
             case "close_menu" -> {
                 if (ctx.target.isMod()) r.add("execute as " + sel(s) + " run " + bridgeCommand() + " close");
                 else if (ctx.target == modstudio.core.Target.PAPER) r.add("tag " + sel(s) + " add " + ns + ".q.close");

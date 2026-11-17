@@ -299,6 +299,7 @@ public final class SampleProject {
         armor(p, red);
         gameplay(p, red);
         crop(p, red);
+        cutscene(p);
         systems(p);
         return p;
     }
@@ -878,5 +879,40 @@ public final class SampleProject {
         crop.cropProduceMin = 1;
         crop.cropProduceMax = 3;
         p.elements.addAll(List.of(crop, berry));
+    }
+
+    /** A cutscene that circles the player and ends with a title, started by /ruby_intro. */
+    private static void cutscene(Project p) {
+        Systems.Cutscene intro = new Systems.Cutscene();
+        intro.name = "ruby_intro";
+        double[][] pts = {{0, 3, -10, 0}, {9, 5, -4, 3}, {9, 7, 6, 6}, {-6, 9, 8, 9}, {0, 2.5, -3, 12}};
+        for (double[] q : pts) {
+            Systems.CameraKey k = new Systems.CameraKey();
+            k.x = q[0];
+            k.y = q[1];
+            k.z = q[2];
+            k.time = q[3];
+            k.lookAt = true;
+            k.ty = 1.5;
+            intro.keys.add(k);
+        }
+        intro.keys.get(4).easing = "ease_out";
+        String[][] ev = {{"0.5", "title", "Ruby Mod", "red", "3"}, {"0.5", "sound", "minecraft:music_disc.cat", "white", "1"},
+                {"5", "subtitle", "Find rubies deep underground", "gold", "3"}, {"10.5", "fade", "", "white", "1.5"}};
+        for (String[] e : ev) {
+            Systems.CameraEvent ce = new Systems.CameraEvent();
+            ce.time = Double.parseDouble(e[0]);
+            ce.kind = e[1];
+            ce.text = e[2];
+            ce.color = e[3];
+            ce.duration = Double.parseDouble(e[4]);
+            intro.events.add(ce);
+        }
+        intro.onEnd.add(step("message", "text", "Welcome to the Ruby Mod!", "color", "red"));
+        Elements.Command cmd = new Elements.Command();
+        cmd.name = "ruby_intro";
+        cmd.description = "Plays the Ruby Mod intro cutscene";
+        cmd.steps.add(step("cutscene_play", "cutscene", "ruby_intro", "target", "@s"));
+        p.elements.addAll(List.of(intro, cmd));
     }
 }
