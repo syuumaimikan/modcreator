@@ -245,7 +245,8 @@ public final class ElementsPage extends SplitPane implements WorkspaceView.Page 
     static String subtitle(Element e) {
         if (e instanceof Elements.Procedure pr) return I18n.tOr("trigger." + pr.trigger, pr.trigger);
         if (e instanceof Elements.Function fn) return fn.onTick ? I18n.t("trigger.tick") : fn.onLoad ? I18n.t("trigger.load") : "";
-        if (e instanceof Elements.Model m) return I18n.t("model.cubes", m.cubes.size());
+        if (e instanceof Elements.Model m) return I18n.t("model.cubes", m.cubes.size())
+                + (m.animations.isEmpty() ? "" : "  " + I18n.t("model.animations", m.animations.size()));
         if (e instanceof Elements.Tag tg) return I18n.tOr("registry." + tg.registry, tg.registry);
         if (e instanceof Elements.LootTable lt && lt.replaces.isBlank()) return I18n.tOr("loottype." + lt.lootType, lt.lootType);
         String s = e.subtitle();

@@ -31,8 +31,12 @@ public final class SystemsGen {
         this.tick = tick;
     }
 
+    private RigGen rig;
+
     public void generate() {
+        rig = new RigGen(ctx, pc);
         for (Mob m : ctx.all(Mob.class)) mob(m);
+        rig.shared(tick);
         for (Effect e : ctx.all(Effect.class)) pc.functions.put("effects/" + e.name, effectLines(e));
         for (Structure s : ctx.all(Structure.class)) structure(s);
         for (Biome b : ctx.all(Biome.class)) biome(b);
@@ -400,7 +404,7 @@ public final class SystemsGen {
 
     // ------------------------------------------------------------------ mobs
 
-    private static final Map<String, Double> HEIGHTS = Map.ofEntries(
+    static final Map<String, Double> HEIGHTS = Map.ofEntries(
             Map.entry("minecraft:zombie", 1.95), Map.entry("minecraft:husk", 1.95), Map.entry("minecraft:skeleton", 1.99),
             Map.entry("minecraft:stray", 1.99), Map.entry("minecraft:wither_skeleton", 2.4), Map.entry("minecraft:piglin", 1.95),
             Map.entry("minecraft:villager", 1.95), Map.entry("minecraft:pig", 0.9), Map.entry("minecraft:cow", 1.4),
@@ -460,7 +464,10 @@ public final class SystemsGen {
                     : "data merge entity @s {HandDropChances:[0f,0f],ArmorDropChances:[0f,0f,0f,0f]}");
         }
         if (m.fireImmune) init.add("effect give @s minecraft:fire_resistance infinite 0 true");
-        if (!m.appearance.isBlank()) {
+        Elements.Model rigModel = RigGen.model(ctx.p, m);
+        if (rigModel != null) {
+            init.addAll(rig.spawn(m, rigModel, base, tag));
+        } else if (!m.appearance.isBlank()) {
             double s = Math.max(0.05, m.appearanceScale);
             double h = HEIGHTS.getOrDefault(base, 1.8);
             init.add("effect give @s minecraft:invisibility infinite 0 true");
@@ -496,7 +503,19 @@ public final class SystemsGen {
             t.add("scoreboard players add @s " + mt + " 1");
             t.add("execute if score @s " + mt + " matches " + Math.max(1, m.tickInterval) + ".. run function " + ns + ":" + dir + "/on_tick");
         }
-        if (!m.appearance.isBlank()) {
+        if (rigModel != null) {
+            t.addAll(rig.tick(m, rigModel, base, dir));
+            if (RigGen.id(rigModel, m.attackAnim) > 0) {
+                String advPath = dir + "/rig_attack";
+                ctx.files.json(data(ctx.advDir(), advPath + ".json"), J.obj("criteria", J.obj("hit", J.obj("trigger", "minecraft:entity_hurt_player",
+                        "conditions", J.obj("damage", J.obj("source_entity", J.obj("nbt", "{Tags:[\"" + tag + "\"]}"))))),
+                        "rewards", J.obj("function", ns + ":" + advPath + "_reward")));
+                List<String> reward = new ArrayList<>();
+                reward.add("advancement revoke @s only " + ns + ":" + advPath);
+                reward.addAll(rig.attackCall(m, dir, tag));
+                fn(advPath + "_reward", reward);
+            }
+        } else if (!m.appearance.isBlank()) {
             t.add("execute on passengers if entity @s[tag=" + tag + ".display] run data modify entity @s Rotation[0] set from entity @e[tag="
                     + tag + ",limit=1,sort=nearest] Rotation[0]");
         }

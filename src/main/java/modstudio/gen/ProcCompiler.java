@@ -335,6 +335,15 @@ public final class ProcCompiler {
                 if (!hasElement(ElementType.CUTSCENE, cs)) r.add("# unknown cutscene " + cs);
                 else r.add("execute as " + sel(s) + " at @s run function " + CutsceneGen.playFunction(ns, cs));
             }
+            case "play_animation" -> {
+                String an = RigGen.safe(s.get("animation"));
+                if (!RigGen.animationNames(ctx.p).contains(an)) r.add("# no animated mob has the animation " + an);
+                else r.add("execute as " + sel(s) + " if entity @s[tag=" + ns + ".rigged] run function " + ns + ":rig/play/" + an);
+            }
+            case "stop_animation" -> {
+                if (RigGen.animationNames(ctx.p).isEmpty()) r.add("# no animated mobs");
+                else r.add("execute as " + sel(s) + " if entity @s[tag=" + ns + ".rigged] run scoreboard players set @s " + ns + ".af 0");
+            }
             case "cutscene_stop" -> r.add("execute as " + sel(s) + " if entity @s[tag=" + ns + ".cs_on] run function " + ns + ":cutscene/_stop");
             case "close_menu" -> {
                 if (ctx.target.isMod()) r.add("execute as " + sel(s) + " run " + bridgeCommand() + " close");

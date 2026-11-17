@@ -35,6 +35,7 @@ final class ModelEditor extends EditorBase<Model> {
     private int sel = -1;
     private boolean syncing;
     private String displayContext = "gui";
+    private RigPanel rig;
 
     /** Model names for pickers, with "" (none) first. */
     static java.util.List<String> modelChoices(Ctx c) {
@@ -61,6 +62,7 @@ final class ModelEditor extends EditorBase<Model> {
             if (!e.cubes.isEmpty() && !Ui.confirm(c.window(), t("model.apply_template"), t("model.apply_template_confirm"))) return;
             Models.applyTemplate(e, template.getValue());
             sel = e.cubes.isEmpty() ? -1 : 0;
+            rig.rebuildAll();
             structureChanged();
         });
         Button imp = Ui.button(t("model.import"), "mdi2i-import", this::importModel);
@@ -68,6 +70,7 @@ final class ModelEditor extends EditorBase<Model> {
         f.row(t("field.template"), Ui.hbox(8, template, apply), t("help.model_template"));
         f.row(t("model.files"), Ui.hbox(8, imp, exp), t("help.model_import"));
 
+        rig = new RigPanel(e, () -> view3d, () -> sel, f::changed, this::rebuildCube);
         f.section(t("section.model_view"), t("help.model_view"));
         f.add(workbench());
 
@@ -75,6 +78,10 @@ final class ModelEditor extends EditorBase<Model> {
         f.add(cubeBox);
         f.section(t("section.faces"), t("help.faces"));
         f.add(faceBox);
+        f.section(t("section.bones"), t("help.bones"));
+        f.add(rig.bonesBox);
+        f.section(t("section.animations"), t("help.animations"));
+        f.add(rig.animBox);
         f.section(t("section.model_textures"), t("help.model_textures"));
         f.add(textureBox);
         f.section(t("section.display"), t("help.display"));
@@ -86,6 +93,7 @@ final class ModelEditor extends EditorBase<Model> {
         rebuildCube();
         rebuildTextures();
         rebuildDisplay();
+        rig.rebuildAll();
     }
 
     private Node workbench() {
@@ -149,7 +157,7 @@ final class ModelEditor extends EditorBase<Model> {
         grid.selectedProperty().addListener((o, a, b) -> view3d.setShowGrid(b));
         viewBar.getChildren().addAll(Ui.spacer(), grid);
         Label hint = Ui.help(t("model.mouse_help"));
-        VBox center = new VBox(6, viewBar, view3d, hint);
+        VBox center = new VBox(6, viewBar, view3d, rig.previewBar(), hint);
         VBox.setVgrow(view3d, Priority.ALWAYS);
         HBox.setHgrow(center, Priority.ALWAYS);
         HBox box = new HBox(12, left, center);
@@ -214,6 +222,7 @@ final class ModelEditor extends EditorBase<Model> {
         if (view3d == null) return;
         view3d.setModel(e);
         view3d.setSelected(sel);
+        if (rig != null) rig.updatePose();
     }
 
     // ------------------------------------------------------------------ cube properties
@@ -256,6 +265,20 @@ final class ModelEditor extends EditorBase<Model> {
             edited();
         });
         g.addRow(r++, label(t("field.name")), name);
+        if (!e.bones.isEmpty()) {
+            List<String> boneNames = new ArrayList<>();
+            boneNames.add("");
+            for (var b : e.bones) boneNames.add(b.name);
+            ComboBox<String> boneBox = Ui.combo(boneNames, x -> x.isEmpty() ? t("rig.no_bone") : x);
+            boneBox.setValue(boneNames.contains(cu.bone) ? cu.bone : "");
+            boneBox.valueProperty().addListener((o, a, b) -> {
+                if (b == null) return;
+                cu.bone = b;
+                edited();
+                rig.rebuildBones();
+            });
+            g.addRow(r++, label(t("rig.bone")), boneBox);
+        }
         g.addRow(r++, label(t("model.from")), xyz(cu.from, true));
         g.addRow(r++, label(t("model.to")), xyz(cu.to, true));
 
@@ -509,7 +532,10 @@ final class ModelEditor extends EditorBase<Model> {
             e.kind = m.kind;
             e.textureWidth = m.textureWidth;
             e.textureHeight = m.textureHeight;
+            e.bones = m.bones;
+            e.animations = m.animations;
             sel = e.cubes.isEmpty() ? -1 : 0;
+            rig.rebuildAll();
             rebuildTextures();
             rebuildDisplay();
             c.ws.structureChanged();

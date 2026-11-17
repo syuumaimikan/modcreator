@@ -19,7 +19,7 @@ public final class Models {
     public static final List<Double> ANGLES = List.of(-45.0, -22.5, 0.0, 22.5, 45.0);
     public static final List<String> DISPLAY_CONTEXTS = List.of("gui", "ground", "fixed", "head", "firstperson_righthand", "thirdperson_righthand");
     public static final List<String> TEMPLATES = List.of("block", "slab", "carpet", "post", "pillar_small", "table", "lamp", "pedestal",
-            "stairs", "fence_post", "chair", "crystal", "rod", "empty");
+            "stairs", "fence_post", "chair", "crystal", "rod", "biped", "empty");
 
     // ------------------------------------------------------------------ geometry
 
@@ -59,6 +59,7 @@ public final class Models {
     public static Cube copy(Cube c) {
         Cube n = new Cube();
         n.name = c.name;
+        n.bone = c.bone;
         n.from = c.from.clone();
         n.to = c.to.clone();
         n.rotation = c.rotation;
@@ -83,7 +84,10 @@ public final class Models {
     /** Fills a model from a named template. Existing cubes are replaced. */
     public static void applyTemplate(Model m, String template) {
         m.cubes.clear();
+        m.bones.clear();
+        m.animations.clear();
         switch (template) {
+            case "biped" -> Rig.biped(m);
             case "slab" -> m.cubes.add(cube("slab", 0, 0, 0, 16, 8, 16));
             case "carpet" -> m.cubes.add(cube("carpet", 0, 0, 0, 16, 1, 16));
             case "post" -> m.cubes.add(cube("post", 4, 0, 4, 12, 16, 12));
@@ -399,10 +403,12 @@ public final class Models {
         // Blockbench UVs are in texture pixels; Java models use 0..16.
         double fu = 16.0 / resW, fv = 16.0 / resH;
         int i = 0;
+        Map<String, Cube> byUuid = new HashMap<>();
         for (JsonElement je : o.getAsJsonArray("elements")) {
             JsonObject el = je.getAsJsonObject();
             if (el.has("type") && !el.get("type").getAsString().equals("cube")) continue;
             Cube c = new Cube();
+            if (el.has("uuid")) byUuid.put(el.get("uuid").getAsString(), c);
             c.name = el.has("name") ? el.get("name").getAsString() : "cube" + (++i);
             c.from = dbl(el.get("from"), 3, 0);
             c.to = dbl(el.get("to"), 3, 16);
@@ -438,7 +444,108 @@ public final class Models {
         m.textureWidth = 16;
         m.textureHeight = 16;
         if (m.textures.isEmpty()) m.textures.put("0", "");
+        Map<String, String> boneByUuid = new HashMap<>();
+        if (o.has("outliner") && o.get("outliner").isJsonArray()) {
+            for (JsonElement je : o.getAsJsonArray("outliner")) readGroup(m, je, "", byUuid, boneByUuid);
+        }
+        if (o.has("animations") && o.get("animations").isJsonArray() && !m.bones.isEmpty()) {
+            for (JsonElement je : o.getAsJsonArray("animations")) readAnimation(m, je.getAsJsonObject(), boneByUuid);
+        }
         return new Imported(m, images, names);
+    }
+
+    /** Blockbench outliner groups become bones; cubes inside a group follow it. */
+    private static void readGroup(Model m, JsonElement je, String parent, Map<String, Cube> cubes, Map<String, String> boneByUuid) {
+        if (je.isJsonPrimitive()) {
+            Cube c = cubes.get(je.getAsString());
+            if (c != null) c.bone = parent;
+            return;
+        }
+        if (!je.isJsonObject()) return;
+        JsonObject g = je.getAsJsonObject();
+        String base = Ids.toId(g.has("name") ? g.get("name").getAsString() : "bone");
+        if (base.isEmpty() || base.equals(Rig.ROOT)) base = "bone";
+        String name = base;
+        for (int n = 2; m.bone(name) != null; n++) name = base + "_" + n;
+        Elements.Bone b = new Elements.Bone();
+        b.name = name;
+        b.parent = parent;
+        b.pivot = dbl(g.get("origin"), 3, 8);
+        m.bones.add(b);
+        if (g.has("uuid")) boneByUuid.put(g.get("uuid").getAsString(), name);
+        if (g.has("children") && g.get("children").isJsonArray()) {
+            for (JsonElement ch : g.getAsJsonArray("children")) readGroup(m, ch, name, cubes, boneByUuid);
+        }
+    }
+
+    /**
+     * Blockbench animations. Blockbench shows bone rotations with X and Y reversed and positions with X reversed
+     * compared with model space, so those are flipped; Molang expressions that are not plain numbers become 0.
+     */
+    private static void readAnimation(Model m, JsonObject a, Map<String, String> boneByUuid) {
+        Elements.Animation an = new Elements.Animation();
+        String base = Ids.toId(a.has("name") ? a.get("name").getAsString().replaceAll(".*[.]", "") : "animation");
+        if (base.isEmpty()) base = "animation";
+        String name = base;
+        for (int n = 2; m.animation(name) != null; n++) name = base + "_" + n;
+        an.name = name;
+        an.length = a.has("length") ? Math.max(0.1, a.get("length").getAsDouble()) : 1;
+        String loop = a.has("loop") ? a.get("loop").getAsString() : "loop";
+        an.mode = loop.equals("once") || loop.equals("hold") ? loop : "loop";
+        if (a.has("animators") && a.get("animators").isJsonObject()) {
+            for (var en : a.getAsJsonObject("animators").entrySet()) {
+                String bone = boneByUuid.get(en.getKey());
+                JsonObject anim = en.getValue().getAsJsonObject();
+                if (bone == null || !anim.has("keyframes")) continue;
+                for (JsonElement ke : anim.getAsJsonArray("keyframes")) {
+                    JsonObject kf = ke.getAsJsonObject();
+                    String ch = kf.has("channel") ? kf.get("channel").getAsString() : "";
+                    if (!Rig.CHANNELS.contains(ch) || !kf.has("data_points")) continue;
+                    JsonObject dp = kf.getAsJsonArray("data_points").get(0).getAsJsonObject();
+                    Elements.AnimTrack tr = an.track(bone, ch);
+                    if (tr == null) {
+                        tr = new Elements.AnimTrack();
+                        tr.bone = bone;
+                        tr.channel = ch;
+                        an.tracks.add(tr);
+                    }
+                    Elements.AnimKey k = new Elements.AnimKey();
+                    k.time = kf.has("time") ? kf.get("time").getAsDouble() : 0;
+                    double def = ch.equals("scale") ? 1 : 0;
+                    k.x = molang(dp.get("x"), def);
+                    k.y = molang(dp.get("y"), def);
+                    k.z = molang(dp.get("z"), def);
+                    if (ch.equals("rotation")) {
+                        k.x = -k.x;
+                        k.y = -k.y;
+                    } else if (ch.equals("position")) {
+                        k.x = -k.x;
+                    }
+                    String in = kf.has("interpolation") ? kf.get("interpolation").getAsString() : "linear";
+                    k.easing = switch (in) {
+                        case "catmullrom", "bezier" -> "smooth";
+                        case "step" -> "step";
+                        default -> "linear";
+                    };
+                    tr.keys.add(k);
+                }
+            }
+        }
+        for (Elements.AnimTrack tr : an.tracks) tr.keys.sort(Comparator.comparingDouble(k -> k.time));
+        m.animations.add(an);
+    }
+
+    private static double molang(JsonElement e, double def) {
+        if (e == null || e.isJsonNull()) return def;
+        try {
+            return e.getAsDouble();
+        } catch (Exception ex) {
+            try {
+                return Double.parseDouble(e.getAsString().trim());
+            } catch (Exception ex2) {
+                return def;
+            }
+        }
     }
 
     public static double snapAngle(double a) {

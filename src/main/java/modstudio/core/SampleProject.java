@@ -349,6 +349,22 @@ public final class SampleProject {
         spiral.turns = 3;
         spiral.points = 48;
 
+        // An animated model for the golem: bones, the standard animations and a roar for its rage phase.
+        Elements.Model golemModel = new Elements.Model();
+        golemModel.name = "ruby_golem";
+        Rig.biped(golemModel);
+        p.textures.stream().filter(t -> t.name.equals("ruby_block")).findFirst().ifPresent(t -> golemModel.textures.put("0", t.id));
+        Elements.Animation roar = new Elements.Animation();
+        roar.name = "roar";
+        roar.length = 1.2;
+        roar.mode = "once";
+        double[][] arms = {{0, 0, 0, 0}, {0.3, 160, 0, 0}, {0.9, 160, 0, 0}, {1.2, 0, 0, 0}};
+        Rig.key(roar, "right_arm", "rotation", "ease_out", arms);
+        Rig.key(roar, "left_arm", "rotation", "ease_out", arms);
+        Rig.key(roar, "head", "rotation", "ease_out", new double[][]{{0, 0, 0, 0}, {0.3, -25, 0, 0}, {0.9, -25, 0, 0}, {1.2, 0, 0, 0}});
+        golemModel.animations.add(roar);
+        p.elements.add(golemModel);
+
         Systems.Mob golem = new Systems.Mob();
         golem.name = "ruby_golem";
         golem.base = "minecraft:zombie";
@@ -360,8 +376,12 @@ public final class SampleProject {
         golem.armor = 10;
         golem.knockbackResistance = 0.8;
         golem.scale = 1.6;
-        golem.mainhand = "rubymod:ruby_sword";
-        golem.head = "minecraft:golden_helmet";
+        golem.rig = "ruby_golem";
+        golem.idleAnim = "idle";
+        golem.walkAnim = "walk";
+        golem.hurtAnim = "hurt";
+        golem.attackAnim = "attack";
+        golem.deathAnim = "death";
         golem.fireImmune = true;
         golem.boss = true;
         golem.bossColor = "red";
@@ -376,6 +396,7 @@ public final class SampleProject {
         half.steps.add(step("effect", "effect", "minecraft:speed", "seconds", "9999", "amplifier", "1"));
         half.steps.add(step("for_each", "selector", "@a[distance=..16]"));
         half.steps.get(1).then.add(step("damage", "amount", "4", "damageType", "minecraft:magic"));
+        half.steps.add(step("play_animation", "animation", "roar"));
         Systems.BossPhase last = new Systems.BossPhase();
         last.health = 20;
         last.message = "The Ruby Golem calls for help!";

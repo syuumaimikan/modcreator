@@ -60,7 +60,7 @@ public final class CameraPath {
         return new Pose(k.x, k.y, k.z, r[0], r[1]);
     }
 
-    private static double catmull(double p0, double p1, double p2, double p3, double u) {
+    static double catmull(double p0, double p1, double p2, double p3, double u) {
         double u2 = u * u, u3 = u2 * u;
         return 0.5 * (2 * p1 + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u2 + (-p0 + 3 * p1 - 3 * p2 + p3) * u3);
     }

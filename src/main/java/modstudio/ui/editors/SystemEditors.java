@@ -37,6 +37,29 @@ final class SystemEditors {
             super(c, e);
         }
 
+        /** Picker for an animation of the chosen model (the list follows the model). */
+        private void animation(String label, java.util.function.Supplier<String> get, java.util.function.Consumer<String> set, String help) {
+            javafx.scene.control.ComboBox<String> cb = new javafx.scene.control.ComboBox<>();
+            cb.setEditable(true);
+            cb.setPrefWidth(220);
+            cb.setValue(get.get());
+            cb.setOnShowing(ev -> {
+                java.util.List<String> items = new java.util.ArrayList<>();
+                items.add("");
+                modstudio.core.Elements.Model md = c.ws.project.model(e.rig);
+                if (md != null) for (var a : md.animations) items.add(a.name);
+                cb.getItems().setAll(items);
+            });
+            cb.valueProperty().addListener((o, a, b) -> {
+                String v = b == null ? "" : b.trim();
+                if (v.equals(get.get())) return;
+                set.accept(v);
+                f.changed();
+            });
+            f.row(label, cb, help);
+            f.showIf(() -> !e.rig.isBlank());
+        }
+
         @Override
         protected void fill() {
             f.section(t("section.general"), t("help.mob"));
@@ -72,6 +95,17 @@ final class SystemEditors {
             f.id(t("field.mob.legs"), IdField.Kind.ITEM, () -> e.legs, v -> e.legs = v, env());
             f.id(t("field.mob.feet"), IdField.Kind.ITEM, () -> e.feet, v -> e.feet = v, env());
             f.check(t("field.mob.drop_equipment"), () -> e.dropEquipment, v -> e.dropEquipment = v);
+
+            f.section(t("section.mob.rig"), t("help.mob.rig"));
+            f.choice(t("field.mob.rig"), ModelEditor.modelChoices(c), x -> x.isEmpty() ? t("rig.no_model") : x, () -> e.rig, v -> e.rig = v,
+                    t("help.mob.rig_model"));
+            f.decimal(t("field.mob.rig_scale"), () -> e.rigScale, v -> e.rigScale = v, t("help.mob.rig_scale"));
+            f.showIf(() -> !e.rig.isBlank());
+            animation(t("field.mob.anim_idle"), () -> e.idleAnim, v -> e.idleAnim = v, t("help.mob.anim_idle"));
+            animation(t("field.mob.anim_walk"), () -> e.walkAnim, v -> e.walkAnim = v, t("help.mob.anim_walk"));
+            animation(t("field.mob.anim_hurt"), () -> e.hurtAnim, v -> e.hurtAnim = v, t("help.mob.anim_hurt"));
+            animation(t("field.mob.anim_attack"), () -> e.attackAnim, v -> e.attackAnim = v, t("help.mob.anim_attack"));
+            animation(t("field.mob.anim_death"), () -> e.deathAnim, v -> e.deathAnim = v, t("help.mob.anim_death"));
             f.id(t("field.mob.loot"), IdField.Kind.LOOT_TABLE, () -> e.lootTable, v -> e.lootTable = v, env(), t("help.mob.loot"));
 
             f.section(t("section.mob.spawn"), t("help.mob.spawn"));

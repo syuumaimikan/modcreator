@@ -678,6 +678,9 @@ public final class BedrockGen {
                         out.append(indent).append("for (const each of eachTagged()) if (cutscenes[").append(name).append("]) cutscenes[").append(name).append("](each);\n");
                     }
                 }
+                case "play_animation", "stop_animation" -> {
+                    // animated mobs are made of Java display entities
+                }
                 case "cutscene_stop" -> {
                     String sel = s.get("target").isBlank() ? "@s" : s.get("target").trim();
                     out.append(indent).append("cmd(self, ").append(js("camera " + sel + " clear")).append(");\n");

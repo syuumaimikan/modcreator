@@ -449,13 +449,66 @@ public final class Elements {
         public Map<String, Display> display = new LinkedHashMap<>();
         public int textureWidth = 16;
         public int textureHeight = 16;
+        /** Bones for animation: each cube follows the bone named in Cube.bone (none follows the model itself). */
+        public List<Bone> bones = new ArrayList<>();
+        public List<Animation> animations = new ArrayList<>();
+
+        public Bone bone(String name) {
+            for (Bone b : bones) if (b.name.equals(name)) return b;
+            return null;
+        }
+
+        public Animation animation(String name) {
+            for (Animation a : animations) if (a.name.equals(name)) return a;
+            return null;
+        }
 
         @Override public ElementType type() { return ElementType.MODEL; }
-        @Override public String subtitle() { return cubes.size() + " cubes"; }
+        @Override public String subtitle() {
+            return cubes.size() + " cubes" + (bones.isEmpty() ? "" : "  " + bones.size() + " bones")
+                    + (animations.isEmpty() ? "" : "  " + animations.size() + " animations");
+        }
+    }
+
+    /** A joint of an animated model; children move with their parent. The pivot is in model units. */
+    public static final class Bone {
+        public String name = "bone";
+        public String parent = "";
+        public double[] pivot = {8, 0, 8};
+    }
+
+    /** A named animation: keyframed rotation, position and scale of bones over time. */
+    public static final class Animation {
+        public String name = "idle";
+        public double length = 2;
+        /** loop, once (then back to the default animation), hold (stay on the last frame) */
+        public String mode = "loop";
+        public List<AnimTrack> tracks = new ArrayList<>();
+
+        public AnimTrack track(String bone, String channel) {
+            for (AnimTrack t : tracks) if (t.bone.equals(bone) && t.channel.equals(channel)) return t;
+            return null;
+        }
+    }
+
+    public static final class AnimTrack {
+        public String bone = "";
+        /** rotation (degrees), position (model units), scale (factor) */
+        public String channel = "rotation";
+        public List<AnimKey> keys = new ArrayList<>();
+    }
+
+    public static final class AnimKey {
+        public double time;
+        public double x, y, z;
+        /** linear, smooth, step, ease_in, ease_out, ease_in_out */
+        public String easing = "linear";
     }
 
     public static final class Cube {
         public String name = "cube";
+        /** Bone this cube belongs to in an animated model; empty for none. */
+        public String bone = "";
         public double[] from = {0, 0, 0};
         public double[] to = {16, 16, 16};
         public double rotation = 0; // -45, -22.5, 0, 22.5, 45

@@ -28,6 +28,10 @@ public final class Systems {
         /** Item shown on an item display riding the mob (custom 3D look); the base mob becomes invisible. */
         public String appearance = "";
         public double appearanceScale = 1;
+        /** Animated model (a model with bones) shown instead of the base mob, and the animations it plays. */
+        public String rig = "";
+        public double rigScale = 1;
+        public String idleAnim = "", walkAnim = "", hurtAnim = "", attackAnim = "", deathAnim = "";
         public String lootTable = "";
         public boolean naturalSpawn;
         public String spawnBiome = "";

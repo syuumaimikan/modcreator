@@ -12,12 +12,14 @@ import javafx.scene.shape.Box;
 import javafx.scene.shape.CullFace;
 import javafx.scene.shape.MeshView;
 import javafx.scene.shape.TriangleMesh;
+import javafx.scene.transform.Affine;
 import javafx.scene.transform.Rotate;
 import javafx.scene.transform.Translate;
 import modstudio.core.Elements.Cube;
 import modstudio.core.Elements.Face;
 import modstudio.core.Elements.Model;
 import modstudio.core.Models;
+import modstudio.core.Rig;
 import modstudio.core.TextureAsset;
 import modstudio.ui.Ui;
 import modstudio.ui.Workspace;
@@ -46,6 +48,10 @@ public final class ModelView3D extends Pane {
     private int selected = -1;
     private boolean showGrid = true;
     private IntConsumer onSelect = i -> {};
+    /** Bone matrices in model space (animation preview); null shows the model at rest. */
+    private Map<String, double[]> pose;
+    private final Map<String, Affine> boneTransforms = new HashMap<>();
+    private String selectedBone = "";
     private double lastX, lastY, pressX, pressY;
 
     public ModelView3D(Workspace ws, double w, double h, boolean interactive) {
@@ -79,8 +85,37 @@ public final class ModelView3D extends Pane {
     }
 
     public void setModel(Model m) {
+        boolean fresh = m != model;
         this.model = m;
+        if (fresh) fit();
         rebuild();
+    }
+
+    /** Scene point the camera orbits and its distance, chosen so the whole model is in view. */
+    private double homeX, homeY, homeZ, homeDist = -58;
+
+    private void fit() {
+        homeX = homeY = homeZ = 0;
+        homeDist = -58;
+        if (model == null || model.cubes.isEmpty()) return;
+        double[] lo = {Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE}, hi = {-Double.MAX_VALUE, -Double.MAX_VALUE, -Double.MAX_VALUE};
+        for (Cube c : model.cubes) {
+            for (int i = 0; i < 3; i++) {
+                lo[i] = Math.min(lo[i], Math.min(c.from[i], c.to[i]));
+                hi[i] = Math.max(hi[i], Math.max(c.from[i], c.to[i]));
+            }
+        }
+        double size = Math.max(hi[0] - lo[0], Math.max(hi[1] - lo[1], hi[2] - lo[2]));
+        if (size <= 16 && lo[0] >= 0 && lo[1] >= 0 && lo[2] >= 0 && hi[0] <= 16 && hi[1] <= 16 && hi[2] <= 16) return;
+        double[] c = fx((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2);
+        homeX = c[0];
+        homeY = c[1];
+        homeZ = c[2];
+        homeDist = -Math.max(58, size * 3.4);
+        pan.setX(homeX);
+        pan.setY(homeY);
+        pan.setZ(homeZ);
+        dist.setZ(homeDist);
     }
 
     public void setSelected(int i) {
@@ -88,10 +123,37 @@ public final class ModelView3D extends Pane {
         rebuildOverlay();
     }
 
+    /** Bone highlighted with its pivot marker. */
+    public void setSelectedBone(String bone) {
+        selectedBone = bone == null ? "" : bone;
+        rebuildOverlay();
+    }
+
+    /** Moves the bones without rebuilding the meshes. */
+    public void setPose(Map<String, double[]> p) {
+        pose = p;
+        for (var e : boneTransforms.entrySet()) e.getValue().setToTransform(sceneAffine(bonePose(e.getKey())));
+        rebuildOverlay();
+    }
+
+    private double[] bonePose(String bone) {
+        double[] m = pose == null ? null : pose.get(bone);
+        return m == null ? Rig.identity() : m;
+    }
+
+    /** A model space matrix expressed in scene space: F * m * F^-1 with F = diag(1,-1,-1) * T(-8,-8,-8). */
+    private static Affine sceneAffine(double[] m) {
+        double[] f = Rig.mul(Rig.scale(1, -1, -1), Rig.translate(-8, -8, -8));
+        double[] fi = Rig.mul(Rig.translate(8, 8, 8), Rig.scale(1, -1, -1));
+        double[] s = Rig.mul(f, m, fi);
+        return new Affine(s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8], s[9], s[10], s[11]);
+    }
+
     /** Camera presets: front, side, top, iso. */
     public void view(String preset) {
-        pan.setX(0);
-        pan.setY(0);
+        pan.setX(homeX);
+        pan.setY(homeY);
+        pan.setZ(homeZ);
         switch (preset) {
             case "front" -> {
                 yaw.setAngle(0);
@@ -110,7 +172,7 @@ public final class ModelView3D extends Pane {
                 pitch.setAngle(-28);
             }
         }
-        dist.setZ(-58);
+        dist.setZ(homeDist);
     }
 
     private void installMouse() {
@@ -154,11 +216,26 @@ public final class ModelView3D extends Pane {
     public void rebuild() {
         materials.clear();
         content.getChildren().clear();
+        boneTransforms.clear();
         if (model != null) {
+            boolean rig = Rig.animated(model);
+            Map<String, Group> groups = new HashMap<>();
+            if (rig) {
+                for (var b : Rig.ordered(model)) {
+                    Group bg = new Group();
+                    Affine a = sceneAffine(bonePose(b.name));
+                    bg.getTransforms().add(a);
+                    boneTransforms.put(b.name, a);
+                    groups.put(b.name, bg);
+                    content.getChildren().add(bg);
+                }
+            }
             for (int i = 0; i < model.cubes.size(); i++) {
-                Group g = cubeNode(model.cubes.get(i));
+                Cube c = model.cubes.get(i);
+                Group g = cubeNode(c);
                 g.setUserData(i);
-                content.getChildren().add(g);
+                Group parent = rig ? groups.get(Rig.boneOf(model, c)) : null;
+                (parent == null ? content : parent).getChildren().add(g);
             }
         }
         rebuildOverlay();
@@ -290,7 +367,32 @@ public final class ModelView3D extends Pane {
                 box.getTransforms().add(new Rotate(c.axis.equals("x") ? c.rotation : -c.rotation, o[0], o[1], o[2], axis));
             }
             box.setMouseTransparent(true);
-            overlay.getChildren().add(box);
+            if (Rig.animated(model)) {
+                Group moved = new Group(box);
+                moved.getTransforms().add(sceneAffine(bonePose(Rig.boneOf(model, c))));
+                overlay.getChildren().add(moved);
+            } else {
+                overlay.getChildren().add(box);
+            }
+        }
+        if (Rig.animated(model)) {
+            // Pivot markers: a small cube at each bone pivot, the selected bone in accent colour.
+            PhongMaterial pin = new PhongMaterial(Color.web("#d29922"));
+            PhongMaterial pinSel = new PhongMaterial(Color.web("#2f81f7"));
+            Map<String, double[]> world = pose != null ? pose : Rig.pose(model, null, 0);
+            for (var b : model.bones) {
+                double[] m = world.getOrDefault(b.name, Rig.identity());
+                double[] at = Rig.apply(m, b.pivot[0], b.pivot[1], b.pivot[2]);
+                double[] s = fx(at[0], at[1], at[2]);
+                boolean on = b.name.equals(selectedBone);
+                Box mark = new Box(on ? 0.9 : 0.6, on ? 0.9 : 0.6, on ? 0.9 : 0.6);
+                mark.setMaterial(on ? pinSel : pin);
+                mark.setTranslateX(s[0]);
+                mark.setTranslateY(s[1]);
+                mark.setTranslateZ(s[2]);
+                mark.setMouseTransparent(true);
+                overlay.getChildren().add(mark);
+            }
         }
         overlay.setMouseTransparent(true);
     }

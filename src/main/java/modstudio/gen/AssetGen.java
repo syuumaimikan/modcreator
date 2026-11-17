@@ -45,6 +45,9 @@ public final class AssetGen {
     public void modAssets(boolean forgeRenderType) {
         for (Item it : ctx.all(Item.class)) itemModel(it, it.name);
         for (Block b : ctx.all(Block.class)) block(b, forgeRenderType);
+        Map<String, TreeMap<Integer, String>> byBase = new TreeMap<>();
+        rigAssets(byBase);
+        overrides(byBase);
         armor(true);
         gameplay(true);
         sounds();
@@ -63,6 +66,37 @@ public final class AssetGen {
             }
             if (!s.vertex.isBlank()) ctx.files.text(asset("minecraft", "shaders/core/" + name + ".vsh"), s.vertex);
             if (!s.fragment.isBlank()) ctx.files.text(asset("minecraft", "shaders/core/" + name + ".fsh"), s.fragment);
+        }
+    }
+
+    /**
+     * Item models for the bones of animated mob models. Before 1.21.4 they are custom model data overrides of the
+     * rig base item; from 1.21.4 an item model definition per bone is selected with the item_model component.
+     */
+    private void rigAssets(Map<String, TreeMap<Integer, String>> byBase) {
+        for (var e : RigGen.boneModels(ctx.p).entrySet()) {
+            Model md = e.getKey();
+            for (modstudio.core.Elements.Bone b : e.getValue()) {
+                String path = RigGen.modelPath(md, b);
+                ctx.files.json(asset(ctx.ns, "models/item/" + path + ".json"), customModel(modstudio.core.Rig.boneModel(md, b), "item"));
+                itemDefinition(path);
+                byBase.computeIfAbsent(RigGen.BASE_ITEM, k -> new TreeMap<>()).put(RigGen.cmd(md, b), ctx.ns + ":item/" + path);
+            }
+        }
+    }
+
+    /** Custom model data overrides on vanilla base items (before 1.21.4, which selects models with item_model). */
+    private void overrides(Map<String, TreeMap<Integer, String>> byBase) {
+        if (ctx.v.itemDefinitions()) return;
+        for (var e : byBase.entrySet()) {
+            String base = e.getKey();
+            String parent = Vanilla.CMD_BASES.getOrDefault(base, "minecraft:item/generated");
+            JsonArray overrides = new JsonArray();
+            for (var o : e.getValue().entrySet()) {
+                overrides.add(J.obj("predicate", J.obj("custom_model_data", o.getKey()), "model", o.getValue()));
+            }
+            JsonObject model = J.obj("parent", parent, "textures", J.obj("layer0", "minecraft:item/" + Ids.path(base)), "overrides", overrides);
+            ctx.files.json(asset(Ids.ns(base), "models/item/" + Ids.path(base) + ".json"), model);
         }
     }
 
@@ -206,25 +240,14 @@ public final class AssetGen {
 
     /** Resource pack for custom-model-data items used by data packs and plugins. */
     public void customModelDataAssets() {
-        Map<String, List<Item>> byBase = new TreeMap<>();
+        // base item -> (custom model data -> model)
+        Map<String, TreeMap<Integer, String>> byBase = new TreeMap<>();
         for (Item it : ctx.all(Item.class)) {
             itemModel(it, it.name);
-            byBase.computeIfAbsent(ItemSpec.base(it), k -> new ArrayList<>()).add(it);
+            byBase.computeIfAbsent(ItemSpec.base(it), k -> new TreeMap<>()).put(ItemSpec.modelData(it), ctx.ns + ":item/" + it.name);
         }
-        // 1.21.4+ items select their model with the item_model component, no overrides needed.
-        if (ctx.v.itemDefinitions()) byBase.clear();
-        for (var e : byBase.entrySet()) {
-            String base = e.getKey();
-            String parent = Vanilla.CMD_BASES.getOrDefault(base, "minecraft:item/generated");
-            List<Item> items = new ArrayList<>(e.getValue());
-            items.sort(Comparator.comparingInt(ItemSpec::modelData));
-            JsonArray overrides = new JsonArray();
-            for (Item it : items) {
-                overrides.add(J.obj("predicate", J.obj("custom_model_data", ItemSpec.modelData(it)), "model", ctx.ns + ":item/" + it.name));
-            }
-            JsonObject model = J.obj("parent", parent, "textures", J.obj("layer0", "minecraft:item/" + Ids.path(base)), "overrides", overrides);
-            ctx.files.json(asset(Ids.ns(base), "models/item/" + Ids.path(base) + ".json"), model);
-        }
+        rigAssets(byBase);
+        overrides(byBase);
         armor(false);
         gameplay(false);
         sounds();

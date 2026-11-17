@@ -222,6 +222,42 @@ public final class Validator {
                         r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.unknown_element", m.name, I18n.t("type.multiblock"), m.multiblock)));
                     if (m.io.isEmpty() && m.onCycle.isEmpty()) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.machine_idle", m.name)));
                 }
+                case Systems.Mob mob -> {
+                    if (!mob.rig.isBlank()) {
+                        Elements.Model md = p.model(mob.rig.trim());
+                        if (md == null) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.rig_missing", mob.name, mob.rig)));
+                        else if (md.bones.isEmpty()) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.rig_no_bones", mob.name, md.name)));
+                        else {
+                            for (String an : List.of(mob.idleAnim, mob.walkAnim, mob.hurtAnim, mob.attackAnim, mob.deathAnim)) {
+                                if (an != null && !an.isBlank() && md.animation(an.trim()) == null) {
+                                    r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.rig_animation", mob.name, an)));
+                                }
+                            }
+                            Elements.Animation death = md.animation(mob.deathAnim.trim());
+                            if (death != null && death.length > 1) r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.rig_death_long", mob.name)));
+                        }
+                    }
+                }
+                case Elements.Model md -> {
+                    if (!md.bones.isEmpty()) {
+                        if (Rig.reach(md) > 96) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.rig_reach", md.name)));
+                        Set<String> boneNames = new HashSet<>();
+                        for (Elements.Bone b : md.bones) {
+                            if (b.name == null || b.name.isBlank() || !boneNames.add(Ids.toId(b.name))) {
+                                r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.bone_name", md.name, b.name == null ? "" : b.name)));
+                            }
+                        }
+                    }
+                    Set<String> anims = new HashSet<>();
+                    for (Elements.Animation a : md.animations) {
+                        if (a.name == null || a.name.isBlank() || !anims.add(Ids.toId(a.name))) {
+                            r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.animation_name", md.name, a.name == null ? "" : a.name)));
+                        }
+                    }
+                    if (!md.animations.isEmpty() && md.bones.isEmpty()) {
+                        r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.animation_no_bones", md.name)));
+                    }
+                }
                 case Systems.Cutscene cs -> {
                     checkSteps(p, r, e, cs.onEnd);
                     if (cs.keys.size() < 2) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.cutscene_keys", cs.name)));

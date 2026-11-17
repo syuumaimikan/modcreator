@@ -71,7 +71,8 @@ public final class Snapshotter {
                 {"api_request", "hypixel_player"}, {"secrets", ""}, {"resource", "mana"}, {"machine", "moon_altar"},
                 {"machine", "millstone"}, {"multiblock", "moon_altar"}, {"compat", ""}, {"shader", "ms_effects"}, {"textures", ""}, {"mob", "ruby_golem"},
                 {"armor_material", "ruby"}, {"status_effect", "ruby_rush"}, {"enchantment", "ruby_edge"}, {"damage_type", "ruby_shard"},
-                {"painting", "ruby_sunset"}, {"song", "ruby_waltz"}, {"block", "ruby_berry_bush"}};
+                {"painting", "ruby_sunset"}, {"song", "ruby_waltz"}, {"block", "ruby_berry_bush"}, {"cutscene", "ruby_intro"},
+                {"model", "ruby_golem"}};
         int k = 40;
         for (String[] pn : named) {
             int num = k++;
@@ -81,6 +82,16 @@ public final class Snapshotter {
                 w.workspace().project.elements.stream().filter(e -> e.type().id.equals(pn[0]) && e.name.equals(pn[1])).findFirst().ifPresent(e -> v.openElement(e.uid));
             });
             add(() -> shot(w.scene(), num + "-" + pn[0] + (pn[1].isEmpty() ? "" : "-" + pn[1])));
+        }
+        // the bone and animation sections of the animated model, further down the editor
+        for (double pos : new double[]{0.55, 0.8}) {
+            add(() -> {
+                for (javafx.scene.Node node : w.scene().getRoot().lookupAll(".scroll-pane")) {
+                    if (node instanceof javafx.scene.control.ScrollPane sp && sp.getContent() != null
+                            && sp.getContent().lookup(".model-view") != null) sp.setVvalue(pos);
+                }
+            });
+            add(() -> shot(w.scene(), (pos < 0.7 ? "70" : "71") + "-model-rig"));
         }
         add(() -> {
             var ws = w.workspace();

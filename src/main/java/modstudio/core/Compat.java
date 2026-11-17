@@ -157,6 +157,7 @@ public final class Compat {
             }
             case Systems.Mob m -> {
                 if (bedrock) a.none("compat.java_only");
+                else if (t == Target.DATAPACK && !m.rig.isBlank()) a.fallback("compat.rig_pack");
                 for (List<Step> l : List.of(m.onSpawn, m.onTick, m.onHurt, m.onDeath, m.onInteract)) steps(p, l, t, old, a);
             }
             case Systems.Effect fx -> {
@@ -239,6 +240,7 @@ public final class Compat {
                 if (old && (Validator.needsMacro(s.p) || (s.cond != null && Validator.needsMacro(s.cond.p)))) a.fallback("compat.macro_old");
             }
             if (bedrock && s.kind.equals("shoot")) a.fallback("compat.shoot_bedrock");
+            if (bedrock && (s.kind.equals("play_animation") || s.kind.equals("stop_animation"))) a.fallback("compat.animation_bedrock");
             steps(p, s.then, t, old, a);
             steps(p, s.orElse, t, old, a);
         }
