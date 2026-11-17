@@ -79,6 +79,10 @@ public final class Compat {
                 if (paper || pack) a.fallback("compat.effect_emulated");
                 if (bedrock) a.none("compat.java_only");
             }
+            case Elements.Potion po -> {
+                if (bedrock) a.none("compat.java_only");
+                else if (paper || pack) a.fallback("compat.potion_item");
+            }
             case Elements.Enchantment en -> {
                 if (bedrock) a.none("compat.java_only");
                 else if (p.mcVersions().stream().anyMatch(v -> !v.atLeast(McVersion.V1_21_1))) a.fallback("compat.needs_121");

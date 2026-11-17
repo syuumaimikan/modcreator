@@ -780,6 +780,12 @@ public final class SampleProject {
         strength.input = "minecraft:mundane";
         strength.addition = "rubymod:ruby";
         strength.result = "minecraft:strength";
+        Recipe vigorBrew = new Recipe();
+        vigorBrew.name = "ruby_vigor_brewing";
+        vigorBrew.recipeType = "brewing";
+        vigorBrew.input = "rubymod:ruby_rush";
+        vigorBrew.addition = "minecraft:glow_berries";
+        vigorBrew.result = "rubymod:ruby_vigor";
 
         Systems.KeyBind dash = new Systems.KeyBind();
         dash.name = "ruby_dash";
@@ -796,7 +802,7 @@ public final class SampleProject {
         menu.setLoc("name", "ja_jp", "ルビーメニュー");
         menu.key = "key.keyboard.g";
         menu.steps.add(step("show_dialog", "dialog", "ruby_welcome", "target", "@s"));
-        p.elements.addAll(List.of(dungeon, zombie, rush, strength, dash, menu));
+        p.elements.addAll(List.of(dungeon, zombie, rush, strength, vigorBrew, dash, menu));
     }
 
     /**
@@ -1154,7 +1160,24 @@ public final class SampleProject {
         volley.steps.add(step("effect", "effect", "rubymod:ruby_rush", "seconds", "5"));
         volley.steps.add(step("sound", "sound", "minecraft:entity.arrow.shoot"));
 
-        p.elements.addAll(List.of(rush, edge, shard, sunset, waltz, disc, volley));
+        Potion vigor = new Potion();
+        vigor.name = "ruby_vigor";
+        vigor.displayName = "Potion of Ruby Vigor";
+        vigor.setLoc("name", "ja_jp", "ルビーの活力のポーション");
+        vigor.notes = "Brewed from Ruby Rush: the rush plus jump boost and regeneration.";
+        vigor.color = "#C2185B";
+        PotionEffect v1 = new PotionEffect();
+        v1.effect = "rubymod:ruby_rush";
+        v1.seconds = 90;
+        PotionEffect v2 = new PotionEffect();
+        v2.effect = "minecraft:jump_boost";
+        v2.seconds = 90;
+        v2.amplifier = 1;
+        PotionEffect v3 = new PotionEffect();
+        v3.effect = "minecraft:regeneration";
+        v3.seconds = 20;
+        vigor.effects.addAll(List.of(v1, v2, v3));
+        p.elements.addAll(List.of(rush, vigor, edge, shard, sunset, waltz, disc, volley));
     }
 
     /** A four-stage crop whose seeds are planted on farmland and drop ruby berries when ripe. */

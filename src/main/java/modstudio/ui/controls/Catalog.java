@@ -48,9 +48,12 @@ public final class Catalog {
                 for (Elements.StatusEffect s : p.all(Elements.StatusEffect.class))
                     r.add(new Picker.Entry(ns + ":" + s.name, label(s.displayName, s.name), null, project));
                 Vanilla.EFFECTS.forEach(s -> r.add(vanilla(s, vanilla)));
+                Vanilla.NEW_EFFECTS.forEach(s -> r.add(vanilla(s, vanilla)));
             }
             case PARTICLE -> Vanilla.PARTICLES.forEach(s -> r.add(vanilla(s, vanilla)));
             case POTION -> {
+                for (Elements.Potion s : p.all(Elements.Potion.class))
+                    r.add(new Picker.Entry(ns + ":" + s.name, label(s.displayName, s.name), null, project));
                 for (Elements.StatusEffect s : p.all(Elements.StatusEffect.class))
                     if (s.potion) r.add(new Picker.Entry(ns + ":" + s.name, label(s.potionName.isBlank() ? s.displayName : s.potionName, s.name), null, project));
                 Vanilla.POTIONS.forEach(s -> r.add(vanilla(s, vanilla)));

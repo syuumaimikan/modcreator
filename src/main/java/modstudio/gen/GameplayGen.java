@@ -38,6 +38,7 @@ public final class GameplayGen {
 
     public void generate() {
         for (StatusEffect e : ctx.all(StatusEffect.class)) statusEffect(e);
+        for (Potion po : ctx.all(Potion.class)) potion(po);
         for (Enchantment e : ctx.all(Enchantment.class)) enchantment(e);
         for (DamageType d : ctx.all(DamageType.class)) damageType(d);
         for (Painting p : ctx.all(Painting.class)) painting(p);
@@ -108,6 +109,121 @@ public final class GameplayGen {
         t.add("execute unless score @s " + obj + " matches 1.. run function " + fnId(dir + "/end"));
         pc.functions.put(dir + "/tick", t);
         tick.add("execute as @e[tag=" + tag + "] at @s run function " + fnId(dir + "/tick"));
+    }
+
+    // ------------------------------------------------------------------ potions
+
+    private static final List<String> BOTTLES = List.of("potion", "splash_potion", "lingering_potion", "tipped_arrow");
+
+    /**
+     * Functions for a potion: apply (its effects on @s) and give, give_splash, give_lingering, give_arrow. Mods give
+     * the registered potion; data packs and plugins give a bottle with custom effects, and drinking it applies the
+     * emulated project effects through an advancement.
+     */
+    private void potion(Potion p) {
+        String dir = "potion/" + p.name;
+        List<String> apply = new ArrayList<>();
+        List<String> emulated = new ArrayList<>();
+        for (PotionEffect pe : p.effects) {
+            String f = Ids.full(pe.effect.trim());
+            int sec = Math.max(1, pe.seconds), amp = Math.max(0, Math.min(255, pe.amplifier));
+            if (Ids.ns(f).equals(ns) && ctx.p.byName(ElementType.STATUS_EFFECT, Ids.path(f)) instanceof StatusEffect se) {
+                if (realItems) apply.add("effect give @s " + f + " " + sec + " " + amp + " " + !pe.particles);
+                else {
+                    pc.objectives.add(objective(ns, se.name));
+                    emulated.addAll(applyEmulated(ctx, se, "@s", sec));
+                }
+            } else if (Ids.ns(f).equals("minecraft") && JavaCommon.vanillaEffectConst(ctx.v, Ids.path(f)) != null) {
+                apply.add("effect give @s " + f + " " + sec + " " + amp + " " + !pe.particles);
+            }
+        }
+        List<String> all = new ArrayList<>(apply);
+        all.addAll(emulated);
+        pc.functions.put(dir + "/apply", all);
+        for (String bottle : BOTTLES) {
+            String fn = switch (bottle) {
+                case "splash_potion" -> "/give_splash";
+                case "lingering_potion" -> "/give_lingering";
+                case "tipped_arrow" -> "/give_arrow";
+                default -> "/give";
+            };
+            pc.functions.put(dir + fn, List.of("give @s " + potionStack(p, bottle) + (bottle.equals("tipped_arrow") ? " 16" : "")));
+        }
+        if (!realItems && !emulated.isEmpty()) {
+            // drinking the bottle applies the project effects that the game cannot carry in the item
+            JsonObject pred = ctx.components()
+                    ? J.obj("items", "minecraft:potion", "predicates", J.obj("minecraft:custom_data", J.obj("PublicBukkitValues", J.obj(ns + ":potion", p.name))))
+                    : J.obj("items", J.arr("minecraft:potion"), "nbt", "{PublicBukkitValues:{\"" + ns + ":potion\":\"" + p.name + "\"}}");
+            JsonObject adv = J.obj("criteria", J.obj("drink", J.obj("trigger", "minecraft:consume_item", "conditions", J.obj("item", pred))),
+                    "rewards", J.obj("function", fnId(dir + "/drink")));
+            ctx.files.json(data(ctx.advDir(), "potion/" + p.name + "_drink.json"), adv);
+            List<String> drink = new ArrayList<>(List.of("advancement revoke @s only " + fnId("potion/" + p.name + "_drink")));
+            drink.addAll(emulated);
+            pc.functions.put(dir + "/drink", drink);
+        }
+    }
+
+    private static int rgb(String hex) {
+        try {
+            return Integer.parseInt(hex.trim().replace("#", ""), 16) & 0xFFFFFF;
+        } catch (RuntimeException e) {
+            return 0x3F76E4;
+        }
+    }
+
+    private String potionName(Potion p, String bottle) {
+        String n = p.displayName.isBlank() ? Ids.titleCase(p.name) : p.displayName;
+        return switch (bottle) {
+            case "splash_potion" -> p.splashName.isBlank() ? "Splash " + n : p.splashName;
+            case "lingering_potion" -> p.lingeringName.isBlank() ? "Lingering " + n : p.lingeringName;
+            case "tipped_arrow" -> p.arrowName.isBlank() ? "Tipped Arrow (" + n + ")" : p.arrowName;
+            default -> n;
+        };
+    }
+
+    /** Item stack argument for /give of a potion bottle or tipped arrow. */
+    String potionStack(Potion p, String bottle) {
+        String item = "minecraft:" + bottle;
+        String bukkit = "PublicBukkitValues:{\"" + ns + ":potion\":\"" + p.name + "\"}";
+        // vanilla effects the bottle can carry (project effects are emulated outside mods)
+        List<String> fx = new ArrayList<>();
+        if (!realItems) {
+            for (PotionEffect pe : p.effects) {
+                String f = Ids.full(pe.effect.trim());
+                String path = Ids.path(f);
+                if (!Ids.ns(f).equals("minecraft") || JavaCommon.vanillaEffectConst(ctx.v, path) == null) continue;
+                int ticks = Math.max(1, pe.seconds) * 20, amp = Math.max(0, Math.min(255, pe.amplifier));
+                if (ctx.v.atLeast(McVersion.V1_20_4)) {
+                    fx.add("{id:\"" + f + "\",duration:" + ticks + ",amplifier:" + amp + "b,show_particles:" + (pe.particles ? "1b" : "0b")
+                            + ",show_icon:" + (pe.icon ? "1b" : "0b") + "}");
+                } else {
+                    fx.add("{Id:" + (Vanilla.EFFECTS.indexOf(f) + 1) + "b,Duration:" + ticks + ",Amplifier:" + amp + "b,ShowParticles:"
+                            + (pe.particles ? "1b" : "0b") + ",ShowIcon:" + (pe.icon ? "1b" : "0b") + "}");
+                }
+            }
+        }
+        if (ctx.components()) {
+            StringBuilder sb = new StringBuilder(item).append("[minecraft:potion_contents={");
+            if (realItems) sb.append("potion:\"").append(ctx.id(p.name)).append('"');
+            else {
+                sb.append("custom_color:").append(rgb(p.color));
+                if (!fx.isEmpty()) sb.append(",custom_effects:[").append(String.join(",", fx)).append(']');
+            }
+            sb.append('}');
+            if (!realItems) sb.append(",minecraft:item_name=").append(ItemSpec.textArg(ctx, J.compact(J.obj("text", potionName(p, bottle)))));
+            sb.append(",minecraft:custom_data={").append(bukkit).append("}]");
+            return sb.toString();
+        }
+        StringBuilder sb = new StringBuilder(item).append('{');
+        if (realItems) sb.append("Potion:\"").append(ctx.id(p.name)).append("\",");
+        else {
+            sb.append("CustomPotionColor:").append(rgb(p.color)).append(',');
+            if (!fx.isEmpty()) sb.append(ctx.v.atLeast(McVersion.V1_20_4) ? "custom_potion_effects:[" : "CustomPotionEffects:[").append(String.join(",", fx)).append("],");
+            String name = J.compact(J.obj("text", potionName(p, bottle), "italic", false));
+            sb.append("display:{Name:'").append(name.replace("\\", "\\\\").replace("'", "\\'")).append("'},");
+        }
+        sb.append(bukkit).append('}');
+        return sb.toString();
     }
 
     // ------------------------------------------------------------------ enchantments (1.21+)

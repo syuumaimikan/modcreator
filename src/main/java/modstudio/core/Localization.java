@@ -38,6 +38,15 @@ public final class Localization {
                         r.add(new Entry("item.minecraft.tipped_arrow.effect." + pk, se, "potion", "Arrow of " + n));
                     }
                 }
+                case Elements.Potion po -> {
+                    String pk = ns + "." + po.name;
+                    String n = or(po.displayName, po.name);
+                    r.add(new Entry("item.minecraft.potion.effect." + pk, po, "name", n));
+                    r.add(new Entry("item.minecraft.splash_potion.effect." + pk, po, "splash", po.splashName.isBlank() ? "Splash " + n : po.splashName));
+                    r.add(new Entry("item.minecraft.lingering_potion.effect." + pk, po, "lingering",
+                            po.lingeringName.isBlank() ? "Lingering " + n : po.lingeringName));
+                    r.add(new Entry("item.minecraft.tipped_arrow.effect." + pk, po, "arrow", po.arrowName.isBlank() ? "Tipped Arrow (" + n + ")" : po.arrowName));
+                }
                 case Elements.Enchantment en -> r.add(new Entry("enchantment." + ns + "." + en.name, en, "name", or(en.displayName, en.name)));
                 case Elements.DamageType d -> {
                     String death = d.deathMessage.isBlank() ? "%1$s died" : d.deathMessage;

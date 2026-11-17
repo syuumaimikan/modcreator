@@ -84,6 +84,11 @@ public final class Vanilla {
         bad_omen hero_of_the_village darkness
         """);
 
+    /** Effects added in 1.20.5. */
+    public static final List<String> NEW_EFFECTS = split("""
+        trial_omen raid_omen wind_charged weaving oozing infested
+        """);
+
     /** Potion ids; the last four exist from 1.20.5 (NEW_POTIONS, paths only). */
     public static final List<String> POTIONS = split("""
         water mundane thick awkward night_vision long_night_vision invisibility long_invisibility leaping long_leaping

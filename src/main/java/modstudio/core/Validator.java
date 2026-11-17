@@ -68,6 +68,21 @@ public final class Validator {
                 case StatusEffect se -> {
                     if (p.texture(se.icon) == null) r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.effect_icon", se.name)));
                 }
+                case Potion po -> {
+                    if (po.effects.isEmpty()) r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.potion_empty", po.name)));
+                    boolean old = p.mcVersions().stream().anyMatch(v -> !v.components());
+                    for (PotionEffect pe : po.effects) {
+                        String f = Ids.full(pe.effect.trim());
+                        String path = Ids.path(f);
+                        boolean known = Ids.ns(f).equals("minecraft") ? Vanilla.EFFECTS.contains(f) || Vanilla.NEW_EFFECTS.contains(f)
+                                : Ids.ns(f).equals(p.meta.modId) && p.byName(ElementType.STATUS_EFFECT, path) != null;
+                        if (!known) r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.potion_effect", po.name, pe.effect)));
+                        else if (old && Ids.ns(f).equals("minecraft") && Vanilla.NEW_EFFECTS.contains(f))
+                            r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.potion_new_effect", po.name, pe.effect)));
+                    }
+                    if (p.all(StatusEffect.class).stream().anyMatch(se -> se.potion && se.name.equals(po.name)))
+                        r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.potion_clash", po.name)));
+                }
                 case Enchantment en -> {
                     if (p.mcVersions().stream().anyMatch(v -> !v.atLeast(McVersion.V1_21_1)))
                         r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.needs_121", en.name)));
@@ -515,7 +530,8 @@ public final class Validator {
             if (id.isBlank()) continue;
             String f = Ids.full(id.trim());
             boolean known = Ids.ns(f).equals("minecraft") ? Vanilla.POTIONS.contains(f)
-                    : Ids.ns(f).equals(p.meta.modId) && p.all(Elements.StatusEffect.class).stream().anyMatch(se -> se.potion && se.name.equals(Ids.path(f)));
+                    : Ids.ns(f).equals(p.meta.modId) && (p.all(Elements.StatusEffect.class).stream().anyMatch(se -> se.potion && se.name.equals(Ids.path(f)))
+                            || p.all(Elements.Potion.class).stream().anyMatch(po -> po.name.equals(Ids.path(f))));
             if (!known) r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.brew_potion", rc.name, id)));
             else if (old && Ids.ns(f).equals("minecraft") && Vanilla.NEW_POTIONS.contains(Ids.path(f)))
                 r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.brew_new_potion", rc.name, id)));

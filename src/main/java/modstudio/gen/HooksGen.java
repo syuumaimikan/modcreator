@@ -179,10 +179,12 @@ final class HooksGen {
     }
 
     /** Project potion for an id in this namespace, or null. */
-    static Elements.StatusEffect projectPotion(GenContext ctx, String id) {
+    static String projectPotion(GenContext ctx, String id) {
         String f = Ids.full(id.trim());
         if (!Ids.ns(f).equals(ctx.ns)) return null;
-        for (Elements.StatusEffect se : ctx.all(Elements.StatusEffect.class)) if (se.potion && se.name.equals(Ids.path(f))) return se;
+        String n = Ids.path(f);
+        for (Elements.StatusEffect se : ctx.all(Elements.StatusEffect.class)) if (se.potion && se.name.equals(n)) return n;
+        for (Elements.Potion po : ctx.all(Elements.Potion.class)) if (po.name.equals(n)) return n;
         return null;
     }
 
@@ -190,9 +192,9 @@ final class HooksGen {
     private String potion(String id) {
         String f = Ids.full(id.trim());
         if (Ids.ns(f).equals("minecraft")) return "Potions." + Ids.toConst(Ids.path(f));
-        Elements.StatusEffect se = projectPotion(ctx, f);
-        if (se == null) return null;
-        String c = "ModPotions." + Ids.toConst(se.name);
+        String n = projectPotion(ctx, f);
+        if (n == null) return null;
+        String c = "ModPotions." + Ids.toConst(n);
         if (!ctx.components()) return fabric() ? c : c + ".get()";
         return switch (loader) {
             case FABRIC -> "BuiltInRegistries.POTION.wrapAsHolder(" + c + ")";

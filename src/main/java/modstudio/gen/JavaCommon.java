@@ -244,7 +244,39 @@ public final class JavaCommon {
     }
 
     public boolean hasPotions() {
-        return ctx.all(Elements.StatusEffect.class).stream().anyMatch(e -> e.potion);
+        return ctx.all(Elements.StatusEffect.class).stream().anyMatch(e -> e.potion) || !ctx.all(Elements.Potion.class).isEmpty();
+    }
+
+    /** MobEffects constant for a vanilla effect in a version, or null when the effect does not exist there. */
+    public static String vanillaEffectConst(McVersion v, String path) {
+        boolean newer = Vanilla.NEW_EFFECTS.contains("minecraft:" + path);
+        if (!Vanilla.EFFECTS.contains("minecraft:" + path) && !newer) return null;
+        if (newer && !v.components()) return null;
+        if (v.atLeast(McVersion.V1_21_8)) return path.toUpperCase(java.util.Locale.ROOT);
+        return switch (path) {
+            case "speed" -> "MOVEMENT_SPEED";
+            case "slowness" -> "MOVEMENT_SLOWDOWN";
+            case "haste" -> "DIG_SPEED";
+            case "mining_fatigue" -> "DIG_SLOWDOWN";
+            case "strength" -> "DAMAGE_BOOST";
+            case "instant_health" -> "HEAL";
+            case "instant_damage" -> "HARM";
+            case "jump_boost" -> "JUMP";
+            case "nausea" -> "CONFUSION";
+            case "resistance" -> "DAMAGE_RESISTANCE";
+            default -> path.toUpperCase(java.util.Locale.ROOT);
+        };
+    }
+
+    /** Effect value for a MobEffectInstance (vanilla or project), or null when it cannot be referenced. */
+    private String mobEffect(Src s, String id) {
+        String f = Ids.full(id.trim());
+        if (Ids.ns(f).equals(ctx.ns)) return ctx.p.byName(ElementType.STATUS_EFFECT, Ids.path(f)) instanceof Elements.StatusEffect ? effectArg(Ids.path(f)) : null;
+        if (!Ids.ns(f).equals("minecraft")) return null;
+        String c = vanillaEffectConst(ctx.v, Ids.path(f));
+        if (c == null) return null;
+        s.imp("net.minecraft.world.effect.MobEffects");
+        return "MobEffects." + c;
     }
 
     /** Attributes that exist as Attributes constants in this version. */
@@ -373,8 +405,11 @@ public final class JavaCommon {
         s.blank().l("public static void init() {").l("}");
         s.l("}");
         ctx.files.text(ctx.javaDir() + "ModEffects.java", s.toString());
+    }
 
-        if (!hasPotions()) return;
+    /** ModPotions: potions of project effects and potion elements. */
+    public void potions() {
+        String main = ctx.mainClass;
         Src po = new Src(ctx.pkg);
         po.imp("net.minecraft.world.effect.MobEffectInstance", "net.minecraft.world.item.alchemy.Potion");
         po.l("public final class ModPotions {");
@@ -401,6 +436,32 @@ public final class JavaCommon {
                 case FORGE -> {
                     po.imp("net.minecraftforge.registries.RegistryObject");
                     po.l("public static final RegistryObject<Potion> " + c + " = POTIONS.register(" + Src.str(se.name) + ", () -> " + expr + ");");
+                }
+            }
+        }
+        for (Elements.Potion p : ctx.all(Elements.Potion.class)) {
+            StringBuilder expr = new StringBuilder("new Potion(" + Src.str(ctx.ns + "." + p.name));
+            for (Elements.PotionEffect pe : p.effects) {
+                String arg = mobEffect(po, pe.effect);
+                if (arg == null) {
+                    ctx.note("potion " + p.name + ": effect " + pe.effect + " does not exist in " + ctx.v.id);
+                    continue;
+                }
+                expr.append(", new MobEffectInstance(").append(arg).append(", ").append(Math.max(1, pe.seconds) * 20).append(", ")
+                        .append(Math.max(0, Math.min(255, pe.amplifier))).append(", false, ").append(pe.particles).append(", ").append(pe.icon).append(')');
+            }
+            expr.append(')');
+            String c = Ids.toConst(p.name);
+            switch (loader) {
+                case FABRIC -> po.l("public static final Potion " + c + " = Registry.register(BuiltInRegistries.POTION, " + main + ".id("
+                        + Src.str(p.name) + "), " + expr + ");");
+                case NEOFORGE -> {
+                    po.imp("net.neoforged.neoforge.registries.DeferredHolder");
+                    po.l("public static final DeferredHolder<Potion, Potion> " + c + " = POTIONS.register(" + Src.str(p.name) + ", () -> " + expr + ");");
+                }
+                case FORGE -> {
+                    po.imp("net.minecraftforge.registries.RegistryObject");
+                    po.l("public static final RegistryObject<Potion> " + c + " = POTIONS.register(" + Src.str(p.name) + ", () -> " + expr + ");");
                 }
             }
         }

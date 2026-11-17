@@ -143,6 +143,94 @@ final class GameplayEditors {
         }
     }
 
+    // ------------------------------------------------------------------ potion
+
+    static final class PotionEditor extends EditorBase<Potion> {
+        private final VBox effectRows = new VBox(6);
+
+        PotionEditor(Ctx c, Potion e) {
+            super(c, e);
+        }
+
+        @Override
+        protected void fill() {
+            f.section(t("section.general"), t("help.potion_element"));
+            nameRow();
+            f.text(t("field.display_name"), () -> e.displayName, v -> e.displayName = v, t("help.potion_display_name"));
+            localized("name", t("field.display_name"), () -> e.displayName);
+            f.text(t("field.splash_name"), () -> e.splashName, v -> e.splashName = v);
+            localized("splash", t("field.splash_name"), () -> e.splashName.isBlank() ? "Splash " + e.displayName : e.splashName);
+            f.text(t("field.lingering_name"), () -> e.lingeringName, v -> e.lingeringName = v);
+            localized("lingering", t("field.lingering_name"), () -> e.lingeringName.isBlank() ? "Lingering " + e.displayName : e.lingeringName);
+            f.text(t("field.arrow_name"), () -> e.arrowName, v -> e.arrowName = v);
+            localized("arrow", t("field.arrow_name"), () -> e.arrowName.isBlank() ? "Tipped Arrow (" + e.displayName + ")" : e.arrowName);
+            colorRow(f, t("field.potion_color"), () -> e.color, v -> e.color = v);
+
+            f.section(t("section.potion_effects"), t("help.potion_effects"));
+            f.add(effectRows);
+            f.add(Ui.button(t("potion.add_effect"), "mdi2p-plus", () -> {
+                e.effects.add(new PotionEffect());
+                rebuild();
+                f.changed();
+            }));
+            rebuild();
+        }
+
+        private void rebuild() {
+            effectRows.getChildren().clear();
+            for (PotionEffect pe : new ArrayList<>(e.effects)) {
+                IdField effect = new IdField(env(), IdField.Kind.EFFECT, pe.effect, v -> {
+                    pe.effect = v;
+                    f.changed();
+                });
+                var seconds = Form.intSpinner(1, 1000000, pe.seconds, v -> {
+                    pe.seconds = v;
+                    f.changed();
+                });
+                seconds.setPrefWidth(110);
+                seconds.setTooltip(new javafx.scene.control.Tooltip(t("field.potion_seconds")));
+                var amp = Form.intSpinner(0, 255, pe.amplifier, v -> {
+                    pe.amplifier = v;
+                    f.changed();
+                });
+                amp.setPrefWidth(80);
+                amp.setTooltip(new javafx.scene.control.Tooltip(t("help.potion_amplifier")));
+                javafx.scene.control.CheckBox particles = new javafx.scene.control.CheckBox(t("potion.particles"));
+                particles.setSelected(pe.particles);
+                particles.selectedProperty().addListener((o, a, b) -> {
+                    pe.particles = b;
+                    f.changed();
+                });
+                particles.setMinWidth(javafx.scene.layout.Region.USE_PREF_SIZE);
+                javafx.scene.control.CheckBox icon = new javafx.scene.control.CheckBox(t("potion.icon"));
+                icon.setSelected(pe.icon);
+                icon.selectedProperty().addListener((o, a, b) -> {
+                    pe.icon = b;
+                    f.changed();
+                });
+                icon.setMinWidth(javafx.scene.layout.Region.USE_PREF_SIZE);
+                Button remove = Ui.iconButton("mdi2c-close", t("action.remove"), () -> {
+                    e.effects.remove(pe);
+                    rebuild();
+                    f.changed();
+                });
+                javafx.scene.control.Label secLabel = Ui.label(t("potion.seconds_short"), "text-muted");
+                secLabel.setMinWidth(javafx.scene.layout.Region.USE_PREF_SIZE);
+                javafx.scene.control.Label ampLabel = Ui.label(t("potion.level_short"), "text-muted");
+                ampLabel.setMinWidth(javafx.scene.layout.Region.USE_PREF_SIZE);
+                HBox top = new HBox(8, effect, remove);
+                top.setAlignment(Pos.CENTER_LEFT);
+                HBox.setHgrow(effect, Priority.ALWAYS);
+                HBox bottom = new HBox(8, secLabel, seconds, ampLabel, amp, particles, icon);
+                bottom.setAlignment(Pos.CENTER_LEFT);
+                VBox card = new VBox(6, top, bottom);
+                card.getStyleClass().add("list-card");
+                effectRows.getChildren().add(card);
+            }
+            if (e.effects.isEmpty()) effectRows.getChildren().add(Ui.label(t("potion.no_effects"), "text-muted"));
+        }
+    }
+
     // ------------------------------------------------------------------ enchantment
 
     static final class EnchantmentEditor extends EditorBase<Enchantment> {

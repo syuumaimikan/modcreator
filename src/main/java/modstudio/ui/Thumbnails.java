@@ -64,6 +64,7 @@ public final class Thumbnails {
             case Systems.Volume v -> volume(v, size);
             case Elements.Painting p -> ws.texture(p.texture, size);
             case Elements.StatusEffect s -> s.icon.isBlank() ? null : ws.texture(s.icon, size);
+            case Elements.Potion po -> potion(po.color, size);
             case Elements.CreativeTab t -> item(t.icon, size);
             case Elements.Advancement a -> item(a.icon, size);
             case Elements.Recipe r -> item(r.result, size);
@@ -81,6 +82,44 @@ public final class Thumbnails {
             case Systems.KeyBind k -> key(Systems.KeyBind.keyLabel(k.key), size);
             default -> null;
         };
+    }
+
+    /** A potion bottle with its liquid in the potion's colour, from the installed game's textures. */
+    private Image potion(String hex, int size) {
+        Image bottle = BlockScene3D.image(ws, "minecraft:item/potion", size);
+        Image liquid = BlockScene3D.image(ws, "minecraft:item/potion_overlay", size);
+        if (bottle == null || liquid == null) return null;
+        Color tint;
+        try {
+            tint = Color.web(hex.trim());
+        } catch (RuntimeException ex) {
+            tint = Color.web("#3F76E4");
+        }
+        int w = (int) Math.min(bottle.getWidth(), liquid.getWidth()), h = (int) Math.min(bottle.getHeight(), liquid.getHeight());
+        WritableImage out = new WritableImage(w, h);
+        var lr = liquid.getPixelReader();
+        var br = bottle.getPixelReader();
+        var pw = out.getPixelWriter();
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                Color l = lr.getColor(x, y), b = br.getColor(x, y);
+                double la = l.getOpacity(), ba = b.getOpacity();
+                double a = ba + la * (1 - ba);
+                if (a <= 0) {
+                    pw.setColor(x, y, Color.TRANSPARENT);
+                    continue;
+                }
+                double r = (b.getRed() * ba + l.getRed() * tint.getRed() * la * (1 - ba)) / a;
+                double g = (b.getGreen() * ba + l.getGreen() * tint.getGreen() * la * (1 - ba)) / a;
+                double bl = (b.getBlue() * ba + l.getBlue() * tint.getBlue() * la * (1 - ba)) / a;
+                pw.setColor(x, y, new Color(clamp(r), clamp(g), clamp(bl), clamp(a)));
+            }
+        }
+        return out;
+    }
+
+    private static double clamp(double v) {
+        return Math.max(0, Math.min(1, v));
     }
 
     private Elements.Model model(String name) {

@@ -99,6 +99,7 @@ public final class Ui {
             case BLOCK -> "mdi2c-cube-outline";
             case ARMOR_MATERIAL -> "mdi2s-shield-half-full";
             case STATUS_EFFECT -> "mdi2f-flask-outline";
+            case POTION -> "mdi2b-bottle-tonic-plus-outline";
             case ENCHANTMENT -> "mdi2b-book-open-variant";
             case DAMAGE_TYPE -> "mdi2h-heart-broken-outline";
             case PAINTING -> "mdi2i-image-frame";

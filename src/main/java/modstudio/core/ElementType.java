@@ -7,6 +7,7 @@ public enum ElementType {
     BLOCK("block", Elements.Block.class, Elements.Block::new),
     ARMOR_MATERIAL("armor_material", Elements.ArmorMaterial.class, Elements.ArmorMaterial::new),
     STATUS_EFFECT("status_effect", Elements.StatusEffect.class, Elements.StatusEffect::new),
+    POTION("potion", Elements.Potion.class, Elements.Potion::new),
     ENCHANTMENT("enchantment", Elements.Enchantment.class, Elements.Enchantment::new),
     DAMAGE_TYPE("damage_type", Elements.DamageType.class, Elements.DamageType::new),
     PAINTING("painting", Elements.Painting.class, Elements.Painting::new),

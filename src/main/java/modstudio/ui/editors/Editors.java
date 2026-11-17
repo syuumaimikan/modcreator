@@ -15,6 +15,7 @@ public final class Editors {
             case Block b -> new BlockEditor(c, b);
             case ArmorMaterial am -> new ArmorEditor(c, am);
             case StatusEffect se -> new GameplayEditors.StatusEffectEditor(c, se);
+            case Potion po -> new GameplayEditors.PotionEditor(c, po);
             case Enchantment en -> new GameplayEditors.EnchantmentEditor(c, en);
             case DamageType dt -> new GameplayEditors.DamageTypeEditor(c, dt);
             case Painting pa -> new GameplayEditors.PaintingEditor(c, pa);
@@ -75,6 +76,11 @@ public final class Editors {
             }
             case Sound s -> s.subtitle = title;
             case StatusEffect se -> se.displayName = title;
+            case Potion po -> {
+                po.displayName = title;
+                PotionEffect first = new PotionEffect();
+                po.effects.add(first);
+            }
             case Enchantment en -> en.displayName = title;
             case DamageType dt -> dt.deathMessage = "%1$s was struck by " + title.toLowerCase(java.util.Locale.ROOT);
             case Painting pa -> pa.title = title;

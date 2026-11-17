@@ -185,6 +185,29 @@ public final class Elements {
         @Override public String subtitle() { return displayName; }
     }
 
+    /** A brewable potion with any number of vanilla or project effects. */
+    public static final class Potion extends Element {
+        public String displayName = "";
+        /** Names of the other bottles; blank means the display name with a prefix. */
+        public String splashName = "";
+        public String lingeringName = "";
+        public String arrowName = "";
+        /** Liquid colour for data packs and plugins; mods mix the colours of the effects like vanilla. */
+        public String color = "#3F76E4";
+        public List<PotionEffect> effects = new ArrayList<>();
+
+        @Override public ElementType type() { return ElementType.POTION; }
+        @Override public String subtitle() { return displayName; }
+    }
+
+    public static final class PotionEffect {
+        public String effect = "minecraft:speed";
+        public int seconds = 180;
+        public int amplifier = 0;
+        public boolean particles = true;
+        public boolean icon = true;
+    }
+
     /** Attribute change while an effect is active; amounts grow with the level like vanilla effects. */
     public static final class EffectModifier {
         public String attribute = "movement_speed";

@@ -38,6 +38,7 @@ public final class ForgeLikeGen {
         jc.procedures();
         if (jc.hasArmor()) jc.armorMaterials();
         if (jc.hasEffects()) jc.effects();
+        if (jc.hasPotions()) jc.potions();
         if (jc.codePaintings()) jc.paintings();
         if (jc.hasCommands()) jc.commands();
         for (Item it : ctx.all(Item.class)) if (jc.needsClass(it)) jc.itemClass(it);
