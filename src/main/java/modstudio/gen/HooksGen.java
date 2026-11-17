@@ -270,7 +270,16 @@ final class HooksGen {
 
     /** Whether the mod has client-only code (ModClient). */
     boolean hasClient() {
-        return hasKeys() || hasCutscenes() || !tooltipColorItems().isEmpty();
+        return hasKeys() || hasCutscenes() || !tooltipColorItems().isEmpty() || !screenButtons().isEmpty();
+    }
+
+    /** Buttons that UI themes add to the title and pause screens. */
+    List<modstudio.core.Systems.ScreenButton> screenButtons() {
+        List<modstudio.core.Systems.ScreenButton> r = new ArrayList<>();
+        for (modstudio.core.Systems.Theme th : ctx.all(modstudio.core.Systems.Theme.class)) {
+            for (modstudio.core.Systems.ScreenButton b : th.buttons) if (!b.label.isBlank() && !b.value.isBlank()) r.add(b);
+        }
+        return r;
     }
 
     /** Items whose tooltip colours come from the loader's tooltip event (Forge and NeoForge before tooltip_style). */
@@ -320,6 +329,10 @@ final class HooksGen {
                 if (!keys.isEmpty()) s.imp("net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper");
                 for (KeyBind k : keys) s.l("KeyBindingHelper.registerKeyBinding(" + Ids.toConst(k.name) + ");");
                 s.l("ClientTickEvents.END_CLIENT_TICK.register(client -> tick());");
+                if (!screenButtons().isEmpty()) {
+                    s.imp("net.fabricmc.fabric.api.client.screen.v1.ScreenEvents", "net.fabricmc.fabric.api.client.screen.v1.Screens");
+                    s.l("ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> addButtons(screen, Screens.getButtons(screen)::add));");
+                }
                 s.l("}");
             }
             case NEOFORGE -> {
@@ -333,6 +346,10 @@ final class HooksGen {
                 if (!tooltipColorItems().isEmpty()) {
                     s.imp("net.neoforged.neoforge.client.event.RenderTooltipEvent");
                     s.l("NeoForge.EVENT_BUS.addListener(ModClient::onTooltipColor);");
+                }
+                if (!screenButtons().isEmpty()) {
+                    s.imp("net.neoforged.neoforge.client.event.ScreenEvent");
+                    s.l("NeoForge.EVENT_BUS.addListener(ModClient::onScreenInit);");
                 }
                 s.l("}");
                 s.blank();
@@ -352,6 +369,10 @@ final class HooksGen {
                     s.l("public static void init(BusGroup modBus) {");
                     if (!keys.isEmpty()) s.l("RegisterKeyMappingsEvent.getBus(modBus).addListener(ModClient::register);");
                     s.l("TickEvent.ClientTickEvent.Post.BUS.addListener(ModClient::onTick);");
+                    if (!screenButtons().isEmpty()) {
+                        s.imp("net.minecraftforge.client.event.ScreenEvent");
+                        s.l("ScreenEvent.Init.Post.BUS.addListener(ModClient::onScreenInit);");
+                    }
                 } else {
                     s.imp("net.minecraftforge.eventbus.api.IEventBus", "net.minecraftforge.common.MinecraftForge");
                     s.l("public static void init(IEventBus modBus) {");
@@ -360,6 +381,10 @@ final class HooksGen {
                     if (!tooltipColorItems().isEmpty()) {
                         s.imp("net.minecraftforge.client.event.RenderTooltipEvent");
                         s.l("MinecraftForge.EVENT_BUS.addListener(ModClient::onTooltipColor);");
+                    }
+                    if (!screenButtons().isEmpty()) {
+                        s.imp("net.minecraftforge.client.event.ScreenEvent");
+                        s.l("MinecraftForge.EVENT_BUS.addListener(ModClient::onScreenInit);");
                     }
                 }
                 s.l("}");
@@ -390,6 +415,7 @@ final class HooksGen {
             s.l("}");
         }
         if (!scenes.isEmpty()) cutsceneCamera(s);
+        if (!screenButtons().isEmpty()) screenButtonCode(s);
         if (!tooltipColorItems().isEmpty()) {
             s.imp("net.minecraft.world.item.ItemStack");
             s.blank();
@@ -412,6 +438,43 @@ final class HooksGen {
         }
         s.l("}");
         ctx.files.text(ctx.javaDir() + "ModClient.java", s.toString());
+    }
+
+    /** Adds the theme buttons to the title and pause screens, stacked in their corners. */
+    private void screenButtonCode(Src s) {
+        s.imp("net.minecraft.client.gui.screens.Screen", "net.minecraft.client.gui.screens.TitleScreen", "net.minecraft.client.gui.screens.PauseScreen",
+                "net.minecraft.client.gui.components.Button", "net.minecraft.network.chat.Component", "net.minecraft.Util");
+        if (!fabric()) {
+            s.blank();
+            s.l("private static void onScreenInit(ScreenEvent.Init.Post event) {");
+            s.l("addButtons(event.getScreen(), event::addListener);");
+            s.l("}");
+        }
+        s.blank();
+        s.l("private static void addButtons(Screen screen, java.util.function.Consumer<Button> add) {");
+        s.l("int w = screen.width, h = screen.height;");
+        for (String screen : List.of("title", "pause")) {
+            List<modstudio.core.Systems.ScreenButton> list = screenButtons().stream().filter(b -> b.screen.equals(screen)).toList();
+            if (list.isEmpty()) continue;
+            s.l("if (screen instanceof " + (screen.equals("title") ? "TitleScreen" : "PauseScreen") + ") {");
+            java.util.Map<String, Integer> used = new java.util.HashMap<>();
+            for (modstudio.core.Systems.ScreenButton b : list) {
+                int i = used.merge(b.corner, 1, Integer::sum) - 1;
+                String x = b.corner.endsWith("left") ? "4" : "w - 102";
+                String y = b.corner.startsWith("top") ? String.valueOf(4 + 24 * i) : "h - " + (24 + 24 * i);
+                String run;
+                if (b.action.equals("command")) {
+                    String cmd = b.value.trim().startsWith("/") ? b.value.trim().substring(1) : b.value.trim();
+                    run = "{ net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance(); if (mc.getConnection() != null) mc.getConnection().sendCommand("
+                            + Src.str(cmd) + "); mc.setScreen(null); }";
+                } else {
+                    run = "Util.getPlatform().openUri(" + Src.str(b.value.trim()) + ")";
+                }
+                s.l("add.accept(Button.builder(Component.literal(" + Src.str(b.label) + "), b -> " + run + ").bounds(" + x + ", " + y + ", 98, 20).build());");
+            }
+            s.l("}");
+        }
+        s.l("}");
     }
 
     private static String hex(int argb) {

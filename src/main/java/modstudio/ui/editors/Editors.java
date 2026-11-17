@@ -39,6 +39,7 @@ public final class Editors {
             case Systems.Dimension d -> new SystemEditors.DimensionEditor(c, d);
             case Systems.Menu m -> new InterfaceEditors.MenuEditor(c, m);
             case Systems.Hud h -> new InterfaceEditors.HudEditor(c, h);
+            case Systems.Theme th -> new ThemeEditor(c, th);
             case Systems.ApiRequest r -> new InterfaceEditors.ApiRequestEditor(c, r);
             case Systems.Resource r -> new MachineEditors.ResourceEditor(c, r);
             case Systems.Machine m -> new MachineEditors.MachineEditor(c, m);

@@ -877,7 +877,20 @@ public final class SampleProject {
 
         ruby.branches.add(branch("welcome", 0, step("show_dialog", "dialog", "ruby_welcome", "target", "@s")));
         ruby.branches.add(branch("merchant", 2, step("spawn_trader", "trader", "ruby_merchant", "x", "~", "y", "~", "z", "~2")));
-        p.elements.addAll(List.of(night, bless, merchant, rules, welcome, glow));
+        Systems.Theme theme = new Systems.Theme();
+        theme.name = "ruby_theme";
+        theme.notes = "Ruby red enchantment glint, ruby splash texts and a wiki button on the pause screen.";
+        theme.glint = "color";
+        theme.glintColor = "#FF2050";
+        theme.glintPattern = "waves";
+        theme.splashes = "Now with more rubies!\nShiny and red!\nAlso try the Ruby Realm!";
+        Systems.ScreenButton wiki = new Systems.ScreenButton();
+        wiki.screen = "pause";
+        wiki.label = "Ruby Wiki";
+        wiki.action = "url";
+        wiki.value = "https://example.com/ruby-wiki";
+        theme.buttons.add(wiki);
+        p.elements.addAll(List.of(night, bless, merchant, rules, welcome, glow, theme));
     }
 
     private static PredicateTerm term(String kind, String... kv) {

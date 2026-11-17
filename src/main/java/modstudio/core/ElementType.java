@@ -40,7 +40,8 @@ public enum ElementType {
     MULTIBLOCK("multiblock", Systems.Multiblock.class, Systems.Multiblock::new),
     CUTSCENE("cutscene", Systems.Cutscene.class, Systems.Cutscene::new),
     DIALOG("dialog", Systems.Dialog.class, Systems.Dialog::new),
-    TRADER("trader", Systems.Trader.class, Systems.Trader::new);
+    TRADER("trader", Systems.Trader.class, Systems.Trader::new),
+    THEME("theme", Systems.Theme.class, Systems.Theme::new);
 
     public final String id;
     public final Class<? extends Element> cls;

@@ -402,6 +402,57 @@ public final class Systems {
 
     // ------------------------------------------------------------------ dialogs
 
+    // ------------------------------------------------------------------ UI themes
+
+    /** A vanilla texture replaced by a project texture. */
+    public static final class TextureOverride {
+        /** Path under assets/minecraft/textures without .png, for example gui/sprites/widget/button. */
+        public String path = "";
+        public String texture = "";
+        /** The vanilla .mcmeta of the picture (GUI scaling), kept so the new picture scales the same way. */
+        public String meta = "";
+    }
+
+    /** A button added to the title screen or the pause screen (mod loaders). */
+    public static final class ScreenButton {
+        /** title, pause */
+        public String screen = "pause";
+        public String label = "Website";
+        /** url, command */
+        public String action = "url";
+        public String value = "https://";
+        /** top_left, top_right, bottom_left, bottom_right */
+        public String corner = "top_right";
+    }
+
+    /** Look of the game: enchantment glint, replaced GUI textures, splash texts, the tooltip box and screen buttons. */
+    public static final class Theme extends Element {
+        /** keep, color (a generated pattern) or texture */
+        public String glint = "keep";
+        public String glintColor = "#8040CC";
+        /** waves, stripes, sparkles, aurora */
+        public String glintPattern = "waves";
+        public String glintTexture = "";
+        public boolean glintArmor = true;
+        public List<TextureOverride> textures = new ArrayList<>();
+        /** Title screen splash texts, one per line; blank keeps the vanilla ones. */
+        public String splashes = "";
+        /** Default tooltip box of every item (1.21.2+). */
+        public boolean tooltip;
+        public String tooltipBackground = "#100010";
+        public int tooltipBackgroundOpacity = 94;
+        public String tooltipBorderTop = "#5000FF";
+        public String tooltipBorderBottom = "#28007F";
+        public int tooltipBorderOpacity = 31;
+        public List<ScreenButton> buttons = new ArrayList<>();
+
+        @Override public ElementType type() { return ElementType.THEME; }
+        @Override public String subtitle() {
+            int n = textures.size() + (glint.equals("keep") ? 0 : 1) + (splashes.isBlank() ? 0 : 1) + (tooltip ? 1 : 0) + buttons.size();
+            return n + " changes";
+        }
+    }
+
     public static final class DialogButton {
         public String label = "OK";
         public String tooltip = "";

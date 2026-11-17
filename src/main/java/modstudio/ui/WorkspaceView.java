@@ -119,7 +119,7 @@ public final class WorkspaceView extends BorderPane {
         section(box, I18n.t("nav.gameplay"));
         for (ElementType t : List.of(ElementType.STATUS_EFFECT, ElementType.POTION, ElementType.ENCHANTMENT, ElementType.DAMAGE_TYPE, ElementType.PAINTING, ElementType.SONG)) typeItem(box, t);
         section(box, I18n.t("nav.presentation"));
-        for (ElementType t : List.of(ElementType.CUTSCENE, ElementType.DIALOG)) typeItem(box, t);
+        for (ElementType t : List.of(ElementType.CUTSCENE, ElementType.DIALOG, ElementType.THEME)) typeItem(box, t);
         section(box, I18n.t("nav.logic"));
         for (ElementType t : List.of(ElementType.PROCEDURE, ElementType.COMMAND, ElementType.KEYBIND, ElementType.CODE_FILE)) typeItem(box, t);
         section(box, I18n.t("nav.world"));

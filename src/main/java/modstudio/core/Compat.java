@@ -84,6 +84,12 @@ public final class Compat {
                 if (paper || pack) a.fallback("compat.effect_emulated");
                 if (bedrock) a.none("compat.java_only");
             }
+            case Systems.Theme th -> {
+                if (bedrock) a.none("compat.java_only");
+                else if (pack || paper) a.fallback("compat.theme_pack");
+                if ((pack || paper || t == Target.RESOURCEPACK) && !th.buttons.isEmpty()) a.notes.add(I18n.t("compat.theme_buttons"));
+                if (th.tooltip && p.mcVersions().stream().anyMatch(v -> !v.atLeast(McVersion.V1_21_4))) a.notes.add(I18n.t("compat.theme_tooltip_old"));
+            }
             case Elements.Potion po -> {
                 if (bedrock) a.none("compat.java_only");
                 else if (paper || pack) a.fallback("compat.potion_item");

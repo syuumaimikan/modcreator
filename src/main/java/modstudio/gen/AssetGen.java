@@ -52,6 +52,7 @@ public final class AssetGen {
         armor(true);
         gameplay(true);
         tooltips();
+        themes();
         sounds();
         lang();
         shaders();
@@ -281,6 +282,7 @@ public final class AssetGen {
         armor(false);
         gameplay(false);
         tooltips();
+        themes();
         sounds();
         lang();
         shaders();
@@ -299,6 +301,42 @@ public final class AssetGen {
             ctx.files.json(asset(ctx.ns, base + "_background.png.mcmeta"), nineSlice(bt == null ? TooltipArt.SIZE : bt.width, bt == null ? TooltipArt.SIZE : bt.height, 9, false));
             ctx.files.bytes(asset(ctx.ns, base + "_frame.png"), ft != null ? ft.bytes() : Images.png(TooltipArt.frame(top, bottom), TooltipArt.SIZE, TooltipArt.SIZE));
             ctx.files.json(asset(ctx.ns, base + "_frame.png.mcmeta"), nineSlice(ft == null ? TooltipArt.SIZE : ft.width, ft == null ? TooltipArt.SIZE : ft.height, 10, true));
+        }
+    }
+
+    /** UI themes: replaced vanilla textures, the enchantment glint, splash texts and the default tooltip box. */
+    private void themes() {
+        for (Systems.Theme th : ctx.all(Systems.Theme.class)) {
+            for (Systems.TextureOverride o : th.textures) {
+                TextureAsset t = ctx.p.texture(o.texture);
+                String rel = o.path.trim().replace('\\', '/');
+                if (t == null || rel.isEmpty() || rel.contains("..")) continue;
+                String path = asset("minecraft", "textures/" + rel + ".png");
+                ctx.files.bytes(path, t.bytes());
+                JsonObject meta = ThemeArt.meta(o.meta, t, rel.startsWith("gui/sprites/"));
+                if (meta != null) ctx.files.json(path + ".mcmeta", meta);
+            }
+            if (!th.glint.equals("keep")) {
+                TextureAsset gt = th.glint.equals("texture") ? ctx.p.texture(th.glintTexture) : null;
+                byte[] png = gt != null ? Images.png(gt.firstFrame(), gt.width, gt.frameHeight())
+                        : Images.png(ThemeArt.glint(th.glintColor, th.glintPattern), ThemeArt.GLINT, ThemeArt.GLINT);
+                ctx.files.bytes(asset("minecraft", "textures/misc/enchanted_glint_item.png"), png);
+                if (th.glintArmor) ctx.files.bytes(asset("minecraft", "textures/misc/enchanted_glint_entity.png"), png);
+            }
+            if (!th.splashes.isBlank()) {
+                StringBuilder sb = new StringBuilder();
+                for (String line : th.splashes.split("\\R")) if (!line.isBlank()) sb.append(line.strip()).append('\n');
+                ctx.files.text(asset("minecraft", "texts/splashes.txt"), sb.toString());
+            }
+            if (th.tooltip && ctx.v.atLeast(McVersion.V1_21_4)) {
+                int bg = TooltipArt.argb(th.tooltipBackground, th.tooltipBackgroundOpacity);
+                int top = TooltipArt.argb(th.tooltipBorderTop, th.tooltipBorderOpacity), bottom = TooltipArt.argb(th.tooltipBorderBottom, th.tooltipBorderOpacity);
+                String base = "textures/gui/sprites/tooltip/";
+                ctx.files.bytes(asset("minecraft", base + "background.png"), Images.png(TooltipArt.background(bg), TooltipArt.SIZE, TooltipArt.SIZE));
+                ctx.files.json(asset("minecraft", base + "background.png.mcmeta"), nineSlice(TooltipArt.SIZE, TooltipArt.SIZE, 9, false));
+                ctx.files.bytes(asset("minecraft", base + "frame.png"), Images.png(TooltipArt.frame(top, bottom), TooltipArt.SIZE, TooltipArt.SIZE));
+                ctx.files.json(asset("minecraft", base + "frame.png.mcmeta"), nineSlice(TooltipArt.SIZE, TooltipArt.SIZE, 10, true));
+            }
         }
     }
 

@@ -98,6 +98,18 @@ public final class VanillaAssets {
         return 0;
     }
 
+    /** Files of the jar under a folder, sorted. */
+    public java.util.List<String> list(String prefix) {
+        java.util.List<String> r = new java.util.ArrayList<>();
+        var en = zip.entries();
+        while (en.hasMoreElements()) {
+            String n = en.nextElement().getName();
+            if (n.startsWith(prefix) && !n.endsWith("/")) r.add(n);
+        }
+        java.util.Collections.sort(r);
+        return r;
+    }
+
     /** Raw bytes of a file in the jar, or null. */
     public byte[] bytes(String path) {
         return bytes.computeIfAbsent(path, k -> {

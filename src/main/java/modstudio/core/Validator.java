@@ -68,6 +68,26 @@ public final class Validator {
                 case StatusEffect se -> {
                     if (p.texture(se.icon) == null) r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.effect_icon", se.name)));
                 }
+                case Systems.Theme th -> {
+                    for (Systems.TextureOverride o : th.textures) {
+                        if (o.path.isBlank() || p.texture(o.texture) == null)
+                            r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.theme_texture", th.name, o.path)));
+                    }
+                    if (th.glint.equals("texture") && p.texture(th.glintTexture) == null)
+                        r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.theme_glint", th.name)));
+                    for (Systems.ScreenButton b : th.buttons) {
+                        if (b.screen.equals("title") && b.action.equals("command"))
+                            r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.theme_title_command", th.name, b.label)));
+                        if (b.action.equals("url") && !b.value.trim().matches("https?://.+"))
+                            r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.theme_url", th.name, b.label)));
+                    }
+                    for (Element other : p.elements) {
+                        if (other == th || !(other instanceof Systems.Theme o2) || p.elements.indexOf(other) > p.elements.indexOf(th)) continue;
+                        if (!th.glint.equals("keep") && !o2.glint.equals("keep") || !th.splashes.isBlank() && !o2.splashes.isBlank()
+                                || th.textures.stream().anyMatch(x -> o2.textures.stream().anyMatch(y -> y.path.equals(x.path))))
+                            r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.theme_overlap", th.name, o2.name)));
+                    }
+                }
                 case Potion po -> {
                     if (po.effects.isEmpty()) r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.potion_empty", po.name)));
                     boolean old = p.mcVersions().stream().anyMatch(v -> !v.components());
