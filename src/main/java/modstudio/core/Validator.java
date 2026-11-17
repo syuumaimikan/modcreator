@@ -137,7 +137,39 @@ public final class Validator {
                 }
                 case LootTable lt -> {
                     if (lt.pools.isEmpty()) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.loot_empty", lt.name)));
-                    for (LootPool pool : lt.pools) for (LootEntry en : pool.entries) if (en.kind.equals("item")) checkRef(p, r, e, en.name);
+                    for (LootPool pool : lt.pools) {
+                        for (LootEntry en : pool.entries) if (en.kind.equals("item")) checkRef(p, r, e, en.name);
+                        checkPredicate(p, r, e, pool.predicate);
+                    }
+                }
+                case Elements.Predicate pr -> {
+                    if (pr.terms.isEmpty()) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.predicate_empty", pr.name)));
+                    boolean oldBiomes = p.mcVersions().stream().anyMatch(v -> !v.components());
+                    for (PredicateTerm t : pr.terms) {
+                        switch (t.kind) {
+                            case "equipment" -> checkRef(p, r, e, t.get("item"));
+                            case "block_below" -> checkRef(p, r, e, t.get("block"));
+                            case "predicate" -> {
+                                if (t.get("predicate").trim().equals(pr.name))
+                                    r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.predicate_self", pr.name)));
+                                else checkPredicate(p, r, e, t.get("predicate"));
+                            }
+                            case "raw" -> checkJson(r, e, t.get("json"));
+                            case "biome" -> {
+                                if (oldBiomes && t.get("biome").trim().startsWith("#"))
+                                    r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.biome_tag_old", pr.name)));
+                            }
+                            case "score" -> {
+                                if (t.get("objective").isBlank()) r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.predicate_objective", pr.name)));
+                            }
+                            default -> {
+                            }
+                        }
+                    }
+                }
+                case Elements.ItemModifier im -> {
+                    if (im.functions.isEmpty()) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.modifier_empty", im.name)));
+                    for (ModifierFunction fn : im.functions) if (fn.kind.equals("raw")) checkJson(r, e, fn.get("json"));
                 }
                 case Advancement a -> {
                     checkRef(p, r, e, a.icon);
@@ -261,6 +293,42 @@ public final class Validator {
                     }
                     if (!md.animations.isEmpty() && md.bones.isEmpty()) {
                         r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.animation_no_bones", md.name)));
+                    }
+                }
+                case Systems.Dialog d -> {
+                    if (d.kind.equals("multi_action") && d.buttons.isEmpty())
+                        r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.dialog_no_buttons", d.name)));
+                    int used = d.effectiveButtons().size();
+                    if (d.buttons.size() > used) r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.dialog_extra_buttons", d.name, used)));
+                    for (Systems.DialogButton b : d.effectiveButtons()) {
+                        String target = b.target.trim();
+                        switch (b.action) {
+                            case "run" -> checkSteps(p, r, e, b.steps);
+                            case "dialog" -> {
+                                if (!target.contains(":") && p.byName(ElementType.DIALOG, target) == null)
+                                    r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.unknown_element", d.name, I18n.t("type.dialog"), target.isEmpty() ? "-" : target)));
+                            }
+                            case "url" -> {
+                                if (!target.startsWith("https://") && !target.startsWith("http://"))
+                                    r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.dialog_url", d.name, b.label)));
+                            }
+                            case "suggest", "copy" -> {
+                                if (target.isEmpty()) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.dialog_target", d.name, b.label)));
+                            }
+                            default -> {
+                            }
+                        }
+                    }
+                }
+                case Systems.Trader tr -> {
+                    if (tr.trades.isEmpty()) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.trader_empty", tr.name)));
+                    if (tr.entity.equals("villager") && (tr.profession.equals("none") || tr.profession.equals("nitwit")))
+                        r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.trader_profession", tr.name)));
+                    for (Systems.Trade td : tr.trades) {
+                        for (String id : List.of(td.buy, td.buyB, td.sell)) checkRef(p, r, e, id);
+                        if (td.buy.isBlank() || td.sell.isBlank()) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.trade_incomplete", tr.name)));
+                        if (Ids.isTag(td.buy.trim()) || Ids.isTag(td.buyB.trim()) || Ids.isTag(td.sell.trim()))
+                            r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.trade_tag", tr.name)));
                     }
                 }
                 case Systems.Cutscene cs -> {
@@ -403,6 +471,24 @@ public final class Validator {
             else if (old && rc.input.trim().startsWith("#"))
                 r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.multiblock_tag_input", mb.name, rc.input)));
         }
+    }
+
+    /** A project predicate named without a namespace has to exist. */
+    private static void checkPredicate(Project p, List<Problem> r, Element e, String name) {
+        String n = name == null ? "" : name.trim();
+        if (n.isEmpty()) return;
+        if (n.startsWith(p.meta.modId + ":")) n = n.substring(p.meta.modId.length() + 1);
+        else if (n.contains(":")) return;
+        if (p.byName(ElementType.PREDICATE, n) == null)
+            r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.unknown_element", e.name, I18n.t("type.predicate"), n)));
+    }
+
+    private static void checkJson(List<Problem> r, Element e, String json) {
+        try {
+            if (com.google.gson.JsonParser.parseString(json).isJsonObject()) return;
+        } catch (Exception ignored) {
+        }
+        r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.raw_json", e.name)));
     }
 
     private static void checkRef(Project p, List<Problem> r, Element e, String id) {

@@ -76,6 +76,7 @@ public final class InterfaceGen {
         menus();
         huds();
         requests();
+        new DialogGen(ctx, pc, load, tick).generate();
         if (ctx.target.isMod() && needsWeb(ctx.p)) load.add(pc.bridgeCommand() + " init");
     }
 

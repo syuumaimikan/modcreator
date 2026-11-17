@@ -7,7 +7,10 @@ import modstudio.gen.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 
 /** Headless commands: --generate <outDir> [project.msproj] [mcVersions,...] [targets,...], --build <dir> [tasks...], --sample <file>, --validate [file]. */
 public final class Cli {
@@ -39,12 +42,22 @@ public final class Cli {
                     }
                     p.meta.targets = args.length > 4 ? Arrays.asList(args[4].split(",")) : new java.util.ArrayList<>(
                             Arrays.stream(Target.values()).map(t -> t.id).toList());
+                    Map<Target, Map<McVersion, FileMap>> packs = new EnumMap<>(Target.class);
                     for (Build b : p.builds()) {
                         GenContext ctx = Generators.generate(p, b);
+                        if (b.target() == Target.DATAPACK || b.target() == Target.RESOURCEPACK)
+                            packs.computeIfAbsent(b.target(), k -> new TreeMap<>()).put(b.mc(), ctx.files);
                         Exporter.writeFolder(ctx.files, out.resolve(b.key()));
                         if (!b.target().usesGradle()) Exporter.writeZip(ctx.files, out.resolve("dist").resolve(Exporter.packFileName(p, b)));
                         System.out.println(b.key() + ": " + ctx.files.size() + " files");
                         for (String n : ctx.notes) System.out.println("  note: " + n);
+                    }
+                    for (var en : packs.entrySet()) {
+                        FileMap all = Exporter.universalPack(en.getValue(), en.getKey());
+                        if (all == null) continue;
+                        Path zip = out.resolve("dist").resolve(Exporter.universalFileName(p, en.getKey()));
+                        Exporter.writeZip(all, zip);
+                        System.out.println("universal " + en.getKey().id + ": " + all.size() + " files -> " + zip.getFileName());
                     }
                 }
                 case "--build" -> {

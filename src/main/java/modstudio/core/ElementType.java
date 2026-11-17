@@ -20,6 +20,8 @@ public enum ElementType {
     ADVANCEMENT("advancement", Elements.Advancement.class, Elements.Advancement::new),
     TAG("tag", Elements.Tag.class, Elements.Tag::new),
     FUNCTION("function", Elements.Function.class, Elements.Function::new),
+    PREDICATE("predicate", Elements.Predicate.class, Elements.Predicate::new),
+    ITEM_MODIFIER("item_modifier", Elements.ItemModifier.class, Elements.ItemModifier::new),
     PROCEDURE("procedure", Elements.Procedure.class, Elements.Procedure::new),
     COMMAND("command", Elements.Command.class, Elements.Command::new),
     CODE_FILE("code_file", Elements.CodeFile.class, Elements.CodeFile::new),
@@ -34,7 +36,9 @@ public enum ElementType {
     RESOURCE("resource", Systems.Resource.class, Systems.Resource::new),
     MACHINE("machine", Systems.Machine.class, Systems.Machine::new),
     MULTIBLOCK("multiblock", Systems.Multiblock.class, Systems.Multiblock::new),
-    CUTSCENE("cutscene", Systems.Cutscene.class, Systems.Cutscene::new);
+    CUTSCENE("cutscene", Systems.Cutscene.class, Systems.Cutscene::new),
+    DIALOG("dialog", Systems.Dialog.class, Systems.Dialog::new),
+    TRADER("trader", Systems.Trader.class, Systems.Trader::new);
 
     public final String id;
     public final Class<? extends Element> cls;
@@ -52,7 +56,7 @@ public enum ElementType {
 
     /** Whether names may contain slashes (sub folders). */
     public boolean allowsPath() {
-        return this == LOOT_TABLE || this == ADVANCEMENT || this == TAG || this == FUNCTION;
+        return this == LOOT_TABLE || this == ADVANCEMENT || this == TAG || this == FUNCTION || this == PREDICATE || this == ITEM_MODIFIER;
     }
 
     /** Items and blocks share the item registry, so their names must not collide. */

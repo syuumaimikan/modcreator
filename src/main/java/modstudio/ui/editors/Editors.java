@@ -43,6 +43,10 @@ public final class Editors {
             case Systems.Machine m -> new MachineEditors.MachineEditor(c, m);
             case Systems.Multiblock mb -> new MachineEditors.MultiblockEditor(c, mb);
             case Systems.Cutscene cs -> new CutsceneEditor(c, cs);
+            case Elements.Predicate pr -> new DataEditors.PredicateEditor(c, pr);
+            case Elements.ItemModifier im -> new DataEditors.ItemModifierEditor(c, im);
+            case Systems.Dialog d -> new DataEditors.DialogEditor(c, d);
+            case Systems.Trader tr -> new DataEditors.TraderEditor(c, tr);
             default -> throw new IllegalArgumentException(e.type().id);
         };
         return ed.build();
@@ -165,6 +169,31 @@ public final class Editors {
                 ev.color = "gold";
                 ev.duration = 3;
                 cs.events.add(ev);
+            }
+            case Elements.Predicate pr -> {
+                PredicateTerm term = new PredicateTerm();
+                term.kind = "time";
+                Logic.defaults(Logic.PREDICATE_TERMS.get(term.kind), term.p);
+                pr.terms.add(term);
+            }
+            case Elements.ItemModifier im -> {
+                ModifierFunction fn = new ModifierFunction();
+                fn.kind = "set_name";
+                Logic.defaults(Logic.MODIFIER_FUNCTIONS.get(fn.kind), fn.p);
+                fn.p.put("text", title);
+                im.functions.add(fn);
+            }
+            case Systems.Dialog d -> {
+                d.title = title;
+                d.body = "";
+                Systems.DialogButton ok = new Systems.DialogButton();
+                ok.label = "OK";
+                d.kind = "notice";
+                d.buttons.add(ok);
+            }
+            case Systems.Trader tr -> {
+                tr.displayName = title;
+                tr.trades.add(new Systems.Trade());
             }
             case Advancement a -> {
                 a.title = title;

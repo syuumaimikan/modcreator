@@ -33,6 +33,10 @@ public final class Logic {
     public static final Map<String, Def> STEPS = new LinkedHashMap<>();
     public static final Map<String, Def> CONDITIONS = new LinkedHashMap<>();
     public static final Map<String, Def> TRIGGERS = new LinkedHashMap<>();
+    /** Terms a predicate element can test, with the values each one needs. */
+    public static final Map<String, List<Param>> PREDICATE_TERMS = new LinkedHashMap<>();
+    /** Functions an item modifier element can apply, with their values. */
+    public static final Map<String, List<Param>> MODIFIER_FUNCTIONS = new LinkedHashMap<>();
 
     private static void step(String id, String cat, Param... ps) {
         STEPS.put(id, new Def(id, cat, List.of(ps)));
@@ -40,6 +44,20 @@ public final class Logic {
 
     private static void cond(String id, Param... ps) {
         CONDITIONS.put(id, new Def(id, "condition", List.of(ps)));
+    }
+
+    private static void term(String id, Param... ps) {
+        PREDICATE_TERMS.put(id, List.of(ps));
+    }
+
+    private static void modifier(String id, Param... ps) {
+        MODIFIER_FUNCTIONS.put(id, List.of(ps));
+    }
+
+    /** Fills in the default value of every parameter of a kind that has no value yet. */
+    public static void defaults(List<Param> params, Map<String, String> values) {
+        if (params == null) return;
+        for (Param prm : params) values.putIfAbsent(prm.key(), prm.def());
     }
 
     private static void trig(String id, Param... ps) {
@@ -143,6 +161,10 @@ public final class Logic {
         step("machine_place", "machine", Param.ref("machine", "machine"), x, y, z);
         step("resource_add", "machine", Param.ref("resource", "resource"), Param.of("amount", PType.TEXT, "100"), Param.of("radius", PType.DECIMAL, "3"));
         step("multiblock_build", "machine", Param.ref("multiblock", "multiblock"), x, y, z);
+        step("modify_item", "items", target, Param.choice("slot", "weapon.mainhand", SLOTS), Param.ref("modifier", "item_modifier"));
+        step("give_loot", "items", target, Param.of("table", PType.TEXT, "minecraft:chests/simple_dungeon"));
+        step("show_dialog", "interface", Param.ref("dialog", "dialog"), target);
+        step("spawn_trader", "entity", Param.ref("trader", "trader"), x, y, z);
         step("contraption_move", "machine", Param.ref("multiblock", "multiblock"), x, y, z,
                 Param.of("dx", PType.INT, "0"), Param.of("dy", PType.INT, "3"), Param.of("dz", PType.INT, "0"), Param.of("ticks", PType.INT, "40"));
 
@@ -178,6 +200,38 @@ public final class Logic {
         maxVersions[0] = "any";
         System.arraycopy(versions, 0, maxVersions, 1, versions.length);
         cond("mc_version", Param.choice("min", versions[0], versions), Param.choice("max", "any", maxVersions));
+        cond("predicate", Param.ref("predicate", "predicate"));
+
+        term("random_chance", Param.of("percent", PType.DECIMAL, "50"));
+        term("weather", Param.choice("weather", "rain", "rain", "thunder", "clear"));
+        term("time", Param.of("min", PType.INT, "13000"), Param.of("max", PType.INT, "23000"));
+        term("entity_flag", Param.choice("flag", "is_sneaking", "is_sneaking", "is_sprinting", "is_swimming", "is_on_fire", "is_baby"));
+        term("entity_type", Param.of("entity", PType.ENTITY, "minecraft:player"));
+        term("effect", Param.of("effect", PType.EFFECT, "minecraft:speed"), Param.of("amplifier", PType.INT, "0"));
+        term("equipment", Param.choice("slot", "mainhand", "mainhand", "offhand", "head", "chest", "legs", "feet"), Param.of("item", PType.ITEM, "minecraft:diamond_sword"));
+        term("score", Param.of("objective", PType.TEXT, "points"), Param.of("min", PType.TEXT, "1"), Param.of("max", PType.TEXT, ""));
+        term("player_level", Param.of("min", PType.INT, "10"));
+        term("vehicle", Param.of("entity", PType.ENTITY, "minecraft:horse"));
+        term("biome", Param.of("biome", PType.TEXT, "minecraft:plains"));
+        term("dimension", Param.of("dimension", PType.DIMENSION, "minecraft:overworld"));
+        term("block_below", Param.of("block", PType.BLOCK, "minecraft:grass_block"));
+        term("light", Param.of("min", PType.INT, "0"), Param.of("max", PType.INT, "7"));
+        term("y_level", Param.of("min", PType.INT, "-64"), Param.of("max", PType.INT, "0"));
+        term("predicate", Param.ref("predicate", "predicate"));
+        term("raw", Param.of("json", PType.LONGTEXT, "{\"condition\": \"minecraft:weather_check\", \"raining\": true}"));
+
+        modifier("set_count", Param.of("count", PType.INT, "1"), Param.of("add", PType.BOOL, "false"));
+        modifier("set_damage", Param.of("percent", PType.DECIMAL, "100"), Param.of("add", PType.BOOL, "false"));
+        modifier("set_name", Param.of("text", PType.TEXT, "&6Blessed Blade"), Param.choice("color", "white", COLORS));
+        modifier("set_lore", Param.of("text", PType.LONGTEXT, "&7A gift from the shrine"), Param.choice("mode", "append", "append", "replace"));
+        modifier("enchant", Param.of("enchantment", PType.ENCHANTMENT, "minecraft:sharpness"), Param.of("level", PType.INT, "3"), Param.of("add", PType.BOOL, "true"));
+        modifier("enchant_randomly");
+        modifier("enchant_with_levels", Param.of("levels", PType.INT, "30"), Param.of("treasure", PType.BOOL, "false"));
+        modifier("unbreakable");
+        modifier("glint");
+        modifier("potion", Param.of("potion", PType.TEXT, "minecraft:swiftness"));
+        modifier("furnace_smelt");
+        modifier("raw", Param.of("json", PType.LONGTEXT, "{\"function\": \"minecraft:set_count\", \"count\": 2}"));
 
         trig("load");
         trig("tick");

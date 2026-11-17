@@ -725,6 +725,115 @@ public final class SampleProject {
 
         p.elements.addAll(List.of(mana, stress, altarShape, lift, collector, pool, altar, engine, mill));
         crusher(p, ruby);
+        dialogs(p, ruby);
+    }
+
+    /**
+     * Data pack building blocks: a predicate (night while holding a ruby), an item modifier that blesses the held
+     * weapon, a welcome dialog with a rules dialog behind it, and a ruby merchant to spawn.
+     */
+    private static void dialogs(Project p, Elements.Command ruby) {
+        Predicate night = new Predicate();
+        night.name = "ruby_night";
+        night.terms.add(term("time", "min", "13000", "max", "23000"));
+        night.terms.add(term("equipment", "slot", "mainhand", "item", "rubymod:ruby"));
+
+        ItemModifier bless = new ItemModifier();
+        bless.name = "ruby_blessing";
+        bless.functions.add(function("set_name", "text", "&cBlessed Blade", "color", "red"));
+        bless.functions.add(function("set_lore", "text", "&7Blessed at the ruby shrine", "mode", "append"));
+        bless.functions.add(function("enchant", "enchantment", "minecraft:sharpness", "level", "3", "add", "true"));
+        bless.functions.add(function("glint"));
+
+        Systems.Trader merchant = new Systems.Trader();
+        merchant.name = "ruby_merchant";
+        merchant.profession = "cleric";
+        merchant.level = 3;
+        merchant.displayName = "Ruby Merchant";
+        merchant.nameColor = "red";
+        merchant.trades.add(trade("minecraft:emerald", 3, "", 0, "rubymod:ruby", 1, 16));
+        merchant.trades.add(trade("rubymod:ruby", 4, "", 0, "rubymod:ruby_hammer", 1, 4));
+        merchant.trades.add(trade("rubymod:ruby", 2, "minecraft:iron_ingot", 8, "minecraft:diamond", 1, 8));
+
+        Systems.Dialog rules = new Systems.Dialog();
+        rules.name = "ruby_rules";
+        rules.kind = "notice";
+        rules.title = "&cRuby World Rules";
+        rules.body = "Be kind to other players.\n\nRubies glow at night: hold one after sunset for a surprise.";
+        Systems.DialogButton gotIt = new Systems.DialogButton();
+        gotIt.label = "Got it";
+        rules.buttons.add(gotIt);
+
+        Systems.Dialog welcome = new Systems.Dialog();
+        welcome.name = "ruby_welcome";
+        welcome.kind = "multi_action";
+        welcome.title = "&cWelcome to Ruby World";
+        welcome.body = "Pick a gift to start with.\n\nYou can open this window again with /ruby welcome.";
+        welcome.columns = 2;
+        welcome.openSound = "minecraft:block.amethyst_block.chime";
+        welcome.buttons.add(button("Bless my weapon", "Names and enchants the item in your hand", "run", "",
+                step("modify_item", "target", "@s", "slot", "weapon.mainhand", "modifier", "ruby_blessing"),
+                step("message", "text", "Your weapon glows with ruby light.", "color", "red")));
+        welcome.buttons.add(button("Ruby cache", "Rolls the ruby cache loot table", "run", "",
+                step("give_loot", "target", "@s", "table", "chests/ruby_cache")));
+        welcome.buttons.add(button("Call the merchant", "A ruby merchant appears next to you", "run", "",
+                step("spawn_trader", "trader", "ruby_merchant", "x", "~2", "y", "~", "z", "~")));
+        welcome.buttons.add(button("Rules", "", "dialog", "ruby_rules"));
+        welcome.buttons.add(button("Minecraft Wiki", "Opens the wiki in your browser", "url", "https://minecraft.wiki"));
+        welcome.buttons.add(button("Close", "", "close", ""));
+
+        Procedure glow = new Procedure();
+        glow.name = "ruby_night_glow";
+        glow.trigger = "interval";
+        glow.interval = 40;
+        Step check = Logic.newStep("if");
+        check.cond = Logic.newCondition("predicate");
+        check.cond.p.put("predicate", "ruby_night");
+        check.then.add(step("effect", "target", "@s", "effect", "minecraft:glowing", "seconds", "3", "amplifier", "0", "hide", "true"));
+        glow.steps.add(step("for_each", "selector", "@a"));
+        glow.steps.get(0).then.add(check);
+
+        ruby.branches.add(branch("welcome", 0, step("show_dialog", "dialog", "ruby_welcome", "target", "@s")));
+        ruby.branches.add(branch("merchant", 2, step("spawn_trader", "trader", "ruby_merchant", "x", "~", "y", "~", "z", "~2")));
+        p.elements.addAll(List.of(night, bless, merchant, rules, welcome, glow));
+    }
+
+    private static PredicateTerm term(String kind, String... kv) {
+        PredicateTerm t = new PredicateTerm();
+        t.kind = kind;
+        for (int i = 0; i + 1 < kv.length; i += 2) t.p.put(kv[i], kv[i + 1]);
+        Logic.defaults(Logic.PREDICATE_TERMS.get(kind), t.p);
+        return t;
+    }
+
+    private static ModifierFunction function(String kind, String... kv) {
+        ModifierFunction f = new ModifierFunction();
+        f.kind = kind;
+        for (int i = 0; i + 1 < kv.length; i += 2) f.p.put(kv[i], kv[i + 1]);
+        Logic.defaults(Logic.MODIFIER_FUNCTIONS.get(kind), f.p);
+        return f;
+    }
+
+    private static Systems.Trade trade(String buy, int buyCount, String buyB, int buyBCount, String sell, int sellCount, int maxUses) {
+        Systems.Trade t = new Systems.Trade();
+        t.buy = buy;
+        t.buyCount = buyCount;
+        t.buyB = buyB;
+        t.buyBCount = Math.max(1, buyBCount);
+        t.sell = sell;
+        t.sellCount = sellCount;
+        t.maxUses = maxUses;
+        return t;
+    }
+
+    private static Systems.DialogButton button(String label, String tooltip, String action, String target, Step... steps) {
+        Systems.DialogButton b = new Systems.DialogButton();
+        b.label = label;
+        b.tooltip = tooltip;
+        b.action = action;
+        b.target = target;
+        b.steps.addAll(List.of(steps));
+        return b;
     }
 
     /**

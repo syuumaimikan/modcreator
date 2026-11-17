@@ -38,6 +38,7 @@ public final class DataGen {
     public void generate(boolean recipes) {
         if (recipes) recipes();
         lootTables();
+        predicatesAndModifiers();
         if (realItems) blockData();
         advancements();
         userTags();
@@ -295,6 +296,10 @@ public final class DataGen {
             JsonArray conds = new JsonArray();
             if (pool.chance < 1.0) conds.add(J.obj("condition", "minecraft:random_chance", "chance", pool.chance));
             if (pool.killedByPlayer) conds.add(J.obj("condition", "minecraft:killed_by_player"));
+            if (!pool.predicate.isBlank()) {
+                String pr = pool.predicate.trim();
+                conds.add(J.obj("condition", "minecraft:reference", "name", pr.contains(":") ? pr : ctx.ns + ":" + pr));
+            }
             if (!conds.isEmpty()) po.add("conditions", conds);
             pools.add(po);
         }
@@ -311,6 +316,12 @@ public final class DataGen {
 
     private void lootTables() {
         for (LootTable lt : ctx.all(LootTable.class)) ctx.files.json(lootPath(lt), lootTable(lt));
+    }
+
+    private void predicatesAndModifiers() {
+        PackDataGen g = new PackDataGen(ctx, realItems);
+        for (Predicate pr : ctx.all(Predicate.class)) ctx.files.json(data(ctx.ns, ctx.predicateDir(), pr.name + ".json"), g.predicate(pr));
+        for (ItemModifier m : ctx.all(ItemModifier.class)) ctx.files.json(data(ctx.ns, g.modifierDir(), m.name + ".json"), g.modifier(m));
     }
 
     // ---------------------------------------------------------------- blocks
@@ -748,6 +759,9 @@ public final class DataGen {
         }
         for (var e : pc.predicates.entrySet()) {
             ctx.files.json(data(ns, ctx.predicateDir(), e.getKey() + ".json"), e.getValue());
+        }
+        for (var e : pc.dataJson.entrySet()) {
+            ctx.files.json(root + "data/" + ns + "/" + e.getKey() + ".json", e.getValue());
         }
     }
 

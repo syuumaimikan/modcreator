@@ -253,6 +253,7 @@ public final class BuildPage extends BorderPane implements WorkspaceView.Page {
 
         Thread th = new Thread(() -> {
             int ok = 0, failed = 0;
+            java.util.Map<modstudio.core.Target, java.util.Map<modstudio.core.McVersion, modstudio.gen.FileMap>> packs = new java.util.EnumMap<>(modstudio.core.Target.class);
             for (var en : contexts.entrySet()) {
                 Build tg = en.getKey();
                 GenContext ctx = en.getValue();
@@ -268,6 +269,8 @@ public final class BuildPage extends BorderPane implements WorkspaceView.Page {
                     if (!tg.target().usesGradle()) {
                         Path zip = dist.resolve(Exporter.packFileName(p, tg));
                         Exporter.writeZip(ctx.files, zip);
+                        if (tg.target() == modstudio.core.Target.DATAPACK || tg.target() == modstudio.core.Target.RESOURCEPACK)
+                            packs.computeIfAbsent(tg.target(), k -> new java.util.TreeMap<>()).put(tg.mc(), ctx.files);
                         log(t("build.packed", zip));
                         setStatus(tg, zip.getFileName().toString(), "mdi2c-check-circle-outline", "icon-success");
                     } else if (gradle) {
@@ -297,6 +300,17 @@ public final class BuildPage extends BorderPane implements WorkspaceView.Page {
                     }
                     setStatus(tg, t("build.status_failed"), "mdi2a-alert-circle-outline", "icon-danger");
                     if (ex instanceof org.gradle.tooling.BuildCancelledException) break;
+                }
+            }
+            for (var en : packs.entrySet()) {
+                try {
+                    modstudio.gen.FileMap all = Exporter.universalPack(en.getValue(), en.getKey());
+                    if (all == null) continue;
+                    Path zip = Exporter.distDir(dir).resolve(Exporter.universalFileName(p, en.getKey()));
+                    Exporter.writeZip(all, zip);
+                    log(t("build.universal", zip));
+                } catch (Exception ex) {
+                    log(t("build.failed", String.valueOf(ex.getMessage())));
                 }
             }
             log("");

@@ -115,15 +115,15 @@ public final class WorkspaceView extends BorderPane {
         section(box, I18n.t("nav.content"));
         for (ElementType t : List.of(ElementType.ITEM, ElementType.BLOCK, ElementType.ARMOR_MATERIAL, ElementType.MODEL, ElementType.SHADER, ElementType.CREATIVE_TAB, ElementType.SOUND)) typeItem(box, t);
         section(box, I18n.t("nav.data"));
-        for (ElementType t : List.of(ElementType.RECIPE, ElementType.LOOT_TABLE, ElementType.ADVANCEMENT, ElementType.TAG, ElementType.FUNCTION)) typeItem(box, t);
+        for (ElementType t : List.of(ElementType.RECIPE, ElementType.LOOT_TABLE, ElementType.ADVANCEMENT, ElementType.TAG, ElementType.FUNCTION, ElementType.PREDICATE, ElementType.ITEM_MODIFIER)) typeItem(box, t);
         section(box, I18n.t("nav.gameplay"));
         for (ElementType t : List.of(ElementType.STATUS_EFFECT, ElementType.ENCHANTMENT, ElementType.DAMAGE_TYPE, ElementType.PAINTING, ElementType.SONG)) typeItem(box, t);
         section(box, I18n.t("nav.presentation"));
-        for (ElementType t : List.of(ElementType.CUTSCENE)) typeItem(box, t);
+        for (ElementType t : List.of(ElementType.CUTSCENE, ElementType.DIALOG)) typeItem(box, t);
         section(box, I18n.t("nav.logic"));
         for (ElementType t : List.of(ElementType.PROCEDURE, ElementType.COMMAND, ElementType.CODE_FILE)) typeItem(box, t);
         section(box, I18n.t("nav.world"));
-        for (ElementType t : List.of(ElementType.MOB, ElementType.EFFECT, ElementType.STRUCTURE, ElementType.BIOME, ElementType.DIMENSION)) typeItem(box, t);
+        for (ElementType t : List.of(ElementType.MOB, ElementType.EFFECT, ElementType.STRUCTURE, ElementType.BIOME, ElementType.DIMENSION, ElementType.TRADER)) typeItem(box, t);
         section(box, I18n.t("nav.systems"));
         for (ElementType t : List.of(ElementType.MENU, ElementType.HUD, ElementType.API_REQUEST, ElementType.RESOURCE, ElementType.MACHINE, ElementType.MULTIBLOCK)) typeItem(box, t);
         section(box, I18n.t("nav.output"));

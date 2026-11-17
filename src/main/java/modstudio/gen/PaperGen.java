@@ -217,6 +217,8 @@ public final class PaperGen {
         boolean worldgen = !ctx.all(modstudio.core.Systems.Dimension.class).isEmpty() || !ctx.all(modstudio.core.Systems.Biome.class).isEmpty()
                 || ctx.all(modstudio.core.Systems.Structure.class).stream().anyMatch(x -> x.generate);
         if (worldgen) s.l("getLogger().warning(\"New dimensions, biomes and structures load after the next server restart\");");
+        if (ctx.v.dialogs() && !ctx.all(modstudio.core.Systems.Dialog.class).isEmpty())
+            s.l("getLogger().warning(\"New dialogs load after the next server restart\");");
         s.l("Bukkit.reloadData();");
         s.l("}");
         s.l("} catch (IOException e) {");

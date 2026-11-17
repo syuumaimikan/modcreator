@@ -676,3 +676,32 @@
 .compat-name {
     -fx-font-weight: bold;
 }
+
+/* Dialog preview (same look in both themes) */
+.mc-dialog {
+    -fx-background-color: linear-gradient(to bottom, #3a4a6a 0%, #27303f 100%);
+    -fx-background-radius: 6;
+    -fx-padding: 14 18 16 18;
+}
+
+.mc-dialog-title {
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 14px;
+}
+
+.mc-dialog-body {
+    -fx-text-fill: #e0e0e0;
+}
+
+.mc-button {
+    -fx-background-color: #6f6f6f;
+    -fx-border-color: #a8a8a8 #2b2b2b #2b2b2b #a8a8a8;
+    -fx-border-width: 2;
+    -fx-text-fill: #ffffff;
+    -fx-alignment: center;
+    -fx-padding: 4 8 4 8;
+}
+
+.mc-button-off {
+    -fx-text-fill: #c0c0c0;
+}

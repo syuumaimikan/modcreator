@@ -81,9 +81,20 @@ final class LootTableEditor extends EditorBase<LootTable> {
             p.killedByPlayer = b;
             f.changed();
         });
+        ComboBox<String> pred = new ComboBox<>();
+        pred.setEditable(true);
+        pred.getItems().add("");
+        for (var pr : c.p.all(modstudio.core.Elements.Predicate.class)) pred.getItems().add(pr.name);
+        pred.setValue(p.predicate);
+        pred.setPrefWidth(180);
+        pred.valueProperty().addListener((o, a, b) -> {
+            p.predicate = b == null ? "" : b.trim();
+            f.changed();
+        });
         FlowPane settings = new FlowPane(16, 8,
                 labelled(t("field.rolls_min"), rmin), labelled(t("field.rolls_max"), rmax),
-                labelled(t("field.bonus_rolls"), bonus), labelled(t("field.chance"), chance), labelled("", killed));
+                labelled(t("field.bonus_rolls"), bonus), labelled(t("field.chance"), chance), labelled("", killed),
+                labelled(t("field.loot.predicate"), pred));
 
         GridPane table = new GridPane();
         table.setHgap(8);

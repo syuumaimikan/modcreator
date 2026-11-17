@@ -7,7 +7,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.Set;
+import java.util.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -71,6 +71,67 @@ public final class Exporter {
             case BEDROCK -> base + ".mcaddon";
             default -> base + "-" + b.target().id + "-mc" + b.mc().id + "-source.zip";
         };
+    }
+
+    /** File name of the pack that covers every chosen version. */
+    public static String universalFileName(Project p, Target t) {
+        return p.meta.modId + "-" + p.meta.version + (t == Target.RESOURCEPACK ? "-resourcepack" : "-datapack") + "-all.zip";
+    }
+
+    /**
+     * Collects the data pack or resource pack builds of several versions into one pack: the oldest version's files
+     * are the base and every newer version gets an overlay folder (Minecraft 1.20.2+) with the files that differ from
+     * what the versions before it already provide. Later overlays win, so each version sees its own files.
+     *
+     * @return the pack, or null when fewer than two versions were built
+     */
+    public static FileMap universalPack(Map<McVersion, FileMap> builds, Target t) {
+        if (builds.size() < 2) return null;
+        List<McVersion> versions = new ArrayList<>(builds.keySet());
+        versions.sort(Comparator.naturalOrder());
+        boolean res = t == Target.RESOURCEPACK;
+        FileMap out = new FileMap();
+        Map<String, byte[]> seen = new HashMap<>();
+        FileMap base = builds.get(versions.get(0));
+        for (String path : base.paths()) {
+            if (path.equals("pack.mcmeta")) continue;
+            out.bytes(path, base.get(path));
+            seen.put(path, base.get(path));
+        }
+        int min = format(versions.get(0), res), max = format(versions.get(versions.size() - 1), res);
+        com.google.gson.JsonArray entries = new com.google.gson.JsonArray();
+        for (int k = 1; k < versions.size(); k++) {
+            McVersion v = versions.get(k);
+            FileMap files = builds.get(v);
+            String dir = "mc" + v.id.replace('.', '_');
+            int changed = 0;
+            for (String path : files.paths()) {
+                if (path.equals("pack.mcmeta") || path.equals("pack.png")) continue;
+                byte[] data = files.get(path);
+                if (Arrays.equals(seen.get(path), data)) continue;
+                out.bytes(dir + "/" + path, data);
+                seen.put(path, data);
+                changed++;
+            }
+            if (changed > 0) entries.add(J.obj("formats", J.arr(format(v, res), max), "directory", dir));
+        }
+        com.google.gson.JsonObject meta;
+        try {
+            byte[] newest = builds.get(versions.get(versions.size() - 1)).get("pack.mcmeta");
+            meta = com.google.gson.JsonParser.parseString(new String(newest, java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
+        } catch (Exception e) {
+            meta = J.obj("pack", J.obj("description", ""));
+        }
+        com.google.gson.JsonObject pack = meta.getAsJsonObject("pack");
+        pack.addProperty("pack_format", min);
+        pack.add("supported_formats", J.arr(min, max));
+        if (!entries.isEmpty()) meta.add("overlays", J.obj("entries", entries));
+        out.json("pack.mcmeta", meta);
+        return out;
+    }
+
+    private static int format(McVersion v, boolean resource) {
+        return resource ? v.resourceFormat : v.dataFormat;
     }
 
     /** File name of a built mod or plugin jar in the dist folder. */

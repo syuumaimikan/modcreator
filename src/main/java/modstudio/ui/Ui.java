@@ -127,6 +127,10 @@ public final class Ui {
             case MULTIBLOCK -> "mdi2c-cube-scan";
             case SHADER -> "mdi2b-blur";
             case CUTSCENE -> "mdi2m-movie-open-outline";
+            case PREDICATE -> "mdi2f-filter-outline";
+            case ITEM_MODIFIER -> "mdi2a-auto-fix";
+            case DIALOG -> "mdi2m-message-text-outline";
+            case TRADER -> "mdi2s-storefront-outline";
         };
     }
 

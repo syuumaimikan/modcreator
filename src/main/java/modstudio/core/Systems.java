@@ -400,6 +400,98 @@ public final class Systems {
         @Override public String subtitle() { return keys.size() + " keys  " + Math.round(length() * 10) / 10.0 + "s"; }
     }
 
+    // ------------------------------------------------------------------ dialogs
+
+    public static final class DialogButton {
+        public String label = "OK";
+        public String tooltip = "";
+        /** close, run (steps), dialog (opens another dialog), url, suggest (puts a command in the chat box), copy. */
+        public String action = "close";
+        /** Dialog name, web address, command or text, depending on the action. */
+        public String target = "";
+        public int width = 150;
+        public List<Step> steps = new ArrayList<>();
+    }
+
+    /**
+     * A dialog window: the native dialog screen on Minecraft 1.21.6 and later, clickable chat lines before that.
+     * Buttons run steps through a trigger, so players need no operator rights.
+     */
+    public static final class Dialog extends Element {
+        /** notice (one button), confirmation (yes and no), multi_action (a grid of buttons). */
+        public String kind = "multi_action";
+        public String title = "";
+        public String body = "";
+        public int columns = 2;
+        public boolean canClose = true;
+        /** Pauses a single player world while the dialog is open. */
+        public boolean pause = true;
+        public String openSound = "";
+        public List<DialogButton> buttons = new ArrayList<>();
+
+        /** Buttons the kind uses: one for a notice, two for a confirmation, all for a multi action dialog. */
+        public List<DialogButton> effectiveButtons() {
+            List<DialogButton> r = new ArrayList<>();
+            int n = switch (kind) {
+                case "notice" -> 1;
+                case "confirmation" -> 2;
+                default -> buttons.size();
+            };
+            for (int i = 0; i < n; i++) {
+                if (i < buttons.size()) r.add(buttons.get(i));
+                else {
+                    DialogButton b = new DialogButton();
+                    b.label = kind.equals("confirmation") ? (i == 0 ? "Yes" : "No") : "OK";
+                    r.add(b);
+                }
+            }
+            return r;
+        }
+
+        @Override public ElementType type() { return ElementType.DIALOG; }
+        @Override public String subtitle() { return kind + "  " + effectiveButtons().size(); }
+    }
+
+    // ------------------------------------------------------------------ traders
+
+    public static final class Trade {
+        public String buy = "minecraft:emerald";
+        public int buyCount = 1;
+        public String buyB = "";
+        public int buyBCount = 1;
+        public String sell = "minecraft:diamond";
+        public int sellCount = 1;
+        public int maxUses = 12;
+        /** Experience the trader gains; 0 keeps the trader at its level and its trade list fixed. */
+        public int xp = 0;
+        public double priceMultiplier = 0.05;
+        /** The player gets experience orbs from the trade. */
+        public boolean rewardExp = true;
+    }
+
+    /** A villager or wandering trader with a fixed list of trades, spawned with the spawn trader step. */
+    public static final class Trader extends Element {
+        public static final List<String> PROFESSIONS = List.of("none", "armorer", "butcher", "cartographer", "cleric", "farmer", "fisherman",
+                "fletcher", "leatherworker", "librarian", "mason", "nitwit", "shepherd", "toolsmith", "weaponsmith");
+        public static final List<String> VILLAGER_TYPES = List.of("plains", "desert", "jungle", "savanna", "snow", "swamp", "taiga");
+
+        /** villager or wandering_trader */
+        public String entity = "villager";
+        public String profession = "librarian";
+        public String villagerType = "plains";
+        public int level = 1;
+        public String displayName = "";
+        public String nameColor = "gold";
+        /** Stands still and never wanders off. */
+        public boolean noAi = true;
+        public boolean invulnerable = true;
+        public boolean silent;
+        public List<Trade> trades = new ArrayList<>();
+
+        @Override public ElementType type() { return ElementType.TRADER; }
+        @Override public String subtitle() { return (entity.equals("villager") ? profession : entity) + "  " + trades.size(); }
+    }
+
     public static final class CameraKey {
         /** Seconds from the start. */
         public double time;

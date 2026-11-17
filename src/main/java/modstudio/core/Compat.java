@@ -197,6 +197,23 @@ public final class Compat {
                 else if (mb.assemble && !mb.model.isBlank() && (t == Target.PAPER || t == Target.DATAPACK)) a.fallback("compat.rig_pack");
                 for (List<Step> l : List.of(mb.onAssemble, mb.onUse, mb.onFinish, mb.onDisassemble)) steps(p, l, t, old, a);
             }
+            case Elements.Predicate pr -> {
+                if (bedrock) a.none("compat.java_only");
+            }
+            case Elements.ItemModifier im -> {
+                if (bedrock) a.none("compat.java_only");
+            }
+            case Systems.Trader tr -> {
+                if (bedrock) a.none("compat.java_only");
+            }
+            case Systems.Dialog d -> {
+                if (bedrock) a.none("compat.java_only");
+                else {
+                    if (p.mcVersions().stream().anyMatch(v -> !v.dialogs())) a.fallback("compat.dialog_chat");
+                    if (paper && p.mcVersions().stream().anyMatch(McVersion::dialogs)) a.notes.add(I18n.t("compat.dialog_restart"));
+                }
+                for (Systems.DialogButton b : d.buttons) steps(p, b.steps, t, old, a);
+            }
             case Systems.Cutscene cs -> {
                 if (bedrock) a.fallback("compat.cutscene_bedrock");
                 else if (p.mcVersions().contains(McVersion.V1_20_1)) a.fallback("compat.cutscene_old");
@@ -227,6 +244,9 @@ public final class Compat {
                     case "open_menu" -> {
                         if (pack) a.fallback("compat.menu_chat");
                     }
+                    case "show_dialog" -> {
+                        if (p.mcVersions().stream().anyMatch(v -> !v.dialogs())) a.fallback("compat.dialog_chat");
+                    }
                     case "effect" -> {
                         String id = Ids.full(s.get("effect"));
                         if ((pack || t == Target.PAPER) && id.startsWith(p.meta.modId + ":")) a.fallback("compat.effect_emulated");
@@ -243,6 +263,7 @@ public final class Compat {
                 if (old && (Validator.needsMacro(s.p) || (s.cond != null && Validator.needsMacro(s.cond.p)))) a.fallback("compat.macro_old");
             }
             if (bedrock && s.kind.equals("shoot")) a.fallback("compat.shoot_bedrock");
+            if (bedrock && List.of("modify_item", "give_loot", "show_dialog", "spawn_trader").contains(s.kind)) a.fallback("compat.step_java_only");
             if (bedrock && (s.kind.equals("play_animation") || s.kind.equals("stop_animation"))) a.fallback("compat.animation_bedrock");
             steps(p, s.then, t, old, a);
             steps(p, s.orElse, t, old, a);

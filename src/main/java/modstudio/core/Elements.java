@@ -329,6 +329,8 @@ public final class Elements {
         public double bonusRolls = 0;
         public double chance = 1.0;
         public boolean killedByPlayer;
+        /** Name of a project predicate (or a namespaced id) the pool also needs. */
+        public String predicate = "";
         public List<LootEntry> entries = new ArrayList<>();
     }
 
@@ -378,6 +380,57 @@ public final class Elements {
 
         @Override public ElementType type() { return ElementType.FUNCTION; }
         @Override public String subtitle() { return onTick ? "tick" : onLoad ? "load" : ""; }
+    }
+
+    /** One test of a predicate: a kind from {@link Logic#PREDICATE_TERMS} with its values. */
+    public static final class PredicateTerm {
+        public String kind = "random_chance";
+        public Map<String, String> p = new LinkedHashMap<>();
+        /** Passes when the test fails. */
+        public boolean invert;
+
+        public String get(String k) { return p.getOrDefault(k, ""); }
+    }
+
+    /** A reusable condition file (data/ns/predicate): procedures, loot pools and commands can all test it. */
+    public static final class Predicate extends Element {
+        /** all: every term has to pass. any: one passing term is enough. */
+        public String combine = "all";
+        public List<PredicateTerm> terms = new ArrayList<>();
+
+        @Override public ElementType type() { return ElementType.PREDICATE; }
+        @Override public String subtitle() {
+            StringBuilder sb = new StringBuilder();
+            for (PredicateTerm t : terms) {
+                if (!sb.isEmpty()) sb.append(combine.equals("any") ? " | " : " & ");
+                if (t.invert) sb.append('!');
+                sb.append(t.kind);
+            }
+            return sb.toString();
+        }
+    }
+
+    /** One step of an item modifier: a kind from {@link Logic#MODIFIER_FUNCTIONS} with its values. */
+    public static final class ModifierFunction {
+        public String kind = "set_count";
+        public Map<String, String> p = new LinkedHashMap<>();
+
+        public String get(String k) { return p.getOrDefault(k, ""); }
+    }
+
+    /** Changes to an item stack (data/ns/item_modifier), applied with the modify item step or /item modify. */
+    public static final class ItemModifier extends Element {
+        public List<ModifierFunction> functions = new ArrayList<>();
+
+        @Override public ElementType type() { return ElementType.ITEM_MODIFIER; }
+        @Override public String subtitle() {
+            StringBuilder sb = new StringBuilder();
+            for (ModifierFunction f : functions) {
+                if (!sb.isEmpty()) sb.append(", ");
+                sb.append(f.kind);
+            }
+            return sb.toString();
+        }
     }
 
     public static final class Condition {

@@ -67,6 +67,11 @@ public enum McVersion {
         return atLeast(V1_21_8);
     }
 
+    /** 1.21.6+: the dialog registry and the /dialog command. */
+    public boolean dialogs() {
+        return atLeast(V1_21_8);
+    }
+
     public static McVersion of(String id) {
         for (McVersion v : values()) if (v.id.equals(id)) return v;
         return V1_21_1;

@@ -22,6 +22,8 @@ public final class ProcCompiler {
     private final boolean customItems;
     public final Map<String, List<String>> functions = new LinkedHashMap<>();
     public final Map<String, JsonObject> predicates = new LinkedHashMap<>();
+    /** Other data files of the namespace, by path without the extension (for example "dialog/welcome"). */
+    public final Map<String, JsonObject> dataJson = new LinkedHashMap<>();
     public final Set<String> objectives = new LinkedHashSet<>();
     private int counter;
     /** Commands a condition needs to run first (multiblock checks, sky checks); emitted before the condition is used. */
@@ -36,6 +38,10 @@ public final class ProcCompiler {
 
     public String tmp() {
         return ns + ".tmp";
+    }
+
+    public boolean customItems() {
+        return customItems;
     }
 
     public void compile(String fnPath, List<Step> steps, List<String> prefix, List<String> suffix) {
@@ -343,6 +349,27 @@ public final class ProcCompiler {
             case "stop_animation" -> {
                 if (RigGen.animationNames(ctx.p).isEmpty()) r.add("# no animated mobs");
                 else r.add("execute as " + sel(s) + " if entity @s[tag=" + ns + ".rigged] run scoreboard players set @s " + ns + ".af 0");
+            }
+            case "modify_item" -> {
+                String m = s.get("modifier").trim();
+                String slot = s.get("slot").isBlank() ? "weapon.mainhand" : s.get("slot").trim();
+                if (!hasElement(ElementType.ITEM_MODIFIER, m)) r.add("# unknown item modifier " + m);
+                else r.add("item modify entity " + sel(s) + " " + slot + " " + ns + ":" + m);
+            }
+            case "give_loot" -> {
+                String t = s.get("table").trim();
+                if (t.isEmpty()) r.add("# no loot table");
+                else r.add("loot give " + sel(s) + " loot " + (t.contains(":") ? t : ns + ":" + t));
+            }
+            case "show_dialog" -> {
+                String d = s.get("dialog").trim();
+                if (!hasElement(ElementType.DIALOG, d)) r.add("# unknown dialog " + d);
+                else r.add("execute as " + sel(s) + " at @s run function " + DialogGen.showFunction(ns, d));
+            }
+            case "spawn_trader" -> {
+                String t = s.get("trader").trim();
+                if (!hasElement(ElementType.TRADER, t)) r.add("# unknown trader " + t);
+                else r.add("execute positioned " + coord(s.get("x")) + " " + coord(s.get("y")) + " " + coord(s.get("z")) + " run function " + ns + ":traders/" + t);
             }
             case "cutscene_stop" -> r.add("execute as " + sel(s) + " if entity @s[tag=" + ns + ".cs_on] run function " + ns + ":cutscene/_stop");
             case "close_menu" -> {
@@ -790,6 +817,10 @@ public final class ProcCompiler {
                 }
             }
             case "dimension" -> r = "if dimension " + Ids.full(c.get("dimension"));
+            case "predicate" -> {
+                String n = c.get("predicate").trim();
+                r = "if predicate " + (n.contains(":") ? n : ns + ":" + n);
+            }
             case "has_tag" -> r = "if entity @s[tag=" + c.get("tag").trim() + "]";
             case "score" -> {
                 String min = c.get("min").trim(), max = c.get("max").trim();
