@@ -15,7 +15,9 @@ import modstudio.core.Logic;
 import modstudio.core.Systems.Dialog;
 import modstudio.core.Systems.DialogButton;
 import modstudio.core.Systems.Trade;
+import modstudio.core.Systems;
 import modstudio.core.Systems.Trader;
+import modstudio.i18n.I18n;
 import modstudio.ui.Ui;
 import modstudio.ui.controls.Form;
 import modstudio.ui.controls.IdField;
@@ -251,6 +253,56 @@ final class DataEditors {
             if (!x.buyB.isBlank()) sb.append(" + ").append(x.buyBCount).append(' ').append(Ids.path(Ids.full(x.buyB)));
             sb.append("  ->  ").append(x.sellCount).append(' ').append(Ids.path(Ids.full(x.sell)));
             return sb.toString();
+        }
+    }
+
+    // ------------------------------------------------------------------ key binding
+
+    static final List<String> KEYS = keys();
+
+    private static List<String> keys() {
+        List<String> r = new java.util.ArrayList<>();
+        for (char ch = 'a'; ch <= 'z'; ch++) r.add("key.keyboard." + ch);
+        for (char ch = '0'; ch <= '9'; ch++) r.add("key.keyboard." + ch);
+        for (int i = 1; i <= 12; i++) r.add("key.keyboard.f" + i);
+        for (int i = 0; i <= 9; i++) r.add("key.keyboard.keypad." + i);
+        r.addAll(List.of("key.keyboard.left.alt", "key.keyboard.right.alt", "key.keyboard.left.control", "key.keyboard.right.control",
+                "key.keyboard.tab", "key.keyboard.caps.lock", "key.keyboard.grave.accent", "key.keyboard.minus", "key.keyboard.equal",
+                "key.keyboard.left.bracket", "key.keyboard.right.bracket", "key.keyboard.semicolon", "key.keyboard.apostrophe",
+                "key.keyboard.comma", "key.keyboard.period", "key.keyboard.slash", "key.keyboard.backslash", "key.keyboard.insert",
+                "key.keyboard.delete", "key.keyboard.home", "key.keyboard.end", "key.keyboard.page.up", "key.keyboard.page.down",
+                "key.keyboard.up", "key.keyboard.down", "key.keyboard.left", "key.keyboard.right",
+                "key.mouse.middle", "key.mouse.4", "key.mouse.5", "key.keyboard.unknown"));
+        return r;
+    }
+
+    static final class KeyBindEditor extends EditorBase<Systems.KeyBind> {
+        KeyBindEditor(Ctx c, Systems.KeyBind e) {
+            super(c, e);
+        }
+
+        @Override
+        protected void fill() {
+            f.section(t("section.general"), t("help.keybind"));
+            nameRow();
+            f.text(t("field.display_name"), () -> e.displayName, v -> e.displayName = v);
+            f.choice(t("field.keybind.key"), KEYS, KeyBindEditor::label, () -> e.key, v -> e.key = v, t("help.keybind.key"));
+            f.choice(t("field.keybind.category"), Systems.KeyBind.CATEGORIES, x -> t("keycat." + x), () -> e.category, v -> e.category = v);
+            f.choice(t("field.keybind.fallback"), Systems.KeyBind.FALLBACKS, x -> t("fallback." + x), () -> e.fallback, v -> e.fallback = v,
+                    t("help.keybind.fallback"));
+            SystemEditors.logic(this, t("section.steps"), t("help.keybind.steps"), e.steps, () -> t("keybind.start", label(e.key)));
+            f.section(t("section.usage"));
+            int n = c.p.all(Systems.KeyBind.class).indexOf(e) + 1;
+            f.add(Ui.help(t("help.keybind.use", c.ns() + ".key", n)));
+        }
+
+        private static String label(String key) {
+            if (key.equals("key.keyboard.unknown")) return I18n.t("key.unbound");
+            if (key.startsWith("key.mouse.")) {
+                String b = key.substring(10);
+                return b.equals("middle") ? I18n.t("key.mouse_middle") : I18n.t("key.mouse_button", b);
+            }
+            return Systems.KeyBind.keyLabel(key);
         }
     }
 }

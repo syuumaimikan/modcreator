@@ -24,6 +24,7 @@ public enum ElementType {
     ITEM_MODIFIER("item_modifier", Elements.ItemModifier.class, Elements.ItemModifier::new),
     PROCEDURE("procedure", Elements.Procedure.class, Elements.Procedure::new),
     COMMAND("command", Elements.Command.class, Elements.Command::new),
+    KEYBIND("keybind", Systems.KeyBind.class, Systems.KeyBind::new),
     CODE_FILE("code_file", Elements.CodeFile.class, Elements.CodeFile::new),
     MOB("mob", Systems.Mob.class, Systems.Mob::new),
     EFFECT("effect", Systems.Effect.class, Systems.Effect::new),

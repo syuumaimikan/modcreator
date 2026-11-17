@@ -307,6 +307,7 @@ public final class DataGen {
     }
 
     public String lootPath(LootTable lt) {
+        if (lt.inject && !lt.replaces.isBlank()) return data(ctx.ns, ctx.lootDir(), "inject/" + lt.name + ".json");
         if (!lt.replaces.isBlank()) {
             String r = Ids.full(lt.replaces);
             return data(Ids.ns(r), ctx.lootDir(), Ids.path(r) + ".json");

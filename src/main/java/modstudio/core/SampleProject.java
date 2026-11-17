@@ -726,6 +726,73 @@ public final class SampleProject {
         p.elements.addAll(List.of(mana, stress, altarShape, lift, collector, pool, altar, engine, mill));
         crusher(p, ruby);
         dialogs(p, ruby);
+        hooks(p);
+    }
+
+    /**
+     * Mod hooks: rubies added to dungeon chests and zombie drops without replacing those tables, two brewing stand
+     * recipes (one for the ruby rush potion) and two key bindings.
+     */
+    private static void hooks(Project p) {
+        LootTable dungeon = new LootTable();
+        dungeon.name = "dungeon_rubies";
+        dungeon.lootType = "chest";
+        dungeon.replaces = "minecraft:chests/simple_dungeon";
+        dungeon.inject = true;
+        LootPool dp = new LootPool();
+        LootEntry rubies = new LootEntry();
+        rubies.name = "rubymod:ruby";
+        rubies.weight = 3;
+        rubies.countMin = 1;
+        rubies.countMax = 3;
+        LootEntry nothing = new LootEntry();
+        nothing.kind = "empty";
+        nothing.weight = 2;
+        dp.entries.addAll(List.of(rubies, nothing));
+        dungeon.pools.add(dp);
+
+        LootTable zombie = new LootTable();
+        zombie.name = "zombie_rubies";
+        zombie.lootType = "entity";
+        zombie.replaces = "minecraft:entities/zombie";
+        zombie.inject = true;
+        LootPool zp = new LootPool();
+        zp.chance = 0.1;
+        zp.killedByPlayer = true;
+        LootEntry one = new LootEntry();
+        one.name = "rubymod:ruby";
+        zp.entries.add(one);
+        zombie.pools.add(zp);
+
+        Recipe rush = new Recipe();
+        rush.name = "ruby_rush_brewing";
+        rush.recipeType = "brewing";
+        rush.input = "minecraft:awkward";
+        rush.addition = "rubymod:ruby";
+        rush.result = "rubymod:ruby_rush";
+        Recipe strength = new Recipe();
+        strength.name = "ruby_strength_brewing";
+        strength.recipeType = "brewing";
+        strength.input = "minecraft:mundane";
+        strength.addition = "rubymod:ruby";
+        strength.result = "minecraft:strength";
+
+        Systems.KeyBind dash = new Systems.KeyBind();
+        dash.name = "ruby_dash";
+        dash.displayName = "Ruby Dash";
+        dash.setLoc("name", "ja_jp", "ルビーダッシュ");
+        dash.key = "key.keyboard.r";
+        dash.fallback = "sneak";
+        dash.steps.add(step("effect", "target", "@s", "effect", "minecraft:speed", "seconds", "2", "amplifier", "3", "hide", "true"));
+        dash.steps.add(step("particle", "particle", "minecraft:crit", "count", "12", "dy", "0.4"));
+        dash.steps.add(step("sound", "sound", "minecraft:entity.player.attack.sweep", "target", "@s", "pitch", "1.4"));
+        Systems.KeyBind menu = new Systems.KeyBind();
+        menu.name = "ruby_menu";
+        menu.displayName = "Ruby Menu";
+        menu.setLoc("name", "ja_jp", "ルビーメニュー");
+        menu.key = "key.keyboard.g";
+        menu.steps.add(step("show_dialog", "dialog", "ruby_welcome", "target", "@s"));
+        p.elements.addAll(List.of(dungeon, zombie, rush, strength, dash, menu));
     }
 
     /**

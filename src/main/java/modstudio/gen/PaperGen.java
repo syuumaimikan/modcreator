@@ -402,10 +402,29 @@ public final class PaperGen {
                     s.l("plugin.getLogger().warning(\"Recipe " + r.name + " skipped: \" + e.getMessage());");
                     s.l("}");
                 }
+                case "brewing" -> {
+                    String in = Ids.full(r.input.trim()), out = Ids.full(r.result.trim());
+                    if (!in.startsWith("minecraft:") || !out.startsWith("minecraft:") || r.addition.isBlank()) continue;
+                    s.imp("io.papermc.paper.potion.PotionMix");
+                    s.l("try {");
+                    s.l("for (String bottle : new String[] {\"potion\", \"splash_potion\", \"lingering_potion\"}) {");
+                    s.l("Bukkit.getPotionBrewer().addPotionMix(new PotionMix(new NamespacedKey(plugin, " + Src.str(r.name + "_") + " + bottle), potion(bottle, "
+                            + Src.str(out) + "), new RecipeChoice.ExactChoice(potion(bottle, " + Src.str(in) + ")), choice(" + Src.str(Ids.full(r.addition.trim())) + ")));");
+                    s.l("}");
+                    s.l("} catch (RuntimeException e) {");
+                    s.l("plugin.getLogger().warning(\"Recipe " + r.name + " skipped: \" + e.getMessage());");
+                    s.l("}");
+                }
                 default -> {
                 }
             }
         }
+        s.l("}");
+        s.blank();
+        s.l("/** A drinkable, splash or lingering bottle of a potion. */");
+        s.l("static ItemStack potion(String bottle, String potion) {");
+        if (ctx.components()) s.l("return Bukkit.getItemFactory().createItemStack(\"minecraft:\" + bottle + \"[potion_contents={potion:\\\"\" + potion + \"\\\"}]\");");
+        else s.l("return Bukkit.getItemFactory().createItemStack(\"minecraft:\" + bottle + \"{Potion:\\\"\" + potion + \"\\\"}\");");
         s.l("}");
         s.blank();
         s.l("private static void add(Recipe recipe) {");
@@ -476,8 +495,67 @@ public final class PaperGen {
             s.l("return t != null && t.isTagged(material);");
             s.l("}");
         }
+        lootInjection(s);
         s.l("}");
         ctx.files.text(ctx.javaDir() + "ModListener.java", s.toString());
+    }
+
+    /**
+     * Rolls the project's tables together with existing ones: chests through the loot event, mobs on death, and
+     * blocks with /loot at the block, since block tables need the tool and state that plugins cannot pass.
+     */
+    private void lootInjection(Src s) {
+        List<Elements.LootTable> injects = HooksGen.injects(ctx);
+        if (injects.isEmpty()) return;
+        s.imp("org.bukkit.Bukkit", "org.bukkit.Location", "org.bukkit.NamespacedKey", "org.bukkit.loot.LootContext", "org.bukkit.loot.LootTable",
+                "org.bukkit.loot.Lootable", "org.bukkit.event.world.LootGenerateEvent", "org.bukkit.event.entity.EntityDeathEvent",
+                "org.bukkit.event.block.BlockDropItemEvent", "java.util.ArrayList", "java.util.HashMap", "java.util.List", "java.util.Map",
+                "java.util.Random");
+        s.blank();
+        s.l("private static final Random RANDOM = new Random();");
+        s.l("private static final Map<String, List<String>> INJECTS = new HashMap<>();");
+        s.blank();
+        s.l("static {");
+        for (Elements.LootTable lt : injects) {
+            s.l("INJECTS.computeIfAbsent(" + Src.str(Ids.full(lt.replaces.trim())) + ", k -> new ArrayList<>()).add(" + Src.str(HooksGen.injectId(ctx.ns, lt)) + ");");
+        }
+        s.l("}");
+        s.blank();
+        s.l("private static List<LootTable> injected(String target) {");
+        s.l("List<LootTable> r = new ArrayList<>();");
+        s.l("for (String id : INJECTS.getOrDefault(target, List.of())) {");
+        s.l("LootTable table = Bukkit.getLootTable(NamespacedKey.fromString(id));");
+        s.l("if (table != null) r.add(table);");
+        s.l("}");
+        s.l("return r;");
+        s.l("}");
+        s.blank();
+        s.l("@EventHandler");
+        s.l("public void onLootGenerate(LootGenerateEvent event) {");
+        s.l("if (event.getLootTable() == null) return;");
+        s.l("for (LootTable table : injected(event.getLootTable().getKey().toString())) event.getLoot().addAll(table.populateLoot(RANDOM, event.getLootContext()));");
+        s.l("}");
+        s.blank();
+        s.l("@EventHandler");
+        s.l("public void onDeath(EntityDeathEvent event) {");
+        s.l("if (!(event.getEntity() instanceof Lootable lootable) || lootable.getLootTable() == null) return;");
+        s.l("for (LootTable table : injected(lootable.getLootTable().getKey().toString())) {");
+        s.l("LootContext.Builder context = new LootContext.Builder(event.getEntity().getLocation()).lootedEntity(event.getEntity());");
+        s.l("if (event.getEntity().getKiller() != null) context.killer(event.getEntity().getKiller());");
+        s.l("event.getDrops().addAll(table.populateLoot(RANDOM, context.build()));");
+        s.l("}");
+        s.l("}");
+        s.blank();
+        s.l("@EventHandler");
+        s.l("public void onBlockDrop(BlockDropItemEvent event) {");
+        s.l("NamespacedKey type = event.getBlockState().getType().getKey();");
+        s.l("List<String> ids = INJECTS.getOrDefault(type.getNamespace() + \":blocks/\" + type.getKey(), List.of());");
+        s.l("if (ids.isEmpty()) return;");
+        s.l("Location at = event.getBlock().getLocation().add(0.5, 0.5, 0.5);");
+        s.l("for (String id : ids) {");
+        s.l("Bukkit.dispatchCommand(Bukkit.getConsoleSender(), \"execute in \" + at.getWorld().getKey() + \" run loot spawn \" + at.getX() + \" \" + at.getY() + \" \" + at.getZ() + \" loot \" + id);");
+        s.l("}");
+        s.l("}");
     }
 
     private void adminCommand() {

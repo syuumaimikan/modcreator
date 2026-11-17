@@ -131,6 +131,7 @@ public final class Ui {
             case ITEM_MODIFIER -> "mdi2a-auto-fix";
             case DIALOG -> "mdi2m-message-text-outline";
             case TRADER -> "mdi2s-storefront-outline";
+            case KEYBIND -> "mdi2k-keyboard-outline";
         };
     }
 

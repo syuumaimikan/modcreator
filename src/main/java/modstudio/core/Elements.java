@@ -293,7 +293,8 @@ public final class Elements {
     }
 
     public static final class Recipe extends Element {
-        public String recipeType = "shaped"; // shaped, shapeless, smelting, blasting, smoking, campfire, stonecutting, smithing
+        /** shaped, shapeless, smelting, blasting, smoking, campfire, stonecutting, smithing, brewing (input potion + addition -> result potion) */
+        public String recipeType = "shaped";
         public List<String> grid = new ArrayList<>(Arrays.asList("", "", "", "", "", "", "", "", ""));
         public String input = "";
         public String result = "";
@@ -337,10 +338,12 @@ public final class Elements {
     public static final class LootTable extends Element {
         public String lootType = "chest"; // block, entity, chest, gift, fishing, generic
         public String replaces = "";
+        /** Adds the pools to the table named in replaces instead of overwriting it (mods and plugins). */
+        public boolean inject;
         public List<LootPool> pools = new ArrayList<>();
 
         @Override public ElementType type() { return ElementType.LOOT_TABLE; }
-        @Override public String subtitle() { return replaces.isBlank() ? lootType : replaces; }
+        @Override public String subtitle() { return replaces.isBlank() ? lootType : (inject ? "+ " : "") + replaces; }
     }
 
     public static final class Advancement extends Element {

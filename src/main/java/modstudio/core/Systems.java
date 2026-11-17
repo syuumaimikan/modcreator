@@ -492,6 +492,38 @@ public final class Systems {
         @Override public String subtitle() { return (entity.equals("villager") ? profession : entity) + "  " + trades.size(); }
     }
 
+    /** A key the player can rebind in the controls screen; pressing it runs the steps as that player. */
+    public static final class KeyBind extends Element {
+        public static final List<String> CATEGORIES = List.of("mod", "gameplay", "movement", "inventory", "misc", "multiplayer", "creative", "ui");
+        public static final List<String> FALLBACKS = List.of("none", "sneak", "jump");
+
+        public String displayName = "";
+        /** Key name as in options.txt: key.keyboard.r, key.mouse.4, key.keyboard.unknown (unbound). */
+        public String key = "key.keyboard.r";
+        /** mod (a category named after the project) or a vanilla category. */
+        public String category = "mod";
+        /** What starts the key on data packs and plugins, which cannot add keys: none, sneak, jump. */
+        public String fallback = "none";
+        public List<Step> steps = new ArrayList<>();
+
+        @Override public ElementType type() { return ElementType.KEYBIND; }
+        @Override public String subtitle() { return keyLabel(key); }
+
+        /** Short label for a key name: R, 4, Mouse 4, Left Alt. */
+        public static String keyLabel(String key) {
+            if (key == null || key.isBlank() || key.equals("key.keyboard.unknown")) return "-";
+            if (key.startsWith("key.mouse.")) return "Mouse " + key.substring(10);
+            String k = key.startsWith("key.keyboard.") ? key.substring(13) : key;
+            StringBuilder sb = new StringBuilder();
+            for (String w : k.split("\\.")) {
+                if (w.isEmpty()) continue;
+                if (sb.length() > 0) sb.append(' ');
+                sb.append(Character.toUpperCase(w.charAt(0))).append(w.substring(1));
+            }
+            return sb.toString();
+        }
+    }
+
     public static final class CameraKey {
         /** Seconds from the start. */
         public double time;

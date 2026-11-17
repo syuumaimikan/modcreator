@@ -380,12 +380,29 @@ public final class BedrockGen {
                     body = J.obj("description", desc, "tags", J.arr("smithing_table"), "template", Ids.full(r.template),
                             "base", Ids.full(r.base), "addition", Ids.full(r.addition), "result", Ids.full(r.result));
                 }
+                case "brewing" -> {
+                    String in = bedrockPotion(r.input), out = bedrockPotion(r.result);
+                    if (in == null || out == null || r.addition.isBlank() || Ids.isTag(r.addition.trim())) {
+                        ctx.note("brewing recipe " + r.name + " skipped: Bedrock Edition only brews vanilla potions");
+                        continue;
+                    }
+                    type = "minecraft:recipe_brewing_mix";
+                    body = J.obj("description", desc, "tags", J.arr("brewing_stand"), "input", in, "reagent", Ids.full(r.addition.trim()), "output", out);
+                }
                 default -> {
                     continue;
                 }
             }
             ctx.files.json(bp + "recipes/" + r.name + ".json", J.obj("format_version", "1.20.10", type, body));
         }
+    }
+
+    /** Bedrock potion type id for a vanilla Java potion, or null (project potions and luck do not exist there). */
+    private static String bedrockPotion(String id) {
+        String f = Ids.full(id.trim());
+        if (!f.startsWith("minecraft:") || Ids.path(f).equals("luck")) return null;
+        String path = Ids.path(f).replace("night_vision", "nightvision");
+        return "minecraft:potion_type:" + path;
     }
 
     private void lootTables() {
@@ -416,7 +433,8 @@ public final class BedrockGen {
                 if (!conds.isEmpty()) po.add("conditions", conds);
                 pools.add(po);
             }
-            String path = lt.replaces.isBlank() ? ctx.ns + "/" + lt.name : Ids.path(Ids.full(lt.replaces));
+            String path = lt.replaces.isBlank() ? ctx.ns + "/" + lt.name
+                    : lt.inject ? ctx.ns + "/inject/" + lt.name : Ids.path(Ids.full(lt.replaces));
             ctx.files.json(bp + "loot_tables/" + path + ".json", J.obj("pools", pools));
         }
     }

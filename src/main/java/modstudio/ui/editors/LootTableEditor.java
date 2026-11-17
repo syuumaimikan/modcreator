@@ -32,6 +32,7 @@ final class LootTableEditor extends EditorBase<LootTable> {
         f.choice(t("field.loot_type"), List.of("chest", "block", "entity", "fishing", "gift", "generic"), x -> t("loottype." + x),
                 () -> e.lootType, v -> e.lootType = v);
         f.id(t("field.replaces"), IdField.Kind.LOOT_TABLE, () -> e.replaces, v -> e.replaces = v, env(), t("help.replaces"));
+        f.check(t("field.loot.inject"), () -> e.inject, v -> e.inject = v, t("help.loot.inject"));
         f.addTop(pools);
         Button addPool = Ui.button(t("loot.add_pool"), "mdi2p-plus", () -> {
             LootPool p = new LootPool();

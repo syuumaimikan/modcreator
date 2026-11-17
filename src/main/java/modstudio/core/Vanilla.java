@@ -84,6 +84,18 @@ public final class Vanilla {
         bad_omen hero_of_the_village darkness
         """);
 
+    /** Potion ids; the last four exist from 1.20.5 (NEW_POTIONS, paths only). */
+    public static final List<String> POTIONS = split("""
+        water mundane thick awkward night_vision long_night_vision invisibility long_invisibility leaping long_leaping
+        strong_leaping fire_resistance long_fire_resistance swiftness long_swiftness strong_swiftness slowness
+        long_slowness strong_slowness turtle_master long_turtle_master strong_turtle_master water_breathing
+        long_water_breathing healing strong_healing harming strong_harming poison long_poison strong_poison regeneration
+        long_regeneration strong_regeneration strength long_strength strong_strength weakness long_weakness luck
+        slow_falling long_slow_falling wind_charged weaving oozing infested
+        """);
+
+    public static final List<String> NEW_POTIONS = List.of("wind_charged", "weaving", "oozing", "infested");
+
     public static final List<String> PARTICLES = split("""
         heart happy_villager angry_villager flame soul_fire_flame smoke large_smoke cloud crit enchanted_hit enchant
         end_rod portal reverse_portal totem_of_undying note explosion firework witch dragon_breath bubble splash

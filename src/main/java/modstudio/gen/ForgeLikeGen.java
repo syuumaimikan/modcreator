@@ -14,12 +14,14 @@ public final class ForgeLikeGen {
     private final GenContext ctx;
     private final boolean neo;
     private final JavaCommon jc;
+    private final HooksGen hooks;
     private final String res = "src/main/resources/";
 
     public ForgeLikeGen(GenContext ctx, boolean neo) {
         this.ctx = ctx;
         this.neo = neo;
         this.jc = new JavaCommon(ctx, neo ? JavaCommon.Loader.NEOFORGE : JavaCommon.Loader.FORGE);
+        this.hooks = new HooksGen(ctx, jc, neo ? JavaCommon.Loader.NEOFORGE : JavaCommon.Loader.FORGE);
     }
 
     private String evPkg() {
@@ -32,6 +34,7 @@ public final class ForgeLikeGen {
         mainClass();
         registries();
         events();
+        hooks.classes(eventBus7());
         jc.procedures();
         if (jc.hasArmor()) jc.armorMaterials();
         if (jc.hasEffects()) jc.effects();
@@ -402,6 +405,7 @@ public final class ForgeLikeGen {
         s.l(eventBus7() ? "BuildCreativeModeTabContentsEvent.getBus(modBus).addListener(this::addToVanillaTabs);"
                 : "modBus.addListener(this::addToVanillaTabs);");
         s.l((neo ? "NeoForge" : "MinecraftForge") + ".EVENT_BUS.register(ModEvents.class);");
+        hooks.forgeConstructor(s);
         s.l("}");
         s.blank();
         s.l("public static ResourceLocation id(String path) {");
@@ -446,6 +450,7 @@ public final class ForgeLikeGen {
             }
             s.l("}");
         }
+        hooks.forgeEvents(s, evPkg());
         s.l("}");
         ctx.files.text(ctx.javaDir() + "ModEvents.java", s.toString());
     }

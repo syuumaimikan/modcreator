@@ -11,16 +11,18 @@ import java.util.List;
 public final class FabricGen {
     private final GenContext ctx;
     private final JavaCommon jc;
+    private final HooksGen hooks;
     private final String res = "src/main/resources/";
 
     public FabricGen(GenContext ctx) {
         this.ctx = ctx;
         this.jc = new JavaCommon(ctx, JavaCommon.Loader.FABRIC);
+        this.hooks = new HooksGen(ctx, jc, JavaCommon.Loader.FABRIC);
     }
 
     private boolean needsClient() {
         for (Block b : ctx.all(Block.class)) if (b.cutout()) return true;
-        return false;
+        return hooks.hasKeys();
     }
 
     public void generate() {
@@ -30,6 +32,7 @@ public final class FabricGen {
         if (needsClient()) clientClass();
         registries();
         events();
+        hooks.classes(false);
         jc.procedures();
         if (jc.hasArmor()) jc.armorMaterials();
         if (jc.hasEffects()) jc.effects();
@@ -170,6 +173,7 @@ public final class FabricGen {
             if (sectionLayers) s.l("BlockRenderLayerMap.putBlock(" + jc.blockRef(b.name) + ", ChunkSectionLayer.CUTOUT);");
             else s.l("BlockRenderLayerMap.INSTANCE.putBlock(" + jc.blockRef(b.name) + ", RenderType.cutout());");
         }
+        if (hooks.hasKeys()) s.l("ModKeys.init();");
         s.l("}");
         s.l("}");
         ctx.files.text(ctx.javaDir() + ctx.mainClass + "Client.java", s.toString());
@@ -312,6 +316,7 @@ public final class FabricGen {
             s.l("BiomeModifications.addFeature(BiomeSelectors." + sel + ", GenerationStep.Decoration.UNDERGROUND_ORES,");
             s.l("        ResourceKey.create(Registries.PLACED_FEATURE, " + ctx.mainClass + ".id(" + Src.str(DataGen.oreFeature(b)) + ")));");
         }
+        hooks.fabricInit(s);
         s.l("}");
         s.l("}");
         ctx.files.text(ctx.javaDir() + "ModEvents.java", s.toString());

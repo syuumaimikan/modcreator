@@ -47,6 +47,7 @@ public final class Editors {
             case Elements.ItemModifier im -> new DataEditors.ItemModifierEditor(c, im);
             case Systems.Dialog d -> new DataEditors.DialogEditor(c, d);
             case Systems.Trader tr -> new DataEditors.TraderEditor(c, tr);
+            case Systems.KeyBind k -> new DataEditors.KeyBindEditor(c, k);
             default -> throw new IllegalArgumentException(e.type().id);
         };
         return ed.build();
@@ -190,6 +191,12 @@ public final class Editors {
                 ok.label = "OK";
                 d.kind = "notice";
                 d.buttons.add(ok);
+            }
+            case Systems.KeyBind k -> {
+                k.displayName = title;
+                Elements.Step msg = Logic.newStep("message");
+                msg.p.put("text", title);
+                k.steps.add(msg);
             }
             case Systems.Trader tr -> {
                 tr.displayName = title;

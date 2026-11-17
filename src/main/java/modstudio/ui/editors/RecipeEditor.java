@@ -26,7 +26,7 @@ final class RecipeEditor extends EditorBase<Recipe> {
     protected void fill() {
         f.section(t("section.general"));
         nameRow();
-        f.choice(t("field.recipe_type"), List.of("shaped", "shapeless", "smelting", "blasting", "smoking", "campfire", "stonecutting", "smithing"),
+        f.choice(t("field.recipe_type"), List.of("shaped", "shapeless", "smelting", "blasting", "smoking", "campfire", "stonecutting", "smithing", "brewing"),
                 x -> t("recipetype." + x), () -> e.recipeType, v -> {
                     e.recipeType = v;
                     javafx.application.Platform.runLater(this::buildBody);
@@ -71,6 +71,16 @@ final class RecipeEditor extends EditorBase<Recipe> {
                         new VBox(6, Ui.label(t("field.base"), "text-muted", "text-small"), slot(IdField.Kind.ITEM_OR_TAG, e.base, v -> e.base = v)),
                         new VBox(6, Ui.label(t("field.addition"), "text-muted", "text-small"), slot(IdField.Kind.ITEM_OR_TAG, e.addition, v -> e.addition = v)));
                 b.add(machine(in, resultBox()));
+            }
+            case "brewing" -> {
+                b.section(t("section.brewing"), t("help.brewing"));
+                ItemSlot ingredient = slot(IdField.Kind.ITEM, e.addition, v -> e.addition = v);
+                b.add(machine(new VBox(6, Ui.label(t("field.brew.ingredient"), "text-muted", "text-small"), ingredient),
+                        new VBox(6, Ui.label(t("field.brew.flow"), "text-muted", "text-small"), Ui.icon("mdi2b-bottle-tonic-outline", 40))));
+                b.id(t("field.brew.base"), IdField.Kind.POTION, () -> e.input, v -> e.input = v, env(), t("help.brew.base"));
+                b.id(t("field.brew.result"), IdField.Kind.POTION, () -> e.result, v -> e.result = v, env(), t("help.brew.result"));
+                body.getChildren().setAll(b);
+                return;
             }
             default -> {
             }

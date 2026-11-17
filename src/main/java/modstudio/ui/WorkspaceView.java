@@ -121,7 +121,7 @@ public final class WorkspaceView extends BorderPane {
         section(box, I18n.t("nav.presentation"));
         for (ElementType t : List.of(ElementType.CUTSCENE, ElementType.DIALOG)) typeItem(box, t);
         section(box, I18n.t("nav.logic"));
-        for (ElementType t : List.of(ElementType.PROCEDURE, ElementType.COMMAND, ElementType.CODE_FILE)) typeItem(box, t);
+        for (ElementType t : List.of(ElementType.PROCEDURE, ElementType.COMMAND, ElementType.KEYBIND, ElementType.CODE_FILE)) typeItem(box, t);
         section(box, I18n.t("nav.world"));
         for (ElementType t : List.of(ElementType.MOB, ElementType.EFFECT, ElementType.STRUCTURE, ElementType.BIOME, ElementType.DIMENSION, ElementType.TRADER)) typeItem(box, t);
         section(box, I18n.t("nav.systems"));

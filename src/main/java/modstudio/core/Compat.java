@@ -122,6 +122,12 @@ public final class Compat {
             case Sound s -> {
                 if (paper || pack) a.fallback("compat.sound_rp");
             }
+            case Recipe r when r.recipeType.equals("brewing") -> {
+                boolean custom = !Ids.full(r.input.trim()).startsWith("minecraft:") || !Ids.full(r.result.trim()).startsWith("minecraft:");
+                if (pack) a.none("compat.brewing_pack");
+                else if ((paper || bedrock) && custom) a.none("compat.brewing_custom_potion");
+                else if (bedrock && (Ids.path(Ids.full(r.input.trim())).equals("luck") || Ids.path(Ids.full(r.result.trim())).equals("luck"))) a.none("compat.brewing_luck");
+            }
             case Recipe r -> {
                 if (bedrock) break;
                 Element res = p.itemLike(Ids.full(r.result));
@@ -129,6 +135,18 @@ public final class Compat {
                 else if (pack && res instanceof Item && preComponents) a.fallback("compat.recipe_custom_old");
             }
             case LootTable l -> {
+                if (l.inject && !l.replaces.isBlank()) {
+                    String kind = Ids.path(Ids.full(l.replaces.trim()));
+                    boolean chest = kind.startsWith("chests/"), entity = kind.startsWith("entities/"), block = kind.startsWith("blocks/");
+                    if (pack) a.none("compat.loot_inject_pack");
+                    else if (paper) {
+                        if (block) a.fallback("compat.loot_inject_command");
+                        else if (!chest && !entity) a.none("compat.loot_inject_paper");
+                    } else if (bedrock) {
+                        if (entity || block) a.fallback("compat.loot_inject_command");
+                        else a.none("compat.loot_inject_bedrock");
+                    }
+                }
             }
             case Advancement adv -> {
                 if (bedrock) a.none("compat.java_only");
@@ -213,6 +231,13 @@ public final class Compat {
                     if (paper && p.mcVersions().stream().anyMatch(McVersion::dialogs)) a.notes.add(I18n.t("compat.dialog_restart"));
                 }
                 for (Systems.DialogButton b : d.buttons) steps(p, b.steps, t, old, a);
+            }
+            case Systems.KeyBind k -> {
+                if (!mod) {
+                    if (k.fallback.equals("none")) a.none("compat.key_none");
+                    else a.fallback("compat.key_fallback", I18n.t("fallback." + k.fallback));
+                }
+                steps(p, k.steps, t, old, a);
             }
             case Systems.Cutscene cs -> {
                 if (bedrock) a.fallback("compat.cutscene_bedrock");

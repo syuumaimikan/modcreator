@@ -50,6 +50,11 @@ public final class Localization {
                     r.add(new Entry("painting." + ns + "." + pa.name + ".author", pa, "author", pa.author));
                 }
                 case Elements.Song so -> r.add(new Entry("jukebox_song." + ns + "." + so.name, so, "description", or(so.description, so.name)));
+                case Systems.KeyBind k -> {
+                    r.add(new Entry("key." + ns + "." + k.name, k, "name", or(k.displayName, k.name)));
+                    if ((k.category.equals("mod") || k.category.isBlank()) && r.stream().noneMatch(x -> x.key().equals("key.categories." + ns)))
+                        r.add(new Entry("key.categories." + ns, k, "category", p.meta.name.isBlank() ? ns : p.meta.name));
+                }
                 case Elements.Advancement a -> {
                     String base = "advancements." + ns + "." + a.name.replace('/', '.');
                     r.add(new Entry(base + ".title", a, "title", or(a.title, a.name)));

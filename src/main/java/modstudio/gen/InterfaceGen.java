@@ -77,6 +77,7 @@ public final class InterfaceGen {
         huds();
         requests();
         new DialogGen(ctx, pc, load, tick).generate();
+        KeyGen.generate(ctx, pc, load, tick);
         if (ctx.target.isMod() && needsWeb(ctx.p)) load.add(pc.bridgeCommand() + " init");
     }
 

@@ -129,14 +129,20 @@ public final class Validator {
                     boolean empty = switch (rc.recipeType) {
                         case "shaped", "shapeless" -> rc.grid.stream().allMatch(String::isBlank);
                         case "smithing" -> rc.template.isBlank() || rc.base.isBlank() || rc.addition.isBlank();
+                        case "brewing" -> rc.input.isBlank() || rc.addition.isBlank();
                         default -> rc.input.isBlank();
                     };
                     if (empty) r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.recipe_empty", rc.name)));
+                    if (rc.recipeType.equals("brewing")) {
+                        brewing(p, r, e, rc);
+                        break;
+                    }
                     for (String s : rc.grid) checkRef(p, r, e, s);
                     for (String s : List.of(rc.input, rc.result, rc.template, rc.base, rc.addition)) checkRef(p, r, e, s);
                 }
                 case LootTable lt -> {
                     if (lt.pools.isEmpty()) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.loot_empty", lt.name)));
+                    if (lt.inject && lt.replaces.isBlank()) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.loot_inject_target", lt.name)));
                     for (LootPool pool : lt.pools) {
                         for (LootEntry en : pool.entries) if (en.kind.equals("item")) checkRef(p, r, e, en.name);
                         checkPredicate(p, r, e, pool.predicate);
@@ -331,6 +337,16 @@ public final class Validator {
                             r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.trade_tag", tr.name)));
                     }
                 }
+                case Systems.KeyBind k -> {
+                    checkSteps(p, r, e, k.steps);
+                    if (k.steps.isEmpty()) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.key_empty", k.name)));
+                    for (Element o : p.elements) {
+                        if (o instanceof Systems.KeyBind k2 && k2 != k && k2.key.equals(k.key) && !k.key.equals("key.keyboard.unknown")
+                                && p.elements.indexOf(o) < p.elements.indexOf(e)) {
+                            r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.key_duplicate", k.name, k2.name)));
+                        }
+                    }
+                }
                 case Systems.Cutscene cs -> {
                     checkSteps(p, r, e, cs.onEnd);
                     if (cs.keys.size() < 2) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.cutscene_keys", cs.name)));
@@ -489,6 +505,21 @@ public final class Validator {
         } catch (Exception ignored) {
         }
         r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.raw_json", e.name)));
+    }
+
+    private static void brewing(Project p, List<Problem> r, Element e, Recipe rc) {
+        checkRef(p, r, e, rc.addition);
+        if (Ids.isTag(rc.addition.trim())) r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.brew_tag", rc.name)));
+        boolean old = p.mcVersions().stream().anyMatch(v -> !v.components());
+        for (String id : List.of(rc.input, rc.result)) {
+            if (id.isBlank()) continue;
+            String f = Ids.full(id.trim());
+            boolean known = Ids.ns(f).equals("minecraft") ? Vanilla.POTIONS.contains(f)
+                    : Ids.ns(f).equals(p.meta.modId) && p.all(Elements.StatusEffect.class).stream().anyMatch(se -> se.potion && se.name.equals(Ids.path(f)));
+            if (!known) r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.brew_potion", rc.name, id)));
+            else if (old && Ids.ns(f).equals("minecraft") && Vanilla.NEW_POTIONS.contains(Ids.path(f)))
+                r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.brew_new_potion", rc.name, id)));
+        }
     }
 
     private static void checkRef(Project p, List<Problem> r, Element e, String id) {
