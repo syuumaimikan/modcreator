@@ -174,11 +174,17 @@ public final class ItemSpec {
     /** 1.20.5+ data components as JSON (for recipe results). */
     public static JsonObject components(GenContext ctx, Elements.Item it) {
         JsonObject c = new JsonObject();
-        c.addProperty("minecraft:item_name", J.compact(J.obj("text", name(it))));
+        // text components are JSON strings until 1.21.4 and plain JSON objects from 1.21.5 (a string would be literal text)
+        boolean objects = ctx.v.snbtText();
+        if (objects) c.add("minecraft:item_name", J.obj("text", name(it)));
+        else c.addProperty("minecraft:item_name", J.compact(J.obj("text", name(it))));
         String[] lore = lore(it);
         if (lore.length > 0) {
             var arr = new com.google.gson.JsonArray();
-            for (String l : lore) arr.add(textJson(l, "gray"));
+            for (String l : lore) {
+                if (objects) arr.add(J.obj("text", GenContext.legacy(l), "italic", false, "color", "gray"));
+                else arr.add(textJson(l, "gray"));
+            }
             c.add("minecraft:lore", arr);
         }
         for (var e : modelComponent(ctx, it).entrySet()) c.add(e.getKey(), e.getValue());

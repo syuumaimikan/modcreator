@@ -194,6 +194,8 @@ public final class Compat {
             }
             case Systems.Multiblock mb -> {
                 if (bedrock) a.none("compat.java_only");
+                else if (mb.assemble && !mb.model.isBlank() && (t == Target.PAPER || t == Target.DATAPACK)) a.fallback("compat.rig_pack");
+                for (List<Step> l : List.of(mb.onAssemble, mb.onUse, mb.onFinish, mb.onDisassemble)) steps(p, l, t, old, a);
             }
             case Systems.Cutscene cs -> {
                 if (bedrock) a.fallback("compat.cutscene_bedrock");

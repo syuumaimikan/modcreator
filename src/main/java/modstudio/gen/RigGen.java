@@ -7,6 +7,8 @@ import modstudio.core.Elements.Model;
 import modstudio.core.Systems.Mob;
 
 import java.util.*;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 
 /**
  * Animated mobs built from display entities. Every bone of the model is an item display riding the (invisible) mob
@@ -71,17 +73,21 @@ final class RigGen {
         return CMD_BASE + Math.floorMod((md.name + "/" + b.name).hashCode(), 5_000_000);
     }
 
-    /** All bones of all animated mob models, once per model. */
+    /** All bones of all animated mob models and assembled multiblock models, once per model. */
     static Map<Model, List<Bone>> boneModels(Project p) {
         Map<Model, List<Bone>> r = new LinkedHashMap<>();
         for (Mob m : p.all(Mob.class)) {
             Model md = model(p, m);
             if (md != null) r.putIfAbsent(md, shown(md));
         }
+        for (Systems.Multiblock mb : p.all(Systems.Multiblock.class)) {
+            Model md = AssemblyGen.model(p, mb);
+            if (md != null) r.putIfAbsent(md, shown(md));
+        }
         return r;
     }
 
-    private String itemSnbt(Model md, Bone b) {
+    String itemSnbt(Model md, Bone b) {
         if (ctx.v.itemDefinitions()) {
             return "{id:\"" + BASE_ITEM + "\",count:1,components:{\"minecraft:item_model\":\"" + ns + ":" + modelPath(md, b) + "\"}}";
         }
@@ -110,14 +116,14 @@ final class RigGen {
         return PASSENGER.getOrDefault(base, height);
     }
 
-    private static String f(double d) {
+    static String f(double d) {
         double r = Math.round(d * 10000) / 10000.0;
         if (r == 0) return "0";
         if (r == Math.rint(r)) return String.valueOf((long) r);
         return String.valueOf(r);
     }
 
-    private static String matrix(double[] m) {
+    static String matrix(double[] m) {
         StringBuilder sb = new StringBuilder("[");
         for (int i = 0; i < 16; i++) {
             if (i > 0) sb.append(',');
@@ -216,7 +222,17 @@ final class RigGen {
         t.add("scoreboard players operation @s " + anim + " = #want " + tmp);
         t.add("function " + ns + ":" + rdir + "/anim");
 
-        // dispatch to the playing animation, and one "play" function per animation
+        animations(md, rdir, tag -> "execute on passengers if entity @s[tag=" + tag + "] run ", (b, w) -> displayMatrix(m, base, b, w));
+        return t;
+    }
+
+    /**
+     * Frame functions of every animation of a model, rdir/anim (runs the playing animation of the entity that runs
+     * it) and rdir/play/&lt;animation&gt;. boneCmd turns a bone tag into the command prefix that runs as that bone's
+     * display; matrix gives the display transformation of a bone for a pose.
+     */
+    void animations(Model md, String rdir, Function<String, String> boneCmd, BiFunction<Bone, double[], double[]> matrix) {
+        for (String o : List.of(anim, at, af, tmp)) pc.objectives.add(o);
         List<String> dispatch = new ArrayList<>();
         for (int i = 0; i < md.animations.size(); i++) {
             Animation a = md.animations.get(i);
@@ -226,13 +242,20 @@ final class RigGen {
                     "scoreboard players set @s " + af + " " + (i + 1),
                     "scoreboard players set @s " + anim + " " + (i + 1),
                     "scoreboard players set @s " + at + " 0"));
-            animation(m, md, base, a, i + 1, adir);
+            animation(md, a, i + 1, adir, boneCmd, matrix);
         }
         pc.functions.put(rdir + "/anim", dispatch);
-        return t;
+        // the rest pose, for when an entity stops animating
+        Map<String, double[]> rest = Rig.pose(md, null, 0);
+        List<String> restLines = new ArrayList<>();
+        for (Bone b : shown(md)) {
+            restLines.add(boneCmd.apply(boneTag(ns, b)) + "data merge entity @s {start_interpolation:0,interpolation_duration:" + STEP
+                    + ",transformation:" + matrix(matrix.apply(b, rest.get(b.name))) + "}");
+        }
+        pc.functions.put(rdir + "/rest", restLines);
     }
 
-    private void animation(Mob m, Model md, String base, Animation a, int id, String adir) {
+    private void animation(Model md, Animation a, int id, String adir, Function<String, String> boneCmd, BiFunction<Bone, double[], double[]> matrix) {
         int len = Rig.ticks(a);
         List<String> run = new ArrayList<>();
         switch (a.mode == null ? "loop" : a.mode) {
@@ -252,10 +275,10 @@ final class RigGen {
             Map<String, double[]> pose = Rig.pose(md, a, Math.min(len, k + STEP) / 20.0);
             List<String> lines = new ArrayList<>();
             for (Bone b : bones) {
-                double[] mat = displayMatrix(m, base, b, pose.get(b.name));
+                double[] mat = matrix.apply(b, pose.get(b.name));
                 if (k > 0 && Rig.same(mat, last.get(b.name))) continue;
                 last.put(b.name, mat);
-                lines.add("execute on passengers if entity @s[tag=" + boneTag(ns, b) + "] run data merge entity @s {start_interpolation:0,interpolation_duration:"
+                lines.add(boneCmd.apply(boneTag(ns, b)) + "data merge entity @s {start_interpolation:0,interpolation_duration:"
                         + STEP + ",transformation:" + matrix(mat) + "}");
             }
             if (!lines.isEmpty()) frames.put(k, lines);

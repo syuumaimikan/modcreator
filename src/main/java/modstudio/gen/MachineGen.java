@@ -55,6 +55,7 @@ public final class MachineGen {
             pc.functions.put("machines/_tick", dispatch);
             tick.add("execute as @e[type=minecraft:marker,tag=" + ns + ".machine] at @s run function " + ns + ":machines/_tick");
         }
+        new AssemblyGen(ctx, pc, root, realBlocks, tick).generate();
         if (pc.functions.containsKey(CONTRAPTION_TICK)) {
             tick.add("execute as @e[type=minecraft:marker,tag=" + ns + ".ctr] at @s run function " + ns + ":" + CONTRAPTION_TICK);
         }
@@ -140,13 +141,13 @@ public final class MachineGen {
         return sb.append('}').toString();
     }
 
-    private static String fullState(String state) {
+    static String fullState(String state) {
         String s = state.trim();
         int b = s.indexOf('[');
         return b >= 0 ? Ids.full(s.substring(0, b)) + s.substring(b) : Ids.full(s);
     }
 
-    private static boolean isAir(String state) {
+    static boolean isAir(String state) {
         String id = blockId(state);
         return id.equals("minecraft:air") || id.equals("minecraft:cave_air") || id.equals("minecraft:void_air");
     }

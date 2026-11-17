@@ -274,6 +274,7 @@ public final class Validator {
                         r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.multiblock_core", mb.name)));
                     if (mb.count() == 0) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.multiblock_empty", mb.name)));
                     for (String b : mb.palette) if (!b.isBlank()) checkRef(p, r, e, b.contains("[") ? b.substring(0, b.indexOf('[')) : b);
+                    if (mb.assemble) assembly(p, r, e, mb);
                 }
                 case Systems.Shader sh -> {
                     String prog = sh.program.trim();
@@ -367,6 +368,41 @@ public final class Validator {
             if (!numeric || !v.trim().matches("\\$\\([A-Za-z0-9_]+\\)")) return true;
         }
         return false;
+    }
+
+    /** Checks of a multiblock that is assembled with a tool into a machine. */
+    private static void assembly(Project p, List<Problem> r, Element e, Systems.Multiblock mb) {
+        if (mb.tool.isBlank()) r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.multiblock_tool", mb.name)));
+        else {
+            checkRef(p, r, e, mb.tool.trim());
+            String tool = Ids.full(mb.tool.trim());
+            String base = p.itemLike(tool) instanceof Elements.Item it ? Ids.full(it.baseItem.isBlank() ? "minecraft:paper" : it.baseItem) : tool;
+            if (p.has(Target.DATAPACK) && !base.equals("minecraft:carrot_on_a_stick") && !base.equals("minecraft:warped_fungus_on_a_stick"))
+                r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.multiblock_tool_pack", mb.name)));
+        }
+        int idx = mb.coreX < mb.sx && mb.coreY < mb.sy && mb.coreZ < mb.sz ? mb.get(mb.coreX, mb.coreY, mb.coreZ) : -1;
+        String core = idx >= 0 && idx < mb.palette.size() ? mb.palette.get(idx).trim() : "";
+        if (core.isEmpty() || core.endsWith("air")) r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.multiblock_core_block", mb.name)));
+        if (!mb.model.isBlank()) {
+            Elements.Model md = p.model(mb.model.trim());
+            if (md == null) r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.unknown_element", mb.name, I18n.t("type.model"), mb.model)));
+            else {
+                for (String a : List.of(mb.idleAnimation, mb.workAnimation)) {
+                    if (!a.isBlank() && md.animation(a.trim()) == null)
+                        r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.multiblock_animation", mb.name, a)));
+                }
+            }
+        }
+        if (!mb.resource.isBlank() && !(p.byName(ElementType.RESOURCE, mb.resource.trim()) instanceof Systems.Resource res && !res.model.equals("stress")))
+            r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.multiblock_resource", mb.name, mb.resource)));
+        boolean old = p.mcVersions().stream().anyMatch(v -> !v.components());
+        for (Systems.MultiblockRecipe rc : mb.recipes) {
+            for (String id : List.of(rc.input, rc.output, rc.secondary)) if (!id.isBlank()) checkRef(p, r, e, id.trim());
+            if (rc.input.isBlank() || rc.output.isBlank())
+                r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.multiblock_recipe", mb.name)));
+            else if (old && rc.input.trim().startsWith("#"))
+                r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.multiblock_tag_input", mb.name, rc.input)));
+        }
     }
 
     private static void checkRef(Project p, List<Problem> r, Element e, String id) {

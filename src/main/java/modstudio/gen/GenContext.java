@@ -48,8 +48,20 @@ public final class GenContext {
         return v.registryKeys();
     }
 
+    private List<Elements.Procedure> extraProcedures;
+
+    /**
+     * Elements of a type. Procedures include the ones generation adds itself: the right-click hooks of the tools
+     * that assemble multiblock machines (not on Bedrock, which has no multiblock machines).
+     */
     public <T extends Element> List<T> all(Class<T> c) {
-        return p.all(c);
+        List<T> base = p.all(c);
+        if (c != Elements.Procedure.class || target == Target.BEDROCK) return base;
+        if (extraProcedures == null) extraProcedures = AssemblyGen.toolProcedures(p, ns);
+        if (extraProcedures.isEmpty()) return base;
+        List<T> r = new ArrayList<>(base);
+        for (Elements.Procedure x : extraProcedures) r.add(c.cast(x));
+        return r;
     }
 
     public String id(String path) {

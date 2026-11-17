@@ -724,6 +724,108 @@ public final class SampleProject {
                 step("message", "text", "Placed a mana network and a kinetic line next to you.", "color", "green")));
 
         p.elements.addAll(List.of(mana, stress, altarShape, lift, collector, pool, altar, engine, mill));
+        crusher(p, ruby);
+    }
+
+    /**
+     * A machine assembled like the Immersive Engineering crusher: build the frame, right-click the redstone core with
+     * the ruby hammer, then throw ore on top. It runs on mana and its rollers turn while it works.
+     */
+    private static void crusher(Project p, Elements.Command ruby) {
+        TextureAsset hammerTex = TextureAsset.of("ruby_hammer", TextureTemplates.generate("hammer", 0xFFD8263F), 16, 16);
+        p.textures.add(hammerTex);
+        Item hammer = new Item();
+        hammer.name = "ruby_hammer";
+        hammer.displayName = "Ruby Hammer";
+        hammer.texture = hammerTex.id;
+        hammer.baseItem = "minecraft:carrot_on_a_stick";
+        hammer.maxStack = 1;
+        hammer.creativeTab = "tab:rubies";
+        hammer.tooltip = "&7Right-click the core of a machine to assemble it";
+        hammer.setLoc("name", "ja_jp", "ルビーのハンマー");
+
+        Elements.Model model = new Elements.Model();
+        model.name = "ruby_crusher";
+        model.kind = "item";
+        model.textures.put("0", "minecraft:block/iron_block");
+        p.textures.stream().filter(t -> t.name.equals("ruby_block")).findFirst().ifPresent(t -> model.textures.put("1", t.id));
+        String[][] bones = {{"frame", "", "8", "0", "24"}, {"roller_left", "frame", "2", "20", "24"}, {"roller_right", "frame", "14", "20", "24"}};
+        for (String[] b : bones) {
+            Elements.Bone bone = new Elements.Bone();
+            bone.name = b[0];
+            bone.parent = b[1];
+            bone.pivot = new double[]{Double.parseDouble(b[2]), Double.parseDouble(b[3]), Double.parseDouble(b[4])};
+            model.bones.add(bone);
+        }
+        Object[][] cubes = {{"frame", "base", -16, 0, 0, 32, 8, 48}, {"frame", "left_wall", -16, 8, 0, -8, 30, 48},
+                {"frame", "right_wall", 24, 8, 0, 32, 30, 48}, {"frame", "back_wall", -8, 8, 40, 24, 26, 48},
+                {"frame", "front_wall", -8, 8, 0, 24, 12, 8}, {"roller_left", "roller_left", -4, 14, 8, 8, 26, 40},
+                {"roller_right", "roller_right", 8, 14, 8, 20, 26, 40}};
+        for (Object[] c : cubes) {
+            Elements.Cube cu = Models.cube((String) c[1], (int) c[2], (int) c[3], (int) c[4], (int) c[5], (int) c[6], (int) c[7]);
+            cu.bone = (String) c[0];
+            for (String dir : Elements.Cube.FACES) {
+                cu.face(dir).uv = new double[]{0, 0, 16, 16};
+                if (cu.bone.startsWith("roller")) cu.face(dir).texture = "1";
+            }
+            model.cubes.add(cu);
+        }
+        Elements.Animation work = new Elements.Animation();
+        work.name = "work";
+        work.length = 1;
+        work.mode = "loop";
+        Rig.key(work, "roller_left", "rotation", "linear", new double[][]{{0, 0, 0, 0}, {1, 0, 0, 360}});
+        Rig.key(work, "roller_right", "rotation", "linear", new double[][]{{0, 0, 0, 0}, {1, 0, 0, -360}});
+        model.animations.add(work);
+
+        Systems.Multiblock crusher = new Systems.Multiblock();
+        crusher.name = "ruby_crusher";
+        crusher.palette = new ArrayList<>(List.of("minecraft:iron_block", "minecraft:redstone_block", "minecraft:smooth_stone", "minecraft:grindstone"));
+        crusher.resize(3, 2, 3);
+        for (int x = 0; x < 3; x++)
+            for (int z = 0; z < 3; z++) {
+                crusher.set(x, 0, z, x == 1 && z == 0 ? 1 : 0);
+                crusher.set(x, 1, z, x == 1 && z == 1 ? 3 : 2);
+            }
+        crusher.coreX = 1;
+        crusher.coreY = 0;
+        crusher.coreZ = 0;
+        crusher.assemble = true;
+        crusher.tool = "rubymod:ruby_hammer";
+        crusher.model = "ruby_crusher";
+        crusher.workAnimation = "work";
+        crusher.inX = 1;
+        crusher.inY = 1;
+        crusher.inZ = 1;
+        crusher.outX = 1;
+        crusher.outY = 0;
+        crusher.outZ = -1;
+        crusher.resource = "mana";
+        crusher.capacity = 2000;
+        crusher.workSound = "minecraft:block.grindstone.use";
+        crusher.recipes.add(recipe("minecraft:iron_ore", 1, "minecraft:raw_iron", 2, "rubymod:ruby", 10, 60, 20));
+        crusher.recipes.add(recipe("minecraft:cobblestone", 1, "minecraft:gravel", 1, "", 0, 30, 5));
+        crusher.recipes.add(recipe("rubymod:ruby", 1, "minecraft:redstone", 3, "", 0, 40, 10));
+        crusher.onAssemble.add(step("message", "text", "The Ruby Crusher is ready. Throw ore on top of it.", "color", "green"));
+
+        ruby.branches.add(branch("crusher", 2,
+                step("multiblock_build", "multiblock", "ruby_crusher", "x", "~-4", "z", "~4"),
+                step("give", "item", "rubymod:ruby_hammer", "count", "1"),
+                step("message", "text", "Right-click the redstone block with the hammer to assemble the crusher.", "color", "green")));
+        p.elements.addAll(List.of(hammer, model, crusher));
+    }
+
+    private static Systems.MultiblockRecipe recipe(String in, int inCount, String out, int outCount, String extra, int chance, int time, int cost) {
+        Systems.MultiblockRecipe r = new Systems.MultiblockRecipe();
+        r.input = in;
+        r.inputCount = inCount;
+        r.output = out;
+        r.outputCount = outCount;
+        r.secondary = extra;
+        r.secondaryChance = chance;
+        r.time = time;
+        r.cost = cost;
+        return r;
     }
 
     private static Systems.MachineIO io(String resource, String mode, int amount, int capacity) {

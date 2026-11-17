@@ -142,10 +142,55 @@ public final class Systems {
         @Override public String subtitle() { return sx + "x" + sy + "x" + sz + (generate ? "  worldgen" : ""); }
     }
 
+    /** One processing recipe of an assembled multiblock machine. */
+    public static final class MultiblockRecipe {
+        public String input = "minecraft:iron_ore";
+        public int inputCount = 1;
+        public String output = "minecraft:raw_iron";
+        public int outputCount = 2;
+        /** Extra output with a chance in percent (a byproduct), or empty. */
+        public String secondary = "";
+        public int secondaryCount = 1;
+        public int secondaryChance = 0;
+        /** Ticks one operation takes. */
+        public int time = 100;
+        /** Amount of the machine's resource one operation uses. */
+        public int cost = 0;
+    }
+
     public static final class Multiblock extends Volume {
         /** Position of the core block (the block the player uses or the machine block). */
         public int coreX = 1, coreY = 0, coreZ = 1;
         public boolean rotations = true;
+
+        /** Assembly like Immersive Engineering: right-click the core with the tool to turn the blocks into one machine. */
+        public boolean assemble = false;
+        public String tool = "";
+        public String incompleteMessage = "The structure is not complete.";
+        /** Model shown in place of the blocks once assembled (the blocks turn into barriers); empty keeps the blocks. */
+        public String model = "";
+        public double modelScale = 1;
+        public String idleAnimation = "";
+        public String workAnimation = "";
+        /** Input port: items thrown onto this position are processed (pattern coordinates, may lie outside). */
+        public int inX = 1, inY = 1, inZ = 1;
+        /** Output port: results go into a container here or drop out here (pattern coordinates, may lie outside). */
+        public int outX = 1, outY = 0, outZ = -1;
+        /** Buffer resource the machine runs on (filled by resource networks), or empty. */
+        public String resource = "";
+        public int capacity = 1000;
+        public List<MultiblockRecipe> recipes = new ArrayList<>();
+        public String workParticle = "minecraft:smoke";
+        public String workSound = "";
+        public String assembleSound = "minecraft:block.anvil.use";
+        /** Runs as the player who assembled the machine, at the core. */
+        public List<Step> onAssemble = new ArrayList<>();
+        /** Runs as the player who right-clicks the assembled machine; empty shows its status. */
+        public List<Step> onUse = new ArrayList<>();
+        /** Runs at the machine after each finished operation. */
+        public List<Step> onFinish = new ArrayList<>();
+        /** Runs at the machine when it is taken apart or broken. */
+        public List<Step> onDisassemble = new ArrayList<>();
 
         public Multiblock() {
             sx = 3;
@@ -156,7 +201,7 @@ public final class Systems {
         }
 
         @Override public ElementType type() { return ElementType.MULTIBLOCK; }
-        @Override public String subtitle() { return sx + "x" + sy + "x" + sz; }
+        @Override public String subtitle() { return sx + "x" + sy + "x" + sz + (assemble ? " / " + recipes.size() : ""); }
     }
 
     // ------------------------------------------------------------------ worldgen

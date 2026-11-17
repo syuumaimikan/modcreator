@@ -4,6 +4,7 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.Spinner;
 import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
@@ -12,6 +13,7 @@ import modstudio.core.Element;
 import modstudio.core.Ids;
 import modstudio.core.Systems.Machine;
 import modstudio.core.Systems.MachineIO;
+import modstudio.core.Systems.MultiblockRecipe;
 import modstudio.core.Systems.Multiblock;
 import modstudio.core.Systems.Resource;
 import modstudio.ui.Ui;
@@ -266,8 +268,116 @@ final class MachineEditors {
             f.integer(t("field.multiblock.core_y"), 0, 63, () -> e.coreY, v -> e.coreY = v);
             f.integer(t("field.multiblock.core_z"), 0, 63, () -> e.coreZ, v -> e.coreZ = v);
             f.check(t("field.multiblock.rotations"), () -> e.rotations, v -> e.rotations = v, t("help.multiblock.rotations"));
+
+            // assembly like Immersive Engineering machines
+            f.section(t("section.multiblock.assembly"), t("help.multiblock.assembly"));
+            f.check(t("field.multiblock.assemble"), () -> e.assemble, v -> {
+                e.assemble = v;
+                f.updateVisibility();
+            });
+            f.id(t("field.multiblock.tool"), IdField.Kind.ITEM, () -> e.tool, v -> e.tool = v, env(), t("help.multiblock.tool"));
+            f.showIf(() -> e.assemble);
+            f.text(t("field.multiblock.incomplete"), () -> e.incompleteMessage, v -> e.incompleteMessage = v);
+            f.showIf(() -> e.assemble);
+            f.choice(t("field.multiblock.model"), ModelEditor.modelChoices(c), x -> x.isEmpty() ? t("multiblock.keep_blocks") : x, () -> e.model, v -> {
+                e.model = v;
+                f.updateVisibility();
+            }, t("help.multiblock.model"));
+            f.showIf(() -> e.assemble);
+            f.decimal(t("field.multiblock.model_scale"), () -> e.modelScale, v -> e.modelScale = Math.max(0.05, v), t("help.multiblock.model_scale"));
+            f.showIf(() -> e.assemble && !e.model.isBlank());
+            animation(t("field.multiblock.idle_animation"), () -> e.idleAnimation, v -> e.idleAnimation = v);
+            animation(t("field.multiblock.work_animation"), () -> e.workAnimation, v -> e.workAnimation = v);
+            f.id(t("field.multiblock.assemble_sound"), IdField.Kind.SOUND, () -> e.assembleSound, v -> e.assembleSound = v, env());
+            f.showIf(() -> e.assemble);
+
+            f.section(t("section.multiblock.processing"), t("help.multiblock.processing"));
+            f.sectionShowIf(() -> e.assemble);
+            f.add(Ui.help(t("help.multiblock.ports")));
+            port(t("field.multiblock.input"), () -> new int[]{e.inX, e.inY, e.inZ}, v -> {
+                e.inX = v[0];
+                e.inY = v[1];
+                e.inZ = v[2];
+            });
+            port(t("field.multiblock.output"), () -> new int[]{e.outX, e.outY, e.outZ}, v -> {
+                e.outX = v[0];
+                e.outY = v[1];
+                e.outZ = v[2];
+            });
+            List<String> resources = c.p.all(Resource.class).stream().filter(r -> !r.model.equals("stress")).map(r -> r.name).toList();
+            ref(f, t("field.multiblock.resource"), resources, true, () -> e.resource, v -> e.resource = v, t("help.multiblock.resource"));
+            f.integer(t("field.machine.capacity"), 1, 100_000_000, () -> e.capacity, v -> e.capacity = v);
+            f.id(t("field.multiblock.work_particle"), IdField.Kind.PARTICLE, () -> e.workParticle, v -> e.workParticle = v, env());
+            f.id(t("field.multiblock.work_sound"), IdField.Kind.SOUND, () -> e.workSound, v -> e.workSound = v, env());
+            ListEditor<MultiblockRecipe> recipes = new ListEditor<>(e.recipes, MultiblockRecipe::new,
+                    (x, i) -> t("multiblock.recipe_title", x.inputCount, Ids.path(Ids.full(x.input)), x.outputCount, Ids.path(Ids.full(x.output))), (x, xf) -> {
+                xf.id(t("field.multiblock.recipe_input"), IdField.Kind.ITEM_OR_TAG, () -> x.input, v -> x.input = v, env());
+                xf.integer(t("field.count"), 1, 64, () -> x.inputCount, v -> x.inputCount = v);
+                xf.id(t("field.multiblock.recipe_output"), IdField.Kind.ITEM, () -> x.output, v -> x.output = v, env());
+                xf.integer(t("field.count"), 1, 64, () -> x.outputCount, v -> x.outputCount = v);
+                xf.id(t("field.multiblock.recipe_secondary"), IdField.Kind.ITEM, () -> x.secondary, v -> x.secondary = v, env(), t("help.multiblock.recipe_secondary"));
+                xf.integer(t("field.count"), 1, 64, () -> x.secondaryCount, v -> x.secondaryCount = v);
+                xf.integer(t("field.multiblock.recipe_chance"), 0, 100, () -> x.secondaryChance, v -> x.secondaryChance = v);
+                xf.integer(t("field.multiblock.recipe_time"), 1, 72_000, () -> x.time, v -> x.time = v, t("help.multiblock.recipe_time"));
+                xf.integer(t("field.multiblock.recipe_cost"), 0, 100_000_000, () -> x.cost, v -> x.cost = v, t("help.multiblock.recipe_cost"));
+            }, f::changed, t("multiblock.add_recipe"));
+            f.add(recipes);
+
+            SystemEditors.logic(this, t("section.multiblock.on_assemble"), t("help.multiblock.on_assemble"), e.onAssemble, () -> t("multiblock.start.assemble"));
+            f.sectionShowIf(() -> e.assemble);
+            SystemEditors.logic(this, t("section.multiblock.on_use"), t("help.multiblock.on_use"), e.onUse, () -> t("multiblock.start.use"));
+            f.sectionShowIf(() -> e.assemble);
+            SystemEditors.logic(this, t("section.multiblock.on_finish"), t("help.multiblock.on_finish"), e.onFinish, () -> t("multiblock.start.finish"));
+            f.sectionShowIf(() -> e.assemble);
+            SystemEditors.logic(this, t("section.multiblock.on_disassemble"), t("help.multiblock.on_disassemble"), e.onDisassemble, () -> t("multiblock.start.disassemble"));
+            f.sectionShowIf(() -> e.assemble);
+
             f.section(t("section.machine.functions"));
             f.add(Ui.help(t("help.multiblock.functions", c.ns(), e.name)));
+        }
+
+        /** Three spinners for a position in pattern coordinates (one block outside the pattern is allowed). */
+        private void port(String label, Supplier<int[]> get, Consumer<int[]> set) {
+            HBox row = new HBox(6);
+            row.setAlignment(Pos.CENTER_LEFT);
+            String[] axes = {"X", "Y", "Z"};
+            for (int i = 0; i < 3; i++) {
+                int axis = i;
+                Spinner<Integer> sp = new Spinner<>(-8, 64, get.get()[i]);
+                sp.setEditable(true);
+                sp.setPrefWidth(84);
+                sp.valueProperty().addListener((o, a, b) -> {
+                    int[] v = get.get();
+                    v[axis] = b == null ? 0 : b;
+                    set.accept(v);
+                    f.changed();
+                });
+                row.getChildren().addAll(new Label(axes[i]), sp);
+            }
+            f.row(label, row);
+        }
+
+        /** Editable combo listing the animations of the chosen model. */
+        private void animation(String label, Supplier<String> get, Consumer<String> set) {
+            ComboBox<String> cb = new ComboBox<>();
+            cb.setEditable(true);
+            cb.setPrefWidth(220);
+            cb.setValue(get.get());
+            cb.setOnShowing(ev -> {
+                List<String> items = new ArrayList<>();
+                items.add("");
+                modstudio.core.Elements.Model md = c.ws.project.model(e.model);
+                if (md != null) for (var a : md.animations) items.add(a.name);
+                cb.getItems().setAll(items);
+            });
+            cb.valueProperty().addListener((o, a, b) -> {
+                String v = b == null ? "" : b.trim();
+                if (v.equals(get.get())) return;
+                set.accept(v);
+                f.changed();
+            });
+            f.row(label, cb);
+            f.showIf(() -> e.assemble && !e.model.isBlank());
         }
 
         @Override
