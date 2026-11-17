@@ -1,0 +1,507 @@
+package modstudio.core;
+
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import modstudio.core.Elements.Cube;
+import modstudio.core.Elements.Display;
+import modstudio.core.Elements.Face;
+import modstudio.core.Elements.Model;
+
+import java.util.*;
+import java.util.function.Function;
+
+/** Templates, UV rules, import and export for cuboid models. */
+public final class Models {
+    private Models() {}
+
+    public static final List<Double> ANGLES = List.of(-45.0, -22.5, 0.0, 22.5, 45.0);
+    public static final List<String> DISPLAY_CONTEXTS = List.of("gui", "ground", "fixed", "head", "firstperson_righthand", "thirdperson_righthand");
+    public static final List<String> TEMPLATES = List.of("block", "slab", "carpet", "post", "pillar_small", "table", "lamp", "pedestal",
+            "stairs", "fence_post", "chair", "crystal", "rod", "empty");
+
+    // ------------------------------------------------------------------ geometry
+
+    /** Default UV of a face: the projection of the cube onto that face, like Minecraft does. */
+    public static double[] autoUv(Cube c, String face) {
+        double x1 = c.from[0], y1 = c.from[1], z1 = c.from[2], x2 = c.to[0], y2 = c.to[1], z2 = c.to[2];
+        double[] r = switch (face) {
+            case "north" -> new double[]{16 - x2, 16 - y2, 16 - x1, 16 - y1};
+            case "south" -> new double[]{x1, 16 - y2, x2, 16 - y1};
+            case "west" -> new double[]{z1, 16 - y2, z2, 16 - y1};
+            case "east" -> new double[]{16 - z2, 16 - y2, 16 - z1, 16 - y1};
+            case "up" -> new double[]{x1, z1, x2, z2};
+            default -> new double[]{x1, 16 - z2, x2, 16 - z1};
+        };
+        for (int i = 0; i < 4; i++) r[i] = clamp(r[i], 0, 16);
+        return r;
+    }
+
+    public static double[] uv(Cube c, String face) {
+        Face f = c.face(face);
+        return f.uv != null && f.uv.length == 4 ? f.uv : autoUv(c, face);
+    }
+
+    public static double clamp(double v, double lo, double hi) {
+        return Math.max(lo, Math.min(hi, v));
+    }
+
+    public static Cube cube(String name, double x1, double y1, double z1, double x2, double y2, double z2) {
+        Cube c = new Cube();
+        c.name = name;
+        c.from = new double[]{x1, y1, z1};
+        c.to = new double[]{x2, y2, z2};
+        c.origin = new double[]{(x1 + x2) / 2, (y1 + y2) / 2, (z1 + z2) / 2};
+        return c;
+    }
+
+    public static Cube copy(Cube c) {
+        Cube n = new Cube();
+        n.name = c.name;
+        n.from = c.from.clone();
+        n.to = c.to.clone();
+        n.rotation = c.rotation;
+        n.axis = c.axis;
+        n.origin = c.origin.clone();
+        n.rescale = c.rescale;
+        n.shade = c.shade;
+        n.faces = new LinkedHashMap<>();
+        for (var e : c.faces.entrySet()) {
+            Face f = e.getValue(), g = new Face();
+            g.enabled = f.enabled;
+            g.texture = f.texture;
+            g.uv = f.uv == null ? null : f.uv.clone();
+            g.rotation = f.rotation;
+            g.cullface = f.cullface;
+            g.tintIndex = f.tintIndex;
+            n.faces.put(e.getKey(), g);
+        }
+        return n;
+    }
+
+    /** Fills a model from a named template. Existing cubes are replaced. */
+    public static void applyTemplate(Model m, String template) {
+        m.cubes.clear();
+        switch (template) {
+            case "slab" -> m.cubes.add(cube("slab", 0, 0, 0, 16, 8, 16));
+            case "carpet" -> m.cubes.add(cube("carpet", 0, 0, 0, 16, 1, 16));
+            case "post" -> m.cubes.add(cube("post", 4, 0, 4, 12, 16, 12));
+            case "pillar_small" -> {
+                m.cubes.add(cube("base", 2, 0, 2, 14, 2, 14));
+                m.cubes.add(cube("shaft", 4, 2, 4, 12, 14, 12));
+                m.cubes.add(cube("top", 2, 14, 2, 14, 16, 14));
+            }
+            case "table" -> {
+                m.cubes.add(cube("top", 0, 13, 0, 16, 16, 16));
+                m.cubes.add(cube("leg1", 1, 0, 1, 3, 13, 3));
+                m.cubes.add(cube("leg2", 13, 0, 1, 15, 13, 3));
+                m.cubes.add(cube("leg3", 1, 0, 13, 3, 13, 15));
+                m.cubes.add(cube("leg4", 13, 0, 13, 15, 13, 15));
+            }
+            case "lamp" -> {
+                m.cubes.add(cube("base", 4, 0, 4, 12, 2, 12));
+                m.cubes.add(cube("stem", 7, 2, 7, 9, 9, 9));
+                m.cubes.add(cube("shade", 3, 9, 3, 13, 16, 13));
+            }
+            case "pedestal" -> {
+                m.cubes.add(cube("base", 1, 0, 1, 15, 3, 15));
+                m.cubes.add(cube("column", 4, 3, 4, 12, 12, 12));
+                m.cubes.add(cube("plate", 2, 12, 2, 14, 15, 14));
+            }
+            case "stairs" -> {
+                m.cubes.add(cube("bottom", 0, 0, 0, 16, 8, 16));
+                m.cubes.add(cube("step", 0, 8, 8, 16, 16, 16));
+            }
+            case "fence_post" -> {
+                m.cubes.add(cube("post", 6, 0, 6, 10, 16, 10));
+                m.cubes.add(cube("rail_top", 7, 12, 0, 9, 15, 16));
+                m.cubes.add(cube("rail_bottom", 7, 6, 0, 9, 9, 16));
+            }
+            case "chair" -> {
+                m.cubes.add(cube("seat", 2, 7, 2, 14, 9, 14));
+                m.cubes.add(cube("back", 2, 9, 12, 14, 20, 14));
+                m.cubes.add(cube("leg1", 2, 0, 2, 4, 7, 4));
+                m.cubes.add(cube("leg2", 12, 0, 2, 14, 7, 4));
+                m.cubes.add(cube("leg3", 2, 0, 12, 4, 7, 14));
+                m.cubes.add(cube("leg4", 12, 0, 12, 14, 7, 14));
+            }
+            case "crystal" -> {
+                m.cubes.add(cube("base", 5, 0, 5, 11, 2, 11));
+                Cube a = cube("crystal_a", 6, 1, 6, 10, 13, 10);
+                a.rotation = 22.5;
+                a.axis = "z";
+                a.origin = new double[]{8, 1, 8};
+                m.cubes.add(a);
+                Cube b = cube("crystal_b", 6.5, 1, 6.5, 9.5, 9, 9.5);
+                b.rotation = -22.5;
+                b.axis = "x";
+                b.origin = new double[]{8, 1, 8};
+                m.cubes.add(b);
+            }
+            case "rod" -> {
+                m.kind = "item";
+                Cube h = cube("handle", 7.5, 0, 7.5, 8.5, 10, 8.5);
+                m.cubes.add(h);
+                m.cubes.add(cube("head", 6.5, 10, 6.5, 9.5, 13, 9.5));
+            }
+            case "empty" -> {
+            }
+            default -> m.cubes.add(cube("block", 0, 0, 0, 16, 16, 16));
+        }
+        if (m.textures.isEmpty()) m.textures.put("0", "");
+    }
+
+    /** Axis aligned boxes (0..16 units) for collision; rotated cubes use their unrotated bounds. */
+    public static List<double[]> boxes(Model m) {
+        List<double[]> r = new ArrayList<>();
+        for (Cube c : m.cubes) {
+            double[] b = new double[6];
+            for (int i = 0; i < 3; i++) {
+                b[i] = clamp(Math.min(c.from[i], c.to[i]), -16, 32);
+                b[i + 3] = clamp(Math.max(c.from[i], c.to[i]), -16, 32);
+            }
+            if (b[3] - b[0] > 0 && b[4] - b[1] > 0 && b[5] - b[2] > 0) r.add(b);
+        }
+        return r;
+    }
+
+    /** True when the model is exactly a full block, so it can stay a normal occluding cube. */
+    public static boolean isFullCube(Model m) {
+        if (m.cubes.size() != 1) return false;
+        Cube c = m.cubes.get(0);
+        return c.rotation == 0 && Arrays.equals(c.from, new double[]{0, 0, 0}) && Arrays.equals(c.to, new double[]{16, 16, 16});
+    }
+
+    /** Rotates the model 90 degrees around the vertical axis (clockwise seen from above). */
+    public static double[] rotateY(double[] p, int quarterTurns) {
+        double x = p[0], z = p[2];
+        for (int i = 0; i < ((quarterTurns % 4) + 4) % 4; i++) {
+            double nx = 16 - z, nz = x;
+            x = nx;
+            z = nz;
+        }
+        return new double[]{x, p[1], z};
+    }
+
+    // ------------------------------------------------------------------ Java model JSON
+
+    /**
+     * Java Edition model JSON.
+     *
+     * @param tex resolves a texture variable value (asset id or resource id) to a resource location
+     */
+    public static JsonObject toJava(Model m, Function<String, String> tex) {
+        JsonObject o = new JsonObject();
+        if (!m.ambientOcclusion) o.addProperty("ambientocclusion", false);
+        JsonObject textures = new JsonObject();
+        String first = null;
+        for (var e : m.textures.entrySet()) {
+            String r = tex.apply(e.getValue());
+            if (r == null) r = "minecraft:block/stone";
+            textures.addProperty(e.getKey(), r);
+            if (first == null) first = r;
+        }
+        if (!textures.has("particle") && first != null) textures.addProperty("particle", first);
+        if (m.textureWidth != 16 || m.textureHeight != 16) o.add("texture_size", arr(m.textureWidth, m.textureHeight));
+        o.add("textures", textures);
+        JsonArray elements = new JsonArray();
+        for (Cube c : m.cubes) {
+            JsonObject el = new JsonObject();
+            el.addProperty("name", c.name);
+            el.add("from", arr(c.from));
+            el.add("to", arr(c.to));
+            if (c.rotation != 0) {
+                JsonObject rot = new JsonObject();
+                rot.addProperty("angle", num(c.rotation));
+                rot.addProperty("axis", c.axis);
+                rot.add("origin", arr(c.origin));
+                if (c.rescale) rot.addProperty("rescale", true);
+                el.add("rotation", rot);
+            }
+            if (!c.shade) el.addProperty("shade", false);
+            JsonObject faces = new JsonObject();
+            for (String dir : Cube.FACES) {
+                Face f = c.face(dir);
+                if (!f.enabled) continue;
+                JsonObject fo = new JsonObject();
+                fo.add("uv", arr(uv(c, dir)));
+                fo.addProperty("texture", "#" + (f.texture == null || f.texture.isBlank() ? "0" : f.texture));
+                if (f.rotation != 0) fo.addProperty("rotation", f.rotation);
+                if (f.cullface != null && !f.cullface.isBlank()) fo.addProperty("cullface", f.cullface);
+                if (f.tintIndex >= 0) fo.addProperty("tintindex", f.tintIndex);
+                faces.add(dir, fo);
+            }
+            el.add("faces", faces);
+            elements.add(el);
+        }
+        o.add("elements", elements);
+        JsonObject display = displayJson(m);
+        if (display != null) o.add("display", display);
+        return o;
+    }
+
+    private static JsonObject displayJson(Model m) {
+        JsonObject d = new JsonObject();
+        for (var e : m.display.entrySet()) {
+            Display v = e.getValue();
+            JsonObject o = new JsonObject();
+            o.add("rotation", arr(v.rotation));
+            o.add("translation", arr(v.translation));
+            o.add("scale", arr(v.scale));
+            d.add(e.getKey(), o);
+        }
+        if (d.isEmpty() && m.kind.equals("block")) {
+            // Same transforms as minecraft:block/block so custom models look right in hands and inventories.
+            d.add("gui", disp(30, 225, 0, 0, 0, 0, 0.625));
+            d.add("ground", disp(0, 0, 0, 0, 3, 0, 0.25));
+            d.add("fixed", disp(0, 0, 0, 0, 0, 0, 0.5));
+            d.add("thirdperson_righthand", disp(75, 45, 0, 0, 2.5, 0, 0.375));
+            d.add("firstperson_righthand", disp(0, 45, 0, 0, 0, 0, 0.4));
+            d.add("firstperson_lefthand", disp(0, 225, 0, 0, 0, 0, 0.4));
+        }
+        return d.isEmpty() ? null : d;
+    }
+
+    private static JsonObject disp(double rx, double ry, double rz, double tx, double ty, double tz, double s) {
+        JsonObject o = new JsonObject();
+        o.add("rotation", arr(rx, ry, rz));
+        o.add("translation", arr(tx, ty, tz));
+        o.add("scale", arr(s, s, s));
+        return o;
+    }
+
+    private static Number num(double d) {
+        if (d == Math.rint(d) && Math.abs(d) < 1e9) return (long) d;
+        return Math.round(d * 10000.0) / 10000.0;
+    }
+
+    private static JsonArray arr(double... v) {
+        JsonArray a = new JsonArray();
+        for (double d : v) a.add(num(d));
+        return a;
+    }
+
+    private static double[] dbl(JsonElement e, int n, double def) {
+        double[] r = new double[n];
+        Arrays.fill(r, def);
+        if (e == null || !e.isJsonArray()) return r;
+        JsonArray a = e.getAsJsonArray();
+        for (int i = 0; i < Math.min(n, a.size()); i++) r[i] = a.get(i).getAsDouble();
+        return r;
+    }
+
+    // ------------------------------------------------------------------ import
+
+    /** An imported model plus images that should become project textures (texture key -> PNG bytes). */
+    public record Imported(Model model, Map<String, byte[]> images, Map<String, String> imageNames) {}
+
+    /** Reads a Java block/item model JSON or a Blockbench .bbmodel file. */
+    public static Imported read(String json, String fileName) {
+        JsonObject o = JsonParser.parseString(json).getAsJsonObject();
+        if (o.has("meta") && o.has("elements") && o.get("elements").isJsonArray()
+                && (o.has("resolution") || o.getAsJsonObject("meta").has("format_version"))) {
+            return readBlockbench(o);
+        }
+        return readJava(o);
+    }
+
+    private static Imported readJava(JsonObject o) {
+        Model m = new Model();
+        if (o.has("ambientocclusion")) m.ambientOcclusion = o.get("ambientocclusion").getAsBoolean();
+        if (o.has("texture_size")) {
+            double[] ts = dbl(o.get("texture_size"), 2, 16);
+            m.textureWidth = (int) ts[0];
+            m.textureHeight = (int) ts[1];
+        }
+        if (o.has("textures")) {
+            for (var e : o.getAsJsonObject("textures").entrySet()) {
+                if (e.getKey().equals("particle") && o.getAsJsonObject("textures").size() > 1) continue;
+                m.textures.put(e.getKey(), e.getValue().getAsString());
+            }
+        }
+        if (o.has("elements")) {
+            int i = 0;
+            for (JsonElement je : o.getAsJsonArray("elements")) {
+                JsonObject el = je.getAsJsonObject();
+                Cube c = new Cube();
+                c.name = el.has("name") ? el.get("name").getAsString() : "cube" + (++i);
+                c.from = dbl(el.get("from"), 3, 0);
+                c.to = dbl(el.get("to"), 3, 16);
+                if (el.has("rotation")) {
+                    JsonObject r = el.getAsJsonObject("rotation");
+                    c.rotation = r.has("angle") ? snapAngle(r.get("angle").getAsDouble()) : 0;
+                    c.axis = r.has("axis") ? r.get("axis").getAsString() : "y";
+                    c.origin = dbl(r.get("origin"), 3, 8);
+                    c.rescale = r.has("rescale") && r.get("rescale").getAsBoolean();
+                }
+                if (el.has("shade")) c.shade = el.get("shade").getAsBoolean();
+                for (String dir : Cube.FACES) c.face(dir).enabled = false;
+                if (el.has("faces")) {
+                    for (var fe : el.getAsJsonObject("faces").entrySet()) {
+                        Face f = c.face(fe.getKey());
+                        JsonObject fo = fe.getValue().getAsJsonObject();
+                        f.enabled = true;
+                        if (fo.has("uv")) {
+                            f.uv = dbl(fo.get("uv"), 4, 0);
+                        }
+                        if (fo.has("texture")) f.texture = fo.get("texture").getAsString().replace("#", "");
+                        if (fo.has("rotation")) f.rotation = fo.get("rotation").getAsInt();
+                        if (fo.has("cullface")) f.cullface = fo.get("cullface").getAsString();
+                        if (fo.has("tintindex")) f.tintIndex = fo.get("tintindex").getAsInt();
+                    }
+                }
+                m.cubes.add(c);
+            }
+        }
+        if (o.has("display")) {
+            for (var e : o.getAsJsonObject("display").entrySet()) {
+                JsonObject d = e.getValue().getAsJsonObject();
+                Display v = new Display();
+                v.rotation = dbl(d.get("rotation"), 3, 0);
+                v.translation = dbl(d.get("translation"), 3, 0);
+                v.scale = dbl(d.get("scale"), 3, 1);
+                m.display.put(e.getKey(), v);
+            }
+        }
+        if (o.has("parent") && o.get("parent").getAsString().contains("item")) m.kind = "item";
+        if (m.textures.isEmpty()) m.textures.put("0", "");
+        return new Imported(m, Map.of(), Map.of());
+    }
+
+    private static Imported readBlockbench(JsonObject o) {
+        Model m = new Model();
+        double resW = 16, resH = 16;
+        if (o.has("resolution")) {
+            JsonObject r = o.getAsJsonObject("resolution");
+            resW = r.has("width") ? r.get("width").getAsDouble() : 16;
+            resH = r.has("height") ? r.get("height").getAsDouble() : 16;
+        }
+        m.textureWidth = (int) resW;
+        m.textureHeight = (int) resH;
+        Map<String, byte[]> images = new LinkedHashMap<>();
+        Map<String, String> names = new LinkedHashMap<>();
+        if (o.has("textures")) {
+            int i = 0;
+            for (JsonElement je : o.getAsJsonArray("textures")) {
+                JsonObject t = je.getAsJsonObject();
+                String key = String.valueOf(i++);
+                String src = t.has("source") ? t.get("source").getAsString() : "";
+                int comma = src.indexOf(',');
+                if (src.startsWith("data:image") && comma > 0) {
+                    images.put(key, Base64.getDecoder().decode(src.substring(comma + 1)));
+                    String n = t.has("name") ? t.get("name").getAsString() : "texture" + key;
+                    names.put(key, n.replaceAll("\\.png$", ""));
+                }
+                m.textures.put(key, "");
+            }
+        }
+        // Blockbench UVs are in texture pixels; Java models use 0..16.
+        double fu = 16.0 / resW, fv = 16.0 / resH;
+        int i = 0;
+        for (JsonElement je : o.getAsJsonArray("elements")) {
+            JsonObject el = je.getAsJsonObject();
+            if (el.has("type") && !el.get("type").getAsString().equals("cube")) continue;
+            Cube c = new Cube();
+            c.name = el.has("name") ? el.get("name").getAsString() : "cube" + (++i);
+            c.from = dbl(el.get("from"), 3, 0);
+            c.to = dbl(el.get("to"), 3, 16);
+            c.origin = dbl(el.get("origin"), 3, 8);
+            double[] rot = dbl(el.get("rotation"), 3, 0);
+            for (int a = 0; a < 3; a++) {
+                if (rot[a] != 0) {
+                    c.rotation = snapAngle(rot[a]);
+                    c.axis = new String[]{"x", "y", "z"}[a];
+                    break;
+                }
+            }
+            if (el.has("shade")) c.shade = el.get("shade").getAsBoolean();
+            for (String dir : Cube.FACES) c.face(dir).enabled = false;
+            if (el.has("faces")) {
+                for (var fe : el.getAsJsonObject("faces").entrySet()) {
+                    JsonObject fo = fe.getValue().getAsJsonObject();
+                    Face f = c.face(fe.getKey());
+                    if (fo.has("texture") && fo.get("texture").isJsonNull()) continue;
+                    f.enabled = true;
+                    if (fo.has("uv")) {
+                        double[] uv = dbl(fo.get("uv"), 4, 0);
+                        f.uv = new double[]{uv[0] * fu, uv[1] * fv, uv[2] * fu, uv[3] * fv};
+                    }
+                    if (fo.has("texture") && fo.get("texture").isJsonPrimitive()) f.texture = fo.get("texture").getAsString();
+                    if (fo.has("rotation")) f.rotation = fo.get("rotation").getAsInt();
+                    if (fo.has("cullface")) f.cullface = fo.get("cullface").getAsString();
+                    if (fo.has("tint")) f.tintIndex = fo.get("tint").getAsInt();
+                }
+            }
+            m.cubes.add(c);
+        }
+        m.textureWidth = 16;
+        m.textureHeight = 16;
+        if (m.textures.isEmpty()) m.textures.put("0", "");
+        return new Imported(m, images, names);
+    }
+
+    public static double snapAngle(double a) {
+        double best = 0;
+        for (double c : ANGLES) if (Math.abs(c - a) < Math.abs(best - a)) best = c;
+        return best;
+    }
+
+    // ------------------------------------------------------------------ Bedrock geometry
+
+    /** Bedrock Edition geometry (format 1.12.0) for a block model. */
+    public static JsonObject toBedrock(Model m, String identifier, int texW, int texH) {
+        JsonArray cubes = new JsonArray();
+        for (Cube c : m.cubes) {
+            JsonObject cb = new JsonObject();
+            // Bedrock blocks are centred on x/z: origin is the minimum corner in pixels relative to the block centre.
+            double ox = -(c.to[0] - 8), oy = c.from[1], oz = c.from[2] - 8;
+            double sx = c.to[0] - c.from[0], sy = c.to[1] - c.from[1], sz = c.to[2] - c.from[2];
+            cb.add("origin", arr(ox, oy, oz));
+            cb.add("size", arr(sx, sy, sz));
+            if (c.rotation != 0) {
+                double[] r = new double[3];
+                int idx = c.axis.equals("x") ? 0 : c.axis.equals("y") ? 1 : 2;
+                r[idx] = idx == 2 ? c.rotation : -c.rotation;
+                cb.add("rotation", arr(r));
+                cb.add("pivot", arr(-(c.origin[0] - 8), c.origin[1], c.origin[2] - 8));
+            }
+            JsonObject uv = new JsonObject();
+            for (String dir : Cube.FACES) {
+                Face f = c.face(dir);
+                if (!f.enabled) continue;
+                double[] u = uv(c, dir);
+                double kx = texW / 16.0, ky = texH / 16.0;
+                JsonObject fo = new JsonObject();
+                fo.add("uv", arr(u[0] * kx, u[1] * ky));
+                fo.add("uv_size", arr((u[2] - u[0]) * kx, (u[3] - u[1]) * ky));
+                fo.addProperty("material_instance", f.texture == null || f.texture.isBlank() ? "0" : f.texture);
+                uv.add(dir, fo);
+            }
+            cb.add("uv", uv);
+            cubes.add(cb);
+        }
+        JsonObject bone = new JsonObject();
+        bone.addProperty("name", "root");
+        bone.add("pivot", arr(0, 0, 0));
+        bone.add("cubes", cubes);
+        JsonObject desc = new JsonObject();
+        desc.addProperty("identifier", identifier);
+        desc.addProperty("texture_width", texW);
+        desc.addProperty("texture_height", texH);
+        desc.addProperty("visible_bounds_width", 2);
+        desc.addProperty("visible_bounds_height", 2.5);
+        desc.add("visible_bounds_offset", arr(0, 0.75, 0));
+        JsonObject geo = new JsonObject();
+        geo.add("description", desc);
+        JsonArray bones = new JsonArray();
+        bones.add(bone);
+        geo.add("bones", bones);
+        JsonObject root = new JsonObject();
+        root.addProperty("format_version", "1.16.0");
+        JsonArray list = new JsonArray();
+        list.add(geo);
+        root.add("minecraft:geometry", list);
+        return root;
+    }
+}

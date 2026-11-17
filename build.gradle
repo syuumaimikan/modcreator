@@ -1,0 +1,50 @@
+plugins {
+    id 'application'
+    id 'org.openjfx.javafxplugin' version '0.1.0'
+}
+
+group = 'modstudio'
+version = '1.0.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://repo.gradle.org/gradle/libs-releases' }
+}
+
+javafx {
+    version = '21.0.13'
+    modules = ['javafx.controls']
+}
+
+dependencies {
+    implementation 'com.google.code.gson:gson:2.11.0'
+    implementation 'io.github.mkpaz:atlantafx-base:2.1.0'
+    implementation 'org.fxmisc.richtext:richtextfx:0.11.7'
+    implementation 'org.kordamp.ikonli:ikonli-javafx:12.4.0'
+    implementation 'org.kordamp.ikonli:ikonli-materialdesign2-pack:12.4.0'
+    implementation 'org.gradle:gradle-tooling-api:8.14.7'
+    runtimeOnly 'org.slf4j:slf4j-nop:1.7.36'
+}
+
+application {
+    mainClass = 'modstudio.Launcher'
+    applicationName = 'ModStudio'
+    applicationDefaultJvmArgs = ['-Dfile.encoding=UTF-8', '-Dstdout.encoding=UTF-8']
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['-Xlint:none']
+}
+
+tasks.named('run', JavaExec) {
+    if (project.hasProperty('appArgs')) {
+        args project.property('appArgs').toString().split(' ')
+    }
+}
