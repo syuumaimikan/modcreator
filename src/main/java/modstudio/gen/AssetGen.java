@@ -48,6 +48,7 @@ public final class AssetGen {
         Map<String, TreeMap<Integer, String>> byBase = new TreeMap<>();
         rigAssets(byBase);
         overrides(byBase);
+        menuArt();
         armor(true);
         gameplay(true);
         sounds();
@@ -83,6 +84,33 @@ public final class AssetGen {
                 byBase.computeIfAbsent(RigGen.BASE_ITEM, k -> new TreeMap<>()).put(RigGen.cmd(md, b), ctx.ns + ":item/" + path);
             }
         }
+    }
+
+    /**
+     * Menu backgrounds: one bitmap glyph per menu in the font ns:menu, plus space glyphs that move the title to the
+     * screen corner and back. The menu title starts with these characters (see MenuArt.prefix).
+     */
+    private void menuArt() {
+        JsonArray providers = new JsonArray();
+        JsonObject advances = new JsonObject();
+        advances.addProperty(String.valueOf(MenuArt.SHIFT_LEFT), -8);
+        int n = 0;
+        List<JsonObject> bitmaps = new ArrayList<>();
+        for (Systems.Menu m : ctx.all(Systems.Menu.class)) {
+            int[] px = MenuArt.image(ctx.p, m);
+            if (px == null) continue;
+            int w = MenuArt.WIDTH, h = MenuArt.height(m);
+            ctx.files.bytes(asset(ctx.ns, "textures/gui/menu/" + m.name + ".png"), Images.png(px, w, h));
+            JsonArray chars = new JsonArray();
+            chars.add(String.valueOf(MenuArt.glyph(n)));
+            bitmaps.add(J.obj("type", "bitmap", "file", ctx.ns + ":gui/menu/" + m.name + ".png", "ascent", 13, "height", h, "chars", chars));
+            advances.addProperty(String.valueOf(MenuArt.shiftBack(n)), 8 - MenuArt.advance(px, w, h));
+            n++;
+        }
+        if (n == 0) return;
+        providers.add(J.obj("type", "space", "advances", advances));
+        for (JsonObject b : bitmaps) providers.add(b);
+        ctx.files.json(asset(ctx.ns, "font/menu.json"), J.obj("providers", providers));
     }
 
     /** Custom model data overrides on vanilla base items (before 1.21.4, which selects models with item_model). */
@@ -248,6 +276,7 @@ public final class AssetGen {
         }
         rigAssets(byBase);
         overrides(byBase);
+        menuArt();
         armor(false);
         gameplay(false);
         sounds();

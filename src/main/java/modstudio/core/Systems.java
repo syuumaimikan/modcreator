@@ -219,6 +219,9 @@ public final class Systems {
         public String costObjective = "";
         public int cost;
         public boolean closeAfter = true;
+        /** Other items shown in turn with the slot item (an animated slot); empty for a still slot. */
+        public List<String> frames = new ArrayList<>();
+        public int frameTicks = 10;
     }
 
     public static final class Menu extends Element {
@@ -230,6 +233,23 @@ public final class Systems {
         public List<MenuSlot> slots = new ArrayList<>();
         /** Shown when a slot's cost or permission check fails. */
         public String denyMessage = "&cYou cannot use this.";
+        /** none, panel (drawn from the colours) or texture; chest menus only. */
+        public String background = "none";
+        public String backgroundTexture = "";
+        public String panelColor = "#c6c6c6";
+        public String frameColor = "#373737";
+        /** Title colour as #rrggbb; blank keeps the default dark grey. */
+        public String titleColor = "";
+        /** How the items appear when the menu opens: none, slots, rows, columns, center */
+        public String openAnimation = "none";
+        /** Ticks between two steps of the opening animation. */
+        public int animationSpeed = 2;
+        public String openSound = "";
+        public String clickSound = "";
+
+        public boolean animated() {
+            return !openAnimation.equals("none") || slots.stream().anyMatch(s -> !s.frames.isEmpty());
+        }
 
         public int size() {
             return switch (layout) {

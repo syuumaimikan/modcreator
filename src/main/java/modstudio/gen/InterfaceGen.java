@@ -212,6 +212,7 @@ public final class InterfaceGen {
                 compileSlot(m, sl, base, pack);
                 if (pack) click.add("execute if score @s " + ns + ".menu matches " + menuId(mi, sl) + " run function " + ns + ":" + base);
             }
+            if (!m.openSound.isBlank()) pc.functions.put("menus/" + m.name + "/open_fx", List.of(sound(m.openSound)));
             if (pack) chatMenu(m, mi);
         }
         if (pack) {
@@ -221,6 +222,10 @@ public final class InterfaceGen {
             click.add("scoreboard players set @s " + ns + ".menu 0");
             pc.functions.put("menus/_click", click);
         }
+    }
+
+    private static String sound(String id) {
+        return "playsound " + Ids.full(id.trim()) + " master @s ~ ~ ~ 1 1";
     }
 
     private void compileSlot(Menu m, MenuSlot sl, String base, boolean pack) {
@@ -250,8 +255,9 @@ public final class InterfaceGen {
         String perm = sl.permission.trim();
         boolean tagPerm = !perm.isEmpty() && !javaPermission(ctx.target, sl);
         boolean cost = sl.cost > 0 && !sl.costObjective.isBlank();
+        List<String> fx = m.clickSound.isBlank() ? List.of() : List.of(sound(m.clickSound));
         if (!tagPerm && !cost) {
-            pc.compile(base, steps, List.of(), List.of());
+            pc.compile(base, steps, fx, List.of());
             return;
         }
         String obj = sl.costObjective.trim();
@@ -264,7 +270,7 @@ public final class InterfaceGen {
         pc.compile(run, steps, pre, List.of());
         pc.objectives.add(pc.tmp());
         String ok = "#ok " + pc.tmp();
-        List<String> gate = new ArrayList<>();
+        List<String> gate = new ArrayList<>(fx);
         gate.add("scoreboard players set " + ok + " 1");
         if (tagPerm) gate.add("execute unless entity @s[tag=" + perm + "] run scoreboard players set " + ok + " 0");
         if (cost) gate.add("execute unless score @s " + obj + " matches " + sl.cost + ".. run scoreboard players set " + ok + " 0");
@@ -277,6 +283,7 @@ public final class InterfaceGen {
         List<String> out = new ArrayList<>();
         String title = m.title.isBlank() ? Ids.titleCase(m.name) : m.title;
         JsonArray head = rich("&6&l" + title, null);
+        if (!m.openSound.isBlank()) out.add(sound(m.openSound));
         out.add("tellraw @s " + json(head));
         TreeMap<Integer, List<MenuSlot>> rows = new TreeMap<>();
         List<MenuSlot> sorted = new ArrayList<>(m.slots);

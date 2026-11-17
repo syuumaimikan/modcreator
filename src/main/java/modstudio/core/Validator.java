@@ -188,6 +188,11 @@ public final class Validator {
                             r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.unknown_element", m.name, I18n.t("type.menu"), s.target)));
                     }
                     if (p.has(Target.DATAPACK)) r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.menu_chat", m.name)));
+                    if (!m.background.equals("none") && !m.layout.equals("chest"))
+                        r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.menu_art_layout", m.name)));
+                    else if (m.background.equals("texture") && p.texture(m.backgroundTexture) == null)
+                        r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.menu_art_texture", m.name)));
+                    for (Systems.MenuSlot s : m.slots) for (String fr : s.frames) checkRef(p, r, e, fr);
                 }
                 case Systems.Hud h -> {
                     checkSteps(p, r, e, h.onFinish);

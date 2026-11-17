@@ -494,7 +494,7 @@ public final class SampleProject {
     private static void serverFeatures(Project p) {
         Systems.Menu shop = new Systems.Menu();
         shop.name = "ruby_shop";
-        shop.title = "&4Ruby Shop";
+        shop.title = "&lRuby Shop";
         shop.rows = 3;
         Systems.MenuSlot sword = slot(11, "rubymod:ruby_sword", "&cRuby Sword", "run");
         sword.lore = "A blade that burns with an inner fire";
@@ -511,7 +511,19 @@ public final class SampleProject {
         stats.lore = "Looks up your Bed Wars wins";
         stats.steps.add(step("http_request", "request", "hypixel_player"));
         Systems.MenuSlot close = slot(22, "minecraft:barrier", "&cClose", "close");
-        shop.slots.addAll(List.of(sword, realmTrip, stats, close));
+        // a shining showcase slot that cycles through the ruby gear
+        Systems.MenuSlot showcase = slot(4, "rubymod:ruby", "&6Ruby Collection", "none");
+        showcase.frames.addAll(List.of("rubymod:ruby_sword", "rubymod:ruby_block"));
+        showcase.frameTicks = 15;
+        shop.slots.addAll(List.of(sword, realmTrip, stats, close, showcase));
+        shop.background = "panel";
+        shop.panelColor = "#f4d3da";
+        shop.frameColor = "#e0115f";
+        shop.titleColor = "#7a0a2e";
+        shop.openAnimation = "center";
+        shop.animationSpeed = 2;
+        shop.openSound = "minecraft:block.chest.open";
+        shop.clickSound = "minecraft:ui.button.click";
 
         Systems.Hud arena = new Systems.Hud();
         arena.name = "arena_timer";

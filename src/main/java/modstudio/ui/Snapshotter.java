@@ -93,6 +93,19 @@ public final class Snapshotter {
             });
             add(() -> shot(w.scene(), (pos < 0.7 ? "70" : "71") + "-model-rig"));
         }
+        // the background, opening animation and sounds of the shop menu
+        add(() -> {
+            var v = w.workspaceView();
+            v.show("menu");
+            w.workspace().project.elements.stream().filter(e -> e.name.equals("ruby_shop")).findFirst().ifPresent(e -> v.openElement(e.uid));
+        });
+        add(() -> {
+            for (javafx.scene.Node node : w.scene().getRoot().lookupAll(".scroll-pane")) {
+                if (node instanceof javafx.scene.control.ScrollPane sp && sp.getContent() != null
+                        && sp.getContent().lookup(".mc-menu") != null) sp.setVvalue(0.75);
+            }
+        });
+        add(() -> shot(w.scene(), "72-menu-look"));
         add(() -> {
             var ws = w.workspace();
             var v = w.workspaceView();

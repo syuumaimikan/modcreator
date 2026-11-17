@@ -175,6 +175,7 @@ public final class Compat {
             case Systems.Menu m -> {
                 if (bedrock) a.none("compat.java_only");
                 else if (pack) a.fallback("compat.menu_chat");
+                else if (t == Target.PAPER && MenuArt.active(p, m)) a.fallback("compat.menu_art_pack");
                 for (Systems.MenuSlot sl : m.slots) steps(p, sl.steps, t, old, a);
             }
             case Systems.Hud h -> {

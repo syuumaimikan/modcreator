@@ -219,6 +219,7 @@ public final class TextureTemplates {
     public static String[] names() {
         java.util.List<String> r = new java.util.ArrayList<>(PATTERNS.keySet());
         r.addAll(java.util.List.of("block", "ore", "crop", "armor_layer_1", "armor_layer_2"));
+        for (int rows = 1; rows <= 6; rows++) r.add("menu_" + rows);
         return r.toArray(String[]::new);
     }
 
@@ -260,10 +261,18 @@ public final class TextureTemplates {
 
     /** Width and height of a template's image: 64 x 32 for worn armor layers, 16 x 16 otherwise. */
     public static int[] size(String template) {
+        if (menuRows(template) > 0) return new int[]{MenuArt.WIDTH, 114 + 18 * menuRows(template)};
         return template != null && template.startsWith("armor_layer") ? new int[]{64, 32} : new int[]{16, 16};
     }
 
+    /** Rows of a chest menu background template (menu_1 to menu_6), or 0. */
+    private static int menuRows(String template) {
+        if (template == null || !template.matches("menu_[1-6]")) return 0;
+        return template.charAt(5) - '0';
+    }
+
     public static int[] generate(String template, int baseArgb) {
+        if (menuRows(template) > 0) return MenuArt.template(menuRows(template), baseArgb);
         int[] shades = shades(baseArgb);
         if (template.startsWith("armor_layer")) return armorLayer(template.endsWith("2") ? 2 : 1, shades);
         int[] px = new int[256];

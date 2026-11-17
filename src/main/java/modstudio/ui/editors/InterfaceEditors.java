@@ -13,7 +13,9 @@ import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.TextFlow;
+import javafx.animation.AnimationTimer;
 import modstudio.core.Ids;
+import modstudio.core.MenuArt;
 import modstudio.core.Secrets;
 import modstudio.core.Systems.*;
 import modstudio.core.Systems.Menu;
@@ -38,7 +40,12 @@ final class InterfaceEditors {
         private final GridPane grid = new GridPane();
         private final VBox detail = new VBox(8);
         private final Label gridTitle = Ui.label("", "mc-menu-title");
+        private final ImageView art = new ImageView();
+        private final Label artNote = Ui.label("", "text-muted");
         private int selected = -1;
+        /** Game tick of the opening animation preview, or -1 when it is not playing. */
+        private int previewTick = -1;
+        private AnimationTimer player;
 
         MenuEditor(Ctx c, Menu e) {
             super(c, e);
@@ -68,8 +75,38 @@ final class InterfaceEditors {
             frame.getStyleClass().add("mc-menu");
             frame.setPadding(new Insets(8, 10, 10, 10));
             frame.setMaxWidth(Region.USE_PREF_SIZE);
-            f.add(frame);
+            Button play = Ui.button(t("menu.play_animation"), "mdi2p-play", this::playPreview);
+            f.add(Ui.hbox(8, frame, new VBox(6, play)));
             f.add(detail);
+
+            f.section(t("section.menu.look"), t("help.menu.look"));
+            f.choice(t("field.menu.background"), MenuArt.BACKGROUNDS, x -> t("menu.background." + x), () -> e.background, v -> {
+                e.background = v;
+                f.updateVisibility();
+            });
+            f.row(t("field.menu.background_texture"), new TextureField(c.ws, c.window(), e.backgroundTexture, () -> e.name + "_menu",
+                    "menu_" + MenuArt.rows(e), v -> {
+                e.backgroundTexture = v;
+                f.changed();
+            }), t("help.menu.background_texture"));
+            f.showIf(() -> e.background.equals("texture"));
+            GameplayEditors.colorRow(f, t("field.menu.panel_color"), () -> e.panelColor, v -> e.panelColor = v);
+            f.showIf(() -> e.background.equals("panel"));
+            GameplayEditors.colorRow(f, t("field.menu.frame_color"), () -> e.frameColor, v -> e.frameColor = v);
+            f.showIf(() -> e.background.equals("panel"));
+            GameplayEditors.colorRow(f, t("field.menu.title_color"), () -> e.titleColor, v -> e.titleColor = v);
+            art.setSmooth(false);
+            art.setPreserveRatio(true);
+            art.setFitWidth(MenuArt.WIDTH * 2);
+            f.add(new VBox(6, art, artNote));
+            f.choice(t("field.menu.open_animation"), MenuArt.REVEALS, x -> t("menu.reveal." + x), () -> e.openAnimation, v -> {
+                e.openAnimation = v;
+                f.updateVisibility();
+            });
+            f.integer(t("field.menu.animation_speed"), 1, 20, () -> e.animationSpeed, v -> e.animationSpeed = v, t("help.menu.animation_speed"));
+            f.showIf(() -> !e.openAnimation.equals("none"));
+            f.id(t("field.menu.open_sound"), IdField.Kind.SOUND, () -> e.openSound, v -> e.openSound = v, env());
+            f.id(t("field.menu.click_sound"), IdField.Kind.SOUND, () -> e.clickSound, v -> e.clickSound = v, env());
             f.section(t("section.menu.platforms"));
             f.add(Ui.help(t("help.menu.platforms", c.ns(), e.name.isBlank() ? "name" : e.name)));
         }
@@ -83,8 +120,60 @@ final class InterfaceEditors {
             return e.layout.equals("hopper") ? 5 : e.layout.equals("dispenser") ? 3 : 9;
         }
 
+        /** Plays the opening animation and the animated slots in the slot grid for a few seconds. */
+        private void playPreview() {
+            if (player != null) player.stop();
+            int end = revealEnd();
+            int stopAt = end + (e.slots.stream().anyMatch(s -> !s.frames.isEmpty()) ? 100 : 10);
+            long[] startNs = {-1};
+            player = new AnimationTimer() {
+                @Override
+                public void handle(long now) {
+                    if (startNs[0] < 0) startNs[0] = now;
+                    int tick = (int) ((now - startNs[0]) / 50_000_000L);
+                    if (grid.getScene() == null || tick > stopAt) {
+                        stop();
+                        previewTick = -1;
+                        refresh();
+                        return;
+                    }
+                    if (tick != previewTick) {
+                        previewTick = tick;
+                        refresh();
+                    }
+                }
+            };
+            player.start();
+        }
+
+        private int revealEnd() {
+            if (e.openAnimation.equals("none")) return 0;
+            int end = 0;
+            for (int i = 0; i < e.size(); i++) end = Math.max(end, (MenuArt.order(e.openAnimation, i, e.size(), columns()) + 1) * Math.max(1, e.animationSpeed));
+            return end;
+        }
+
+        /** Item shown in a slot at the current preview tick, or null while it is still hidden. */
+        private String shownItem(int pos, MenuSlot s, String item) {
+            if (previewTick < 0) return item;
+            if (!e.openAnimation.equals("none")
+                    && MenuArt.order(e.openAnimation, pos, e.size(), columns()) * Math.max(1, e.animationSpeed) > previewTick) return null;
+            if (s == null || s.frames.isEmpty() || previewTick < revealEnd()) return item;
+            List<String> all = new ArrayList<>();
+            all.add(item);
+            for (String fr : s.frames) if (!fr.isBlank()) all.add(fr);
+            return all.get((previewTick / Math.max(1, s.frameTicks)) % all.size());
+        }
+
         @Override
         protected void refresh() {
+            int[] px = MenuArt.image(c.p, e);
+            art.setImage(px == null ? null : Ui.pixelImage(px, MenuArt.WIDTH, MenuArt.height(e), MenuArt.WIDTH * 2));
+            art.setVisible(px != null);
+            art.setManaged(px != null);
+            artNote.setText(e.background.equals("none") ? "" : !e.layout.equals("chest") ? t("menu.background_chest_only")
+                    : px == null ? t("menu.background_missing") : t("menu.background_note"));
+            gridTitle.setStyle(e.titleColor.isBlank() ? "" : "-fx-text-fill: " + (e.titleColor.startsWith("#") ? e.titleColor : "#" + e.titleColor) + ";");
             gridTitle.setText(MenuText.plain(e.title.isBlank() ? Ids.titleCase(e.name) : e.title));
             grid.getChildren().clear();
             int cols = columns(), size = e.size();
@@ -98,7 +187,7 @@ final class InterfaceEditors {
             cell.setMinSize(44, 44);
             cell.setPrefSize(44, 44);
             MenuSlot s = slotAt(pos);
-            String item = s != null ? s.item : e.filler;
+            String item = shownItem(pos, s, s != null ? s.item : e.filler);
             if (item != null && !item.isBlank()) {
                 Image img = c.ws.itemImage(Ids.full(item), 32);
                 if (img != null) {
@@ -116,7 +205,7 @@ final class InterfaceEditors {
                     cell.getChildren().add(l);
                 }
             }
-            if (s != null && s.count > 1) {
+            if (s != null && s.count > 1 && item != null) {
                 Label n = new Label(Integer.toString(s.count));
                 n.getStyleClass().add("slot-count");
                 StackPane.setAlignment(n, Pos.BOTTOM_RIGHT);
@@ -161,6 +250,33 @@ final class InterfaceEditors {
             sf.text(t("field.menu.slot_name"), () -> s.name, v -> s.name = v, t("help.color_codes"));
             sf.area(t("field.menu.lore"), () -> s.lore, v -> s.lore = v, 2, null);
             sf.check(t("field.glint"), () -> s.glint, v -> s.glint = v);
+            VBox frameList = new VBox(4);
+            Runnable[] rebuild = new Runnable[1];
+            rebuild[0] = () -> {
+                frameList.getChildren().clear();
+                for (int i = 0; i < s.frames.size(); i++) {
+                    int index = i;
+                    IdField id = new IdField(env(), IdField.Kind.ITEM, s.frames.get(i), v -> {
+                        s.frames.set(index, v);
+                        sf.changed();
+                    });
+                    HBox.setHgrow(id, Priority.ALWAYS);
+                    frameList.getChildren().add(Ui.hbox(6, Ui.label(Integer.toString(i + 1), "text-muted"), id,
+                            Ui.iconButton("mdi2c-close", t("action.delete"), () -> {
+                                s.frames.remove(index);
+                                sf.changed();
+                                rebuild[0].run();
+                            })));
+                }
+                frameList.getChildren().add(Ui.button(t("menu.add_frame"), "mdi2p-plus", () -> {
+                    s.frames.add(s.frames.isEmpty() ? s.item : s.frames.get(s.frames.size() - 1));
+                    sf.changed();
+                    rebuild[0].run();
+                }));
+            };
+            rebuild[0].run();
+            sf.row(t("field.menu.frames"), frameList, t("help.menu.frames"));
+            sf.integer(t("field.menu.frame_ticks"), 1, 200, () -> s.frameTicks, v -> s.frameTicks = v);
             sf.section(t("section.menu.action"));
             List<String> menus = c.p.all(Menu.class).stream().map(m -> m.name).filter(n -> !n.equals(e.name)).collect(Collectors.toList());
             sf.choice(t("field.menu.action"), List.of("none", "run", "command", "menu", "close"), x -> t("menu.action." + x), () -> s.action, v -> s.action = v);

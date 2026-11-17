@@ -98,6 +98,39 @@ public final class BridgeGen {
         return r;
     }
 
+    /** Index of the menu among menus with a background image (its glyph in the menu font), or -1. */
+    private int artIndex(Menu m) {
+        int n = 0;
+        for (Menu o : ctx.all(Menu.class)) {
+            if (!modstudio.core.MenuArt.active(ctx.p, o)) continue;
+            if (o == m) return n;
+            n++;
+        }
+        return -1;
+    }
+
+    private static int titleRgb(Menu m) {
+        try {
+            return m.titleColor.isBlank() ? -1 : Integer.parseInt(m.titleColor.trim().replace("#", ""), 16) & 0xFFFFFF;
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    private static int columns(Menu m) {
+        return m.layout.equals("hopper") ? 5 : m.layout.equals("dispenser") ? 3 : 9;
+    }
+
+    /** Java string literal with unicode escapes for the private use characters of the title prefix. */
+    private static String esc(String s) {
+        StringBuilder b = new StringBuilder("\"");
+        for (char ch : s.toCharArray()) {
+            if (ch < 0x20 || ch > 0x7e) b.append(String.format("\\u%04X", (int) ch));
+            else b.append(ch);
+        }
+        return b.append('"').toString();
+    }
+
     private static String fillerOf(Menu m) {
         String f = m.filler == null ? "" : m.filler.trim();
         return f.isEmpty() ? "" : Ids.full(f);
@@ -202,7 +235,8 @@ public final class BridgeGen {
                 "net.minecraft.world.entity.player.Player", "net.minecraft.world.inventory.AbstractContainerMenu",
                 "net.minecraft.world.inventory.ChestMenu", "net.minecraft.world.inventory.ClickType", "net.minecraft.world.inventory.DispenserMenu",
                 "net.minecraft.world.inventory.HopperMenu", "net.minecraft.world.inventory.MenuType", "net.minecraft.world.item.ItemStack",
-                "java.util.List");
+                "net.minecraft.network.chat.MutableComponent", "net.minecraft.resources.ResourceLocation",
+                "java.util.HashMap", "java.util.List", "java.util.Map");
         if (ctx.components()) {
             s.imp("net.minecraft.core.component.DataComponents", "net.minecraft.world.item.component.ItemLore", "java.util.ArrayList");
         } else {
@@ -220,20 +254,30 @@ public final class BridgeGen {
             s.l("SimpleContainer c = new SimpleContainer(" + size + ");");
             for (MenuSlot sl : m.slots) {
                 if (sl.slot < 0 || sl.slot >= size || sl.item.isBlank()) continue;
-                s.l("c.setItem(" + sl.slot + ", stack(" + Src.str(Ids.full(sl.item)) + ", " + Math.max(1, Math.min(99, sl.count)) + ", "
-                        + Src.str(itemName(sl)) + ", List.of(" + String.join(", ", lore(sl)) + "), " + sl.glint + "));");
+                s.l("c.setItem(" + sl.slot + ", " + stackCall(sl, Ids.full(sl.item)) + ");");
             }
             if (!fillerOf(m).isEmpty()) s.l("fill(c, " + Src.str(fillerOf(m)) + ");");
-            String title = "text(" + Src.str(GenContext.legacy(m.title.isBlank() ? Ids.titleCase(m.name) : m.title)) + ")";
+            String anim = "null";
+            if (m.animated()) {
+                s.l("Anim a = new Anim(" + Src.str(m.openAnimation) + ", " + Math.max(1, m.animationSpeed) + ", " + columns(m) + ");");
+                frames(s, m, size);
+                s.l("a.start(c);");
+                anim = "a";
+            }
+            String legacyTitle = Src.str(GenContext.legacy(m.title.isBlank() ? Ids.titleCase(m.name) : m.title));
+            int art = artIndex(m), rgb = titleRgb(m);
+            String title = art < 0 && rgb < 0 ? "text(" + legacyTitle + ")"
+                    : "titled(" + (art < 0 ? "\"\"" : esc(modstudio.core.MenuArt.prefix(art))) + ", " + legacyTitle + ", " + rgb + ")";
             String ctor = switch (m.layout) {
-                case "hopper" -> "new Hopper(id, inv, c, " + Src.str(m.name) + ")";
-                case "dispenser" -> "new Dispenser(id, inv, c, " + Src.str(m.name) + ")";
+                case "hopper" -> "new Hopper(id, inv, c, " + Src.str(m.name) + ", " + anim + ")";
+                case "dispenser" -> "new Dispenser(id, inv, c, " + Src.str(m.name) + ", " + anim + ")";
                 default -> {
                     int rows = size / 9;
-                    yield "new Chest(MenuType.GENERIC_9x" + rows + ", id, inv, c, " + rows + ", " + Src.str(m.name) + ")";
+                    yield "new Chest(MenuType.GENERIC_9x" + rows + ", id, inv, c, " + rows + ", " + Src.str(m.name) + ", " + anim + ")";
                 }
             };
             s.l("player.openMenu(new SimpleMenuProvider((id, inv, p) -> " + ctor + ", " + title + "));");
+            if (!m.openSound.isBlank()) s.l("ModProcedures.run(player, " + Src.str("menus/" + m.name + "/open_fx") + ");");
             s.l("}");
         }
         s.l("default -> {");
@@ -265,6 +309,19 @@ public final class BridgeGen {
         s.l("private static Component text(String s) {");
         s.l("return Component.literal(s).withStyle(style -> style.withItalic(false));");
         s.l("}");
+        s.blank();
+        s.l("/** A title with an optional background glyph from the menu font and an optional colour. */");
+        s.l("private static Component titled(String background, String title, int rgb) {");
+        s.l("MutableComponent out = Component.empty();");
+        s.l("if (!background.isEmpty()) out.append(Component.literal(background).withStyle(style -> style.withFont(MENU_FONT).withColor(0xFFFFFF)));");
+        s.l("MutableComponent t = Component.literal(title);");
+        s.l("if (rgb >= 0) t = t.withStyle(style -> style.withColor(rgb));");
+        s.l("return out.append(t);");
+        s.l("}");
+        s.blank();
+        s.l("private static final ResourceLocation MENU_FONT = " + GenContext.rlNew(ctx.singular(), ctx.mainClass + ".MODID", "\"menu\"") + ";");
+        s.blank();
+        animClass(s, false);
         s.blank();
         s.l("private static void fill(SimpleContainer c, String id) {");
         s.l("for (int i = 0; i < c.getContainerSize(); i++) {");
@@ -304,26 +361,20 @@ public final class BridgeGen {
         s.l("}");
         s.blank();
         s.l("static final class Chest extends ChestMenu {");
-        s.l("private final String name;");
-        s.l("private final int size;");
-        s.blank();
-        s.l("Chest(MenuType<?> type, int id, Inventory inv, Container c, int rows, String name) {");
+        menuFields(s);
+        s.l("Chest(MenuType<?> type, int id, Inventory inv, Container c, int rows, String name, Anim anim) {");
         s.l("super(type, id, inv, c, rows);");
-        s.l("this.name = name;");
-        s.l("this.size = rows * 9;");
+        menuInit(s);
         s.l("}");
         menuOverrides(s);
         s.l("}");
         for (String kind : List.of("Hopper", "Dispenser")) {
             s.blank();
             s.l("static final class " + kind + " extends " + kind + "Menu {");
-            s.l("private final String name;");
-            s.l("private final int size;");
-            s.blank();
-            s.l(kind + "(int id, Inventory inv, Container c, String name) {");
+            menuFields(s);
+            s.l(kind + "(int id, Inventory inv, Container c, String name, Anim anim) {");
             s.l("super(id, inv, c);");
-            s.l("this.name = name;");
-            s.l("this.size = c.getContainerSize();");
+            menuInit(s);
             s.l("}");
             menuOverrides(s);
             s.l("}");
@@ -332,7 +383,119 @@ public final class BridgeGen {
         ctx.files.text(ctx.javaDir() + "ModMenus.java", s.toString());
     }
 
+    private static void menuFields(Src s) {
+        s.l("private final String name;");
+        s.l("private final int size;");
+        s.l("private final Container box;");
+        s.l("private final Anim anim;");
+        s.l("private final Player viewer;");
+        s.l("private long start = -1, last = -1;");
+        s.blank();
+    }
+
+    private static void menuInit(Src s) {
+        s.l("this.name = name;");
+        s.l("this.size = c.getContainerSize();");
+        s.l("this.box = c;");
+        s.l("this.anim = anim;");
+        s.l("this.viewer = inv.player;");
+    }
+
+    /** Builds the frame stacks of the animated slots of a menu (local variables c and a in the generated code). */
+    private void frames(Src s, Menu m, int size) {
+        for (MenuSlot sl : m.slots) {
+            if (sl.frames.isEmpty() || sl.slot < 0 || sl.slot >= size) continue;
+            List<String> stacks = new ArrayList<>();
+            stacks.add("c.getItem(" + sl.slot + ").copy()");
+            for (String f : sl.frames) if (!f.isBlank()) stacks.add(stackCall(sl, Ids.full(f)));
+            s.l("a.frame(" + sl.slot + ", " + Math.max(1, sl.frameTicks) + ", " + String.join(", ", stacks) + ");");
+        }
+    }
+
+    private static String itemCall(MenuSlot sl, String id) {
+        return "item" + stackCall(sl, id).substring("stack".length());
+    }
+
+    private static String stackCall(MenuSlot sl, String id) {
+        return "stack(" + Src.str(id) + ", " + Math.max(1, Math.min(99, sl.count)) + ", " + Src.str(itemName(sl)) + ", List.of("
+                + String.join(", ", lore(sl)) + "), " + sl.glint + ")";
+    }
+
+    /**
+     * Opening animation and animated slots. The order key of a slot decides the step on which it appears; frames
+     * cycle once everything is shown. Shared by mods (Container, ItemStack) and Paper (Inventory, ItemStack).
+     */
+    private static void animClass(Src s, boolean paper) {
+        String box = paper ? "Inventory" : "Container";
+        s.l("static final class Anim {");
+        s.l("final String reveal;");
+        s.l("final int speed, cols;");
+        s.l("final Map<Integer, ItemStack[]> frames = new HashMap<>();");
+        s.l("final Map<Integer, Integer> every = new HashMap<>();");
+        s.l("ItemStack[] full;");
+        s.l("int end;");
+        s.blank();
+        s.l("Anim(String reveal, int speed, int cols) {");
+        s.l("this.reveal = reveal;");
+        s.l("this.speed = Math.max(1, speed);");
+        s.l("this.cols = cols;");
+        s.l("}");
+        s.blank();
+        s.l("void frame(int slot, int ticks, ItemStack... stacks) {");
+        s.l("frames.put(slot, stacks);");
+        s.l("every.put(slot, Math.max(1, ticks));");
+        s.l("}");
+        s.blank();
+        s.l("int key(int i, int size) {");
+        s.l("int col = i % cols, row = i / cols, rows = (size + cols - 1) / cols;");
+        s.l("return switch (reveal) {");
+        s.l("case \"rows\" -> row;");
+        s.l("case \"columns\" -> col;");
+        s.l("case \"center\" -> Math.max(Math.abs(2 * col - (cols - 1)), Math.abs(2 * row - (rows - 1))) / 2;");
+        s.l("default -> i;");
+        s.l("};");
+        s.l("}");
+        s.blank();
+        s.l("void start(" + box + " c) {");
+        s.l("int n = " + (paper ? "c.getSize()" : "c.getContainerSize()") + ";");
+        s.l("full = new ItemStack[n];");
+        s.l("for (int i = 0; i < n; i++) full[i] = " + (paper ? "c.getItem(i) == null ? null : c.getItem(i).clone()" : "c.getItem(i).copy()") + ";");
+        s.l("end = 0;");
+        s.l("if (reveal.equals(\"none\")) return;");
+        s.l("for (int i = 0; i < n; i++) end = Math.max(end, (key(i, n) + 1) * speed);");
+        s.l(paper ? "c.clear();" : "c.clearContent();");
+        s.l("}");
+        s.blank();
+        s.l("void tick(" + box + " c, int t) {");
+        s.l("if (!reveal.equals(\"none\") && t <= end) {");
+        s.l("for (int i = 0; i < full.length; i++) {");
+        s.l("if (key(i, full.length) * speed == t) c.setItem(i, " + (paper ? "full[i] == null ? null : full[i].clone()" : "full[i].copy()") + ");");
+        s.l("}");
+        s.l("}");
+        s.l("if (t < end) return;");
+        s.l("for (Map.Entry<Integer, ItemStack[]> e : frames.entrySet()) {");
+        s.l("int ev = every.get(e.getKey());");
+        s.l("ItemStack[] f = e.getValue();");
+        s.l("if (t % ev == 0 && f.length > 0 && f[(t / ev) % f.length] != null) c.setItem(e.getKey(), f[(t / ev) % f.length]" + (paper ? ".clone()" : ".copy()") + ");");
+        s.l("}");
+        s.l("}");
+        s.l("}");
+    }
+
     private static void menuOverrides(Src s) {
+        s.blank();
+        s.l("@Override");
+        s.l("public void broadcastChanges() {");
+        s.l("if (anim != null) {");
+        s.l("long now = viewer.level().getGameTime();");
+        s.l("if (start < 0) start = now;");
+        s.l("if (now != last) {");
+        s.l("last = now;");
+        s.l("anim.tick(box, (int) (now - start));");
+        s.l("}");
+        s.l("}");
+        s.l("super.broadcastChanges();");
+        s.l("}");
         s.blank();
         s.l("@Override");
         s.l("public void clicked(int slot, int button, ClickType type, Player player) {");
@@ -590,7 +753,10 @@ public final class BridgeGen {
         s.imp("org.bukkit.Bukkit", "org.bukkit.Material", "org.bukkit.entity.Player", "org.bukkit.event.EventHandler",
                 "org.bukkit.event.Listener", "org.bukkit.event.inventory.InventoryClickEvent", "org.bukkit.event.inventory.InventoryDragEvent",
                 "org.bukkit.event.inventory.InventoryType", "org.bukkit.inventory.Inventory", "org.bukkit.inventory.InventoryHolder",
-                "org.bukkit.inventory.ItemStack", "org.bukkit.inventory.meta.ItemMeta", "java.util.List");
+                "org.bukkit.inventory.ItemStack", "org.bukkit.inventory.meta.ItemMeta", "org.bukkit.plugin.java.JavaPlugin",
+                "org.bukkit.scheduler.BukkitRunnable", "net.kyori.adventure.key.Key", "net.kyori.adventure.text.Component",
+                "net.kyori.adventure.text.format.TextColor", "net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer",
+                "java.util.HashMap", "java.util.List", "java.util.Map");
         if (!ctx.components()) s.imp("org.bukkit.enchantments.Enchantment", "org.bukkit.inventory.ItemFlag");
         s.l("/** Inventory menus built in the editor. Clicks are cancelled and run the slot functions. */");
         s.l("public final class Menus implements Listener {");
@@ -611,9 +777,13 @@ public final class BridgeGen {
         s.l("public static void open(Player player, String name) {");
         s.l("Holder holder = new Holder(name);");
         s.l("Inventory inv;");
+        s.l("Anim anim = null;");
         s.l("switch (name) {");
         for (Menu m : ctx.all(Menu.class)) {
-            String title = Src.str(GenContext.legacy(m.title.isBlank() ? Ids.titleCase(m.name) : m.title));
+            String legacyTitle = Src.str(GenContext.legacy(m.title.isBlank() ? Ids.titleCase(m.name) : m.title));
+            int art = artIndex(m), rgb = titleRgb(m);
+            String title = art < 0 && rgb < 0 ? legacyTitle
+                    : "titled(" + (art < 0 ? "\"\"" : esc(modstudio.core.MenuArt.prefix(art))) + ", " + legacyTitle + ", " + rgb + ")";
             s.l("case " + Src.str(m.name) + " -> {");
             switch (m.layout) {
                 case "hopper" -> s.l("inv = Bukkit.createInventory(holder, InventoryType.HOPPER, " + title + ");");
@@ -622,10 +792,20 @@ public final class BridgeGen {
             }
             for (MenuSlot sl : m.slots) {
                 if (sl.slot < 0 || sl.slot >= m.size() || sl.item.isBlank()) continue;
-                s.l("inv.setItem(" + sl.slot + ", item(" + Src.str(Ids.full(sl.item)) + ", " + Math.max(1, Math.min(99, sl.count)) + ", "
-                        + Src.str(itemName(sl)) + ", List.of(" + String.join(", ", lore(sl)) + "), " + sl.glint + "));");
+                s.l("inv.setItem(" + sl.slot + ", " + itemCall(sl, Ids.full(sl.item)) + ");");
             }
             if (!fillerOf(m).isEmpty()) s.l("fill(inv, " + Src.str(fillerOf(m)) + ");");
+            if (m.animated()) {
+                s.l("anim = new Anim(" + Src.str(m.openAnimation) + ", " + Math.max(1, m.animationSpeed) + ", " + columns(m) + ");");
+                for (MenuSlot sl : m.slots) {
+                    if (sl.frames.isEmpty() || sl.slot < 0 || sl.slot >= m.size()) continue;
+                    List<String> stacks = new ArrayList<>();
+                    stacks.add("inv.getItem(" + sl.slot + ")");
+                    for (String f : sl.frames) if (!f.isBlank()) stacks.add(itemCall(sl, Ids.full(f)));
+                    s.l("anim.frame(" + sl.slot + ", " + Math.max(1, sl.frameTicks) + ", " + String.join(", ", stacks) + ");");
+                }
+            }
+            if (!m.openSound.isBlank()) s.l("Procedures.run(player, " + Src.str("menus/" + m.name + "/open_fx") + ");");
             s.l("}");
         }
         s.l("default -> {");
@@ -633,8 +813,36 @@ public final class BridgeGen {
         s.l("}");
         s.l("}");
         s.l("holder.inventory = inv;");
+        s.l("if (anim != null) anim.start(inv);");
         s.l("player.openInventory(inv);");
+        s.l("if (anim != null) {");
+        s.l("Anim running = anim;");
+        s.l("Inventory shown = inv;");
+        s.l("new BukkitRunnable() {");
+        s.l("int t;");
+        s.blank();
+        s.l("@Override");
+        s.l("public void run() {");
+        s.l("if (!player.isOnline() || player.getOpenInventory().getTopInventory() != shown) {");
+        s.l("cancel();");
+        s.l("return;");
         s.l("}");
+        s.l("running.tick(shown, t++);");
+        s.l("}");
+        s.l("}.runTaskTimer(JavaPlugin.getProvidingPlugin(Menus.class), 0L, 1L);");
+        s.l("}");
+        s.l("}");
+        s.blank();
+        s.l("/** A title with an optional background glyph from the menu font and an optional colour. */");
+        s.l("private static Component titled(String background, String title, int rgb) {");
+        s.l("Component out = Component.empty();");
+        s.l("if (!background.isEmpty()) out = out.append(Component.text(background).font(Key.key(" + main + ".MODID, \"menu\")).color(TextColor.color(0xFFFFFF)));");
+        s.l("Component t = LegacyComponentSerializer.legacySection().deserialize(title);");
+        s.l("if (rgb >= 0) t = t.colorIfAbsent(TextColor.color(rgb));");
+        s.l("return out.append(t);");
+        s.l("}");
+        s.blank();
+        animClass(s, true);
         s.blank();
         s.l("static void click(Player player, String menu, int slot) {");
         s.l("switch (menu + \"#\" + slot) {");
