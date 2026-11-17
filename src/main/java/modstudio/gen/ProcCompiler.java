@@ -28,12 +28,14 @@ public final class ProcCompiler {
     private int counter;
     /** Commands a condition needs to run first (multiblock checks, sky checks); emitted before the condition is used. */
     private final List<String> pre = new ArrayList<>();
+    private final ProcExtra extra;
 
     /** @param customItems true when project items are represented as custom-model-data items (data pack, Paper). */
     public ProcCompiler(GenContext ctx, boolean customItems) {
         this.ctx = ctx;
         this.ns = ctx.ns;
         this.customItems = customItems;
+        this.extra = new ProcExtra(this, ctx);
     }
 
     public String tmp() {
@@ -209,7 +211,17 @@ public final class ProcCompiler {
                 compile(sub, s.then, List.of(), List.of());
                 for (int i = 0; i < n; i++) out.add("function " + ns + ":" + sub);
             }
-            default -> out.addAll(commands(s));
+            default -> {
+                String mod = extra.bodyModifier(s);
+                if (mod == null) {
+                    out.addAll(commands(s));
+                    return;
+                }
+                if (s.then.isEmpty()) return;
+                String sub = base + "/b" + (++counter);
+                compile(sub, s.then, List.of(), List.of());
+                out.add("execute " + mod + " run function " + ns + ":" + sub);
+            }
         }
     }
 
@@ -717,8 +729,7 @@ public final class ProcCompiler {
                 if (!path.isEmpty()) r.add("data modify storage " + ns + ":data " + path + " set value " + snbtValue(s.get("value")));
             }
             case "stop" -> r.add(ctx.v.atLeast(McVersion.V1_20_4) ? "return 0" : "# stop needs Minecraft 1.20.2 or later");
-            default -> {
-            }
+            default -> extra.commands(s, r);
         }
         return r;
     }
@@ -965,7 +976,8 @@ public final class ProcCompiler {
                 r = s;
             }
             default -> {
-                return null;
+                r = extra.condition(c, pre);
+                if (r == null) return null;
             }
         }
         if (c.negate) {

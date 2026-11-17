@@ -890,7 +890,43 @@ public final class SampleProject {
         wiki.action = "url";
         wiki.value = "https://example.com/ruby-wiki";
         theme.buttons.add(wiki);
-        p.elements.addAll(List.of(night, bless, merchant, rules, welcome, glow, theme));
+        // A shrine that shows off the larger step set: chat links, item editing, displays, teams, score math and bodies.
+        Procedure blessing = new Procedure();
+        blessing.name = "shrine_blessing";
+        blessing.trigger = "manual";
+        blessing.notes = "Blesses the player's sword and decorates the shrine.";
+        blessing.steps.add(step("message_link", "text", "Read about the shrine", "url", "https://example.com/ruby-wiki", "color", "aqua"));
+        blessing.steps.add(step("message_hover", "text", "[Blessing]", "hover", "Your sword glows red for a while"));
+        Step blessed = Logic.newStep("if");
+        blessed.cond = Logic.newCondition("wearing");
+        blessed.cond.p.put("slot", "armor.head");
+        blessed.cond.p.put("item", "minecraft:golden_helmet");
+        blessed.then.add(step("item_rename", "text", "Shrine Blade", "color", "red"));
+        blessed.then.add(step("item_lore", "text", "Blessed at the ruby shrine", "color", "gray"));
+        blessed.then.add(step("item_glint", "on", "true"));
+        blessed.orElse.add(step("title_times", "fade_in", "5", "stay", "40", "fade_out", "10"));
+        blessed.orElse.add(step("actionbar_score", "text", "Shrine visits: ", "objective", "shrine_visits", "color", "gold"));
+        blessing.steps.add(blessed);
+        blessing.steps.add(step("particle_circle", "particle", "minecraft:flame", "radius", "2", "points", "16", "dy", "0.2"));
+        blessing.steps.add(step("firework", "y", "~1", "rgb", "#E0115F", "shape", "star", "flight", "1"));
+        blessing.steps.add(step("text_display", "text", "Ruby Shrine", "y", "~2.5", "color", "red", "billboard", "center", "tag", "shrine"));
+        blessing.steps.add(step("score_random", "objective", "shrine_luck", "min", "1", "max", "6"));
+        blessing.steps.add(step("score_operation", "objective", "shrine_visits", "op", "+=", "source", "@s", "source_objective", "shrine_luck"));
+        blessing.steps.add(step("score_clamp", "objective", "shrine_visits", "min", "0", "max", "99"));
+        blessing.steps.add(step("team_join", "team", "ruby"));
+        blessing.steps.add(step("team_color", "team", "ruby", "color", "red"));
+        Step nearby = step("as_entities", "selector", "@e[type=minecraft:zombie,distance=..12]");
+        nearby.then.add(step("glowing", "target", "@s", "on", "true"));
+        nearby.then.add(step("push_away", "target", "@s", "strength", "1.5"));
+        blessing.steps.add(nearby);
+        Step dark = Logic.newStep("if");
+        dark.cond = Logic.newCondition("light");
+        dark.cond.p.put("max", "6");
+        dark.then.add(step("summon_named", "entity", "minecraft:allay", "name", "Shrine Spirit", "color", "light_purple"));
+        blessing.steps.add(dark);
+        blessing.steps.add(step("modifier_add", "attribute", "movement_speed", "name", "shrine_speed", "amount", "0.1", "operation", "add_multiplied_total"));
+
+        p.elements.addAll(List.of(night, bless, merchant, rules, welcome, glow, theme, blessing));
     }
 
     private static PredicateTerm term(String kind, String... kv) {

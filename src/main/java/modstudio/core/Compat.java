@@ -302,6 +302,11 @@ public final class Compat {
                 }
                 if (old && (Validator.needsMacro(s.p) || (s.cond != null && Validator.needsMacro(s.cond.p)))) a.fallback("compat.macro_old");
             }
+            if (bedrock && Logic.STEPS.containsKey(s.kind) && LogicExtra.isExtra(s.kind) && LogicExtra.bedrockCommand(s) == null && !LogicExtra.BODY.contains(s.kind)
+                    && !LogicExtra.BEDROCK_TEXT.contains(s.kind))
+                a.fallback("compat.extra_java_only");
+            if (old && !bedrock && List.of("return_value", "return_fail").contains(s.kind)) a.fallback("compat.stop_old");
+            if (!bedrock && p.mcVersions().stream().anyMatch(v -> !v.components()) && List.of("item_glint", "scale").contains(s.kind)) a.fallback("compat.step_new");
             if (bedrock && s.kind.equals("shoot")) a.fallback("compat.shoot_bedrock");
             if (bedrock && List.of("modify_item", "give_loot", "show_dialog", "spawn_trader").contains(s.kind)) a.fallback("compat.step_java_only");
             if (bedrock && (s.kind.equals("play_animation") || s.kind.equals("stop_animation"))) a.fallback("compat.animation_bedrock");

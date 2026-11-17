@@ -33,6 +33,8 @@ public final class StepsEditor extends VBox {
         CATEGORY_ICONS.put("interface", "mdi2v-view-dashboard-outline");
         CATEGORY_ICONS.put("web", "mdi2w-web");
         CATEGORY_ICONS.put("machine", "mdi2c-cog-outline");
+        CATEGORY_ICONS.put("math", "mdi2c-calculator-variant-outline");
+        CATEGORY_ICONS.put("player", "mdi2a-account-star-outline");
     }
 
     public StepsEditor(IdField.Env env, List<Step> steps, Runnable onChange, int depth) {

@@ -38,11 +38,11 @@ public final class Logic {
     /** Functions an item modifier element can apply, with their values. */
     public static final Map<String, List<Param>> MODIFIER_FUNCTIONS = new LinkedHashMap<>();
 
-    private static void step(String id, String cat, Param... ps) {
+    static void step(String id, String cat, Param... ps) {
         STEPS.put(id, new Def(id, cat, List.of(ps)));
     }
 
-    private static void cond(String id, Param... ps) {
+    static void cond(String id, Param... ps) {
         CONDITIONS.put(id, new Def(id, "condition", List.of(ps)));
     }
 
@@ -266,11 +266,12 @@ public final class Logic {
         trig("enter_block", Param.of("value", PType.BLOCK, "minecraft:water"));
         trig("cron", Param.of("value", PType.TEXT, "*/5 * * * *"));
         trig("manual");
+        LogicExtra.register();
     }
 
     /** Steps that contain a nested list of steps (stored in Step.then). */
     public static boolean hasBody(String kind) {
-        return kind.equals("repeat") || kind.equals("for_each") || kind.equals("at_position") || kind.equals("schedule");
+        return kind.equals("repeat") || kind.equals("for_each") || kind.equals("at_position") || kind.equals("schedule") || LogicExtra.BODY.contains(kind);
     }
 
     /** Triggers that run without a player context (the executor is the server). */

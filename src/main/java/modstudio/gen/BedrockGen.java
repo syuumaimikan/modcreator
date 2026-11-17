@@ -544,6 +544,11 @@ public final class BedrockGen {
 
     private List<String> commands(Step s) {
         List<String> r = new ArrayList<>();
+        String bedrock = LogicExtra.bedrockCommand(s);
+        if (bedrock != null) {
+            if (!bedrock.isEmpty()) r.add(bedrock);
+            return r;
+        }
         switch (s.kind) {
             case "command" -> {
                 for (String line : s.get("command").split("\\R")) {
@@ -558,6 +563,20 @@ public final class BedrockGen {
                 r.add("titleraw " + sel(s) + " title " + rawtext(s.get("title"), s.get("color"), false));
             }
             case "actionbar" -> r.add("titleraw " + sel(s) + " actionbar " + rawtext(s.get("text"), s.get("color"), false));
+            case "message_link" -> r.add("tellraw " + sel(s) + " " + rawtext(s.get("text") + ": " + s.get("url"), s.get("color"), false));
+            case "message_command", "message_suggest", "message_hover", "message_copy" -> {
+                String extra = s.kind.equals("message_hover") ? s.get("hover") : s.kind.equals("message_copy") ? s.get("copy") : "";
+                r.add("tellraw " + sel(s) + " " + rawtext(s.get("text") + (extra.isBlank() ? "" : " (" + extra + ")"), s.get("color"), false));
+            }
+            case "message_name" -> r.add("tellraw " + sel(s) + " " + J.compact(J.obj("rawtext", J.arr(J.obj("selector", "@s"),
+                    J.obj("text", code(s.get("color")) + GenContext.legacy(s.get("text")))))));
+            case "message_score", "actionbar_score" -> {
+                String o = s.get("objective").trim();
+                if (o.isEmpty()) break;
+                String json = J.compact(J.obj("rawtext", J.arr(J.obj("text", code(s.get("color")) + GenContext.legacy(s.get("text"))),
+                        J.obj("score", J.obj("name", "*", "objective", o)))));
+                r.add(s.kind.equals("message_score") ? "tellraw " + sel(s) + " " + json : "titleraw " + sel(s) + " actionbar " + json);
+            }
             case "give" -> r.add("give " + sel(s) + " " + Ids.full(s.get("item")) + " " + s.get("count"));
             case "clear" -> r.add("clear " + sel(s) + " " + Ids.full(s.get("item")) + " 0 " + s.get("count"));
             case "effect" -> r.add("effect " + sel(s) + " " + Ids.path(s.get("effect")) + " " + s.get("seconds") + " " + s.get("amplifier") + " " + s.get("hide"));
@@ -686,6 +705,19 @@ public final class BedrockGen {
                     out.append(indent).append("}\n");
                 }
                 case "at_position" -> statements(s.then, out, indent, objectives);
+                case "as_entities", "at_entities" -> {
+                    String sel = s.get("selector").isBlank() ? "@e" : s.get("selector").trim();
+                    out.append(indent).append("cmd(self, ").append(js("tag " + sel + " add ms_each")).append(");\n");
+                    out.append(indent).append("for (const each of eachTagged()) {\n");
+                    out.append(indent).append("  ((self) => {\n");
+                    statements(s.then, out, indent + "    ", objectives);
+                    out.append(indent).append("  })(each);\n");
+                    out.append(indent).append("}\n");
+                }
+                case "in_dimension", "facing_entity", "on_relation", "summon_run", "positioned_over", "rotated" -> {
+                    // execute contexts that the script API has no direct counterpart for: the body runs as is
+                    statements(s.then, out, indent, objectives);
+                }
                 case "cutscene_play" -> {
                     String sel = s.get("target").isBlank() ? "@s" : s.get("target").trim();
                     String name = js(s.get("cutscene").trim());
