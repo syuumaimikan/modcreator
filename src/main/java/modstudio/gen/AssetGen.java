@@ -51,6 +51,7 @@ public final class AssetGen {
         menuArt();
         armor(true);
         gameplay(true);
+        tooltips();
         sounds();
         lang();
         shaders();
@@ -279,9 +280,30 @@ public final class AssetGen {
         menuArt();
         armor(false);
         gameplay(false);
+        tooltips();
         sounds();
         lang();
         shaders();
+    }
+
+    /** Tooltip box sprites for items with their own tooltip look (the tooltip_style component, 1.21.2+). */
+    private void tooltips() {
+        if (!ctx.v.atLeast(McVersion.V1_21_4)) return;
+        for (Item it : ctx.all(Item.class)) {
+            if (!it.customTooltip) continue;
+            String base = "textures/gui/sprites/tooltip/" + it.name;
+            TextureAsset bt = ctx.p.texture(it.tooltipBackgroundTexture), ft = ctx.p.texture(it.tooltipFrameTexture);
+            int bg = TooltipArt.argb(it.tooltipBackground, it.tooltipBackgroundOpacity);
+            int top = TooltipArt.argb(it.tooltipBorderTop, it.tooltipBorderOpacity), bottom = TooltipArt.argb(it.tooltipBorderBottom, it.tooltipBorderOpacity);
+            ctx.files.bytes(asset(ctx.ns, base + "_background.png"), bt != null ? bt.bytes() : Images.png(TooltipArt.background(bg), TooltipArt.SIZE, TooltipArt.SIZE));
+            ctx.files.json(asset(ctx.ns, base + "_background.png.mcmeta"), nineSlice(bt == null ? TooltipArt.SIZE : bt.width, bt == null ? TooltipArt.SIZE : bt.height, 9, false));
+            ctx.files.bytes(asset(ctx.ns, base + "_frame.png"), ft != null ? ft.bytes() : Images.png(TooltipArt.frame(top, bottom), TooltipArt.SIZE, TooltipArt.SIZE));
+            ctx.files.json(asset(ctx.ns, base + "_frame.png.mcmeta"), nineSlice(ft == null ? TooltipArt.SIZE : ft.width, ft == null ? TooltipArt.SIZE : ft.height, 10, true));
+        }
+    }
+
+    private static JsonObject nineSlice(int w, int h, int border, boolean stretch) {
+        return J.obj("gui", J.obj("scaling", J.obj("type", "nine_slice", "width", w, "height", h, "border", border, "stretch_inner", stretch)));
     }
 
     /** Status effect icons (mods) and painting textures. */

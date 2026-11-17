@@ -270,7 +270,13 @@ final class HooksGen {
 
     /** Whether the mod has client-only code (ModClient). */
     boolean hasClient() {
-        return hasKeys() || hasCutscenes();
+        return hasKeys() || hasCutscenes() || !tooltipColorItems().isEmpty();
+    }
+
+    /** Items whose tooltip colours come from the loader's tooltip event (Forge and NeoForge before tooltip_style). */
+    List<Elements.Item> tooltipColorItems() {
+        if (fabric() || ctx.v.atLeast(McVersion.V1_21_4)) return List.of();
+        return ctx.all(Elements.Item.class).stream().filter(it -> it.customTooltip).toList();
     }
 
     boolean hasKeys() {
@@ -324,6 +330,10 @@ final class HooksGen {
                     s.l("modBus.addListener(ModClient::register);");
                 }
                 s.l("NeoForge.EVENT_BUS.addListener(ModClient::onTick);");
+                if (!tooltipColorItems().isEmpty()) {
+                    s.imp("net.neoforged.neoforge.client.event.RenderTooltipEvent");
+                    s.l("NeoForge.EVENT_BUS.addListener(ModClient::onTooltipColor);");
+                }
                 s.l("}");
                 s.blank();
                 if (ctx.components()) {
@@ -347,6 +357,10 @@ final class HooksGen {
                     s.l("public static void init(IEventBus modBus) {");
                     if (!keys.isEmpty()) s.l("modBus.addListener(ModClient::register);");
                     s.l("MinecraftForge.EVENT_BUS.addListener(ModClient::onTick);");
+                    if (!tooltipColorItems().isEmpty()) {
+                        s.imp("net.minecraftforge.client.event.RenderTooltipEvent");
+                        s.l("MinecraftForge.EVENT_BUS.addListener(ModClient::onTooltipColor);");
+                    }
                 }
                 s.l("}");
                 s.blank();
@@ -376,8 +390,32 @@ final class HooksGen {
             s.l("}");
         }
         if (!scenes.isEmpty()) cutsceneCamera(s);
+        if (!tooltipColorItems().isEmpty()) {
+            s.imp("net.minecraft.world.item.ItemStack");
+            s.blank();
+            s.l("/** Tooltip box colours of the items with their own tooltip look. */");
+            s.l("private static void onTooltipColor(RenderTooltipEvent.Color event) {");
+            s.l("ItemStack stack = event.getItemStack();");
+            boolean first = true;
+            for (Elements.Item it : tooltipColorItems()) {
+                int bg = modstudio.core.TooltipArt.argb(it.tooltipBackground, it.tooltipBackgroundOpacity);
+                int top = modstudio.core.TooltipArt.argb(it.tooltipBorderTop, it.tooltipBorderOpacity);
+                int bottom = modstudio.core.TooltipArt.argb(it.tooltipBorderBottom, it.tooltipBorderOpacity);
+                s.l((first ? "if" : "} else if") + " (stack.is(" + jc.itemRef(it.name) + ")) {");
+                s.l("event.setBackground(" + hex(bg) + ");");
+                s.l("event.setBorderStart(" + hex(top) + ");");
+                s.l("event.setBorderEnd(" + hex(bottom) + ");");
+                first = false;
+            }
+            s.l("}");
+            s.l("}");
+        }
         s.l("}");
         ctx.files.text(ctx.javaDir() + "ModClient.java", s.toString());
+    }
+
+    private static String hex(int argb) {
+        return String.format("0x%08X", argb);
     }
 
     private void cutsceneFields(Src s, List<Cutscene> scenes) {

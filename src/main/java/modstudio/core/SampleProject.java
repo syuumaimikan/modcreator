@@ -53,6 +53,11 @@ public final class SampleProject {
         swordItem.tooltip = "&cBurns with an inner fire";
         swordItem.shiftTooltip = "&7Forged from rubies in the Ruby Realm.\n&7Deals extra damage to the Ruby Golem.";
         swordItem.displayName = "Ruby Sword";
+        swordItem.customTooltip = true;
+        swordItem.tooltipBackground = "#1A0508";
+        swordItem.tooltipBorderTop = "#FF4060";
+        swordItem.tooltipBorderBottom = "#7A0F24";
+        swordItem.tooltipBorderOpacity = 90;
         swordItem.kind = "sword";
         swordItem.tier = "diamond";
         swordItem.attackDamage = 4;

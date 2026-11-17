@@ -601,6 +601,9 @@ public final class JavaCommon {
         if (!it.damageable() && it.maxStack != 64) sb.append(".stacksTo(").append(Math.max(1, Math.min(64, it.maxStack))).append(')');
         if (!it.rarity.equals("common")) sb.append(".rarity(Rarity.").append(it.rarity.toUpperCase()).append(')');
         if (it.fireResistant) sb.append(".fireResistant()");
+        if (it.customTooltip && ctx.v.atLeast(McVersion.V1_21_4)) {
+            sb.append(".component(net.minecraft.core.component.DataComponents.TOOLTIP_STYLE, ").append(ctx.mainClass).append(".id(").append(Src.str(it.name)).append("))");
+        }
         if (it.kind.equals("food")) {
             sb.append(".food(").append(food(it));
             if (it.fastFood && ctx.registryKeys()) sb.append(", Consumables.defaultFood().consumeSeconds(0.8F).build()");

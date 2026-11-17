@@ -72,6 +72,11 @@ public final class Compat {
         switch (e) {
             case Item it -> {
                 if (paper || pack) a.fallback("compat.item_cmd");
+                if (it.customTooltip) {
+                    if (bedrock) a.notes.add(I18n.t("compat.tooltip_bedrock"));
+                    else if ((t == Target.FABRIC || paper || pack) && p.mcVersions().stream().anyMatch(v -> !v.atLeast(McVersion.V1_21_4)))
+                        a.notes.add(I18n.t("compat.tooltip_old"));
+                }
                 if (it.isArmor() && (paper || pack) && p.mcVersions().stream().anyMatch(v -> !v.atLeast(McVersion.V1_21_4)))
                     a.fallback("compat.armor_leather");
             }

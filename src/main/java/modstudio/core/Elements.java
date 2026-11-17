@@ -20,6 +20,16 @@ public final class Elements {
         public boolean fireResistant;
         public boolean glint;
         public String tooltip = "";
+        /** Own tooltip box: colours (or textures) of the background and the frame. */
+        public boolean customTooltip;
+        public String tooltipBackground = "#100010";
+        public int tooltipBackgroundOpacity = 94;
+        public String tooltipBorderTop = "#5000FF";
+        public String tooltipBorderBottom = "#28007F";
+        public int tooltipBorderOpacity = 31;
+        /** Optional 100 x 100 nine-slice pictures that replace the drawn box (1.21.2+). */
+        public String tooltipBackgroundTexture = "";
+        public String tooltipFrameTexture = "";
         /** Extra lines shown while Shift is held (mod loaders); other platforms show them after the tooltip. */
         public String shiftTooltip = "";
         public int nutrition = 4;

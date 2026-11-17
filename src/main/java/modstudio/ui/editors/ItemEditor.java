@@ -19,6 +19,7 @@ import java.util.List;
 final class ItemEditor extends EditorBase<Item> {
     private final ImageView previewImage = new ImageView();
     private final Label previewName = new Label();
+    private final VBox previewTip = new VBox(2);
     private final VBox previewLines = new VBox(1);
 
     ItemEditor(Ctx c, Item e) {
@@ -75,6 +76,29 @@ final class ItemEditor extends EditorBase<Item> {
         f.area(t("field.tooltip"), () -> e.tooltip, v -> e.tooltip = v, 3, t("help.tooltip"));
         f.area(t("field.shift_tooltip"), () -> e.shiftTooltip, v -> e.shiftTooltip = v, 3, t("help.shift_tooltip"));
 
+        f.section(t("section.tooltip_look"), t("help.tooltip_look"));
+        f.check(t("field.custom_tooltip"), () -> e.customTooltip, v -> e.customTooltip = v);
+        GameplayEditors.colorRow(f, t("field.tooltip_background"), () -> e.tooltipBackground, v -> e.tooltipBackground = v);
+        f.showIf(() -> e.customTooltip);
+        f.integer(t("field.tooltip_background_opacity"), 0, 100, () -> e.tooltipBackgroundOpacity, v -> e.tooltipBackgroundOpacity = v);
+        f.showIf(() -> e.customTooltip);
+        GameplayEditors.colorRow(f, t("field.tooltip_border_top"), () -> e.tooltipBorderTop, v -> e.tooltipBorderTop = v);
+        f.showIf(() -> e.customTooltip);
+        GameplayEditors.colorRow(f, t("field.tooltip_border_bottom"), () -> e.tooltipBorderBottom, v -> e.tooltipBorderBottom = v);
+        f.showIf(() -> e.customTooltip);
+        f.integer(t("field.tooltip_border_opacity"), 0, 100, () -> e.tooltipBorderOpacity, v -> e.tooltipBorderOpacity = v);
+        f.showIf(() -> e.customTooltip);
+        f.row(t("field.tooltip_background_texture"), new TextureField(c.ws, c.window(), e.tooltipBackgroundTexture, () -> e.name + "_tooltip_background", "block", v -> {
+            e.tooltipBackgroundTexture = v;
+            f.changed();
+        }), t("help.tooltip_texture"));
+        f.showIf(() -> e.customTooltip);
+        f.row(t("field.tooltip_frame_texture"), new TextureField(c.ws, c.window(), e.tooltipFrameTexture, () -> e.name + "_tooltip_frame", "block", v -> {
+            e.tooltipFrameTexture = v;
+            f.changed();
+        }), t("help.tooltip_texture"));
+        f.showIf(() -> e.customTooltip);
+
         f.section(t("section.food"));
         f.sectionShowIf(() -> e.kind.equals("food"));
         f.integer(t("field.nutrition"), 0, 20, () -> e.nutrition, v -> e.nutrition = v, t("help.nutrition"));
@@ -119,7 +143,8 @@ final class ItemEditor extends EditorBase<Item> {
         slot.setMinSize(80, 80);
         slot.setMaxSize(80, 80);
         previewName.getStyleClass().add("mc-tooltip-name");
-        VBox tip = new VBox(2, previewName, previewLines);
+        VBox tip = previewTip;
+        tip.getChildren().setAll(previewName, previewLines);
         tip.getStyleClass().add("mc-tooltip");
         tip.setPadding(new Insets(6, 10, 6, 10));
         tip.setMaxWidth(360);
@@ -132,6 +157,15 @@ final class ItemEditor extends EditorBase<Item> {
     @Override
     protected void refresh() {
         previewImage.setImage(c.ws.texture(e.texture, 64));
+        if (e.customTooltip) {
+            int bg = modstudio.core.TooltipArt.argb(e.tooltipBackground, e.tooltipBackgroundOpacity);
+            int top = modstudio.core.TooltipArt.argb(e.tooltipBorderTop, e.tooltipBorderOpacity);
+            int bottom = modstudio.core.TooltipArt.argb(e.tooltipBorderBottom, e.tooltipBorderOpacity);
+            previewTip.setStyle("-fx-background-color: " + modstudio.core.TooltipArt.css(bg) + "; -fx-border-color: linear-gradient(to bottom, "
+                    + modstudio.core.TooltipArt.css(top) + ", " + modstudio.core.TooltipArt.css(bottom) + ");");
+        } else {
+            previewTip.setStyle("");
+        }
         previewName.setText(e.displayName.isBlank() ? Ids.titleCase(e.name) : e.displayName);
         previewName.setStyle("-fx-text-fill: " + switch (e.rarity) {
             case "uncommon" -> "#FFFF55";

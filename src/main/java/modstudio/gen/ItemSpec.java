@@ -189,6 +189,7 @@ public final class ItemSpec {
         }
         for (var e : modelComponent(ctx, it).entrySet()) c.add(e.getKey(), e.getValue());
         if (it.glint) c.addProperty("minecraft:enchantment_glint_override", true);
+        if (it.customTooltip && ctx.v.atLeast(modstudio.core.McVersion.V1_21_4)) c.addProperty("minecraft:tooltip_style", ctx.id(it.name));
         if (song(ctx, it) != null) {
             if (ctx.v.snbtText()) c.addProperty("minecraft:jukebox_playable", song(ctx, it));
             else c.add("minecraft:jukebox_playable", J.obj("song", song(ctx, it)));
@@ -241,6 +242,7 @@ public final class ItemSpec {
             if (ctx.v.itemDefinitions()) sb.append(",minecraft:item_model=\"").append(ctx.id(it.name)).append('"');
             else sb.append(",minecraft:custom_model_data=").append(modelData(it));
             if (it.glint) sb.append(",minecraft:enchantment_glint_override=true");
+            if (it.customTooltip && ctx.v.atLeast(modstudio.core.McVersion.V1_21_4)) sb.append(",minecraft:tooltip_style=\"").append(ctx.id(it.name)).append('"');
             if (song(ctx, it) != null) {
                 sb.append(",minecraft:jukebox_playable=").append(ctx.v.snbtText() ? "\"" + song(ctx, it) + "\"" : "{song:\"" + song(ctx, it) + "\"}");
             }

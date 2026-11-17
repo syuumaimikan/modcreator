@@ -270,7 +270,7 @@ public final class PaperGen {
             if (!tip.isBlank()) for (String l : tip.split("\\R")) lore.add(Src.str((l.contains("&") ? "" : "§7") + GenContext.legacy(l)));
             String name = it.displayName.isBlank() ? Ids.titleCase(it.name) : it.displayName;
             int stack = it.damageable() ? 1 : Math.max(1, Math.min(99, it.maxStack));
-            if (it.isArmor() && ctx.p.byName(ElementType.ARMOR_MATERIAL, it.armorMaterial) != null) {
+            if (it.isArmor() && ctx.p.byName(ElementType.ARMOR_MATERIAL, it.armorMaterial) != null || it.customTooltip && ctx.v.atLeast(McVersion.V1_21_4)) {
                 // armor attributes, durability and the worn look are item components: parse the same stack as /give
                 s.imp("org.bukkit.Bukkit");
                 s.l("ITEMS.put(" + Src.str(it.name) + ", () -> Bukkit.getItemFactory().createItemStack(" + Src.str(ItemSpec.give(ctx, it)) + "));");
