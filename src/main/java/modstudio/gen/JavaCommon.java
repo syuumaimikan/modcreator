@@ -63,6 +63,399 @@ public final class JavaCommon {
         return ctx.v.atLeast(McVersion.V1_21_8);
     }
 
+    // ------------------------------------------------------------------ armor
+
+    public Elements.ArmorMaterial armorMat(Item it) {
+        return it.isArmor() && ctx.p.byName(ElementType.ARMOR_MATERIAL, it.armorMaterial) instanceof Elements.ArmorMaterial m ? m : null;
+    }
+
+    /** Armor pieces with an existing material; other armor kinds stay plain items. */
+    public boolean armor(Item it) {
+        return armorMat(it) != null;
+    }
+
+    public boolean hasArmor() {
+        return !ctx.all(Elements.ArmorMaterial.class).isEmpty();
+    }
+
+    /** 1.21.5+: armor is a plain item configured with Item.Properties.humanoidArmor. */
+    private boolean armorProps() {
+        return toolProps();
+    }
+
+    /** 1.21.2+: equipment ArmorMaterial records with an equipment asset instead of a registry. */
+    public boolean equipmentArmor() {
+        return ctx.registryKeys();
+    }
+
+    /** 1.20.5 to 1.21.1: armor materials live in a registry and items take a Holder. */
+    public boolean registeredArmor() {
+        return ctx.components() && !equipmentArmor();
+    }
+
+    private String armorType(Item it) {
+        return (equipmentArmor() ? "ArmorType." : "ArmorItem.Type.") + it.kind.toUpperCase();
+    }
+
+    private String armorConst(Item it) {
+        return "ModArmorMaterials." + Ids.toConst(it.armorMaterial);
+    }
+
+    public static String equipSound(String s) {
+        return "ARMOR_EQUIP_" + switch (s) {
+            case "leather", "chain", "gold", "diamond", "netherite", "turtle", "generic" -> s.toUpperCase();
+            default -> "IRON";
+        };
+    }
+
+    private String repairIngredient(Elements.ArmorMaterial m) {
+        String r = m.repairItem.isBlank() ? "" : Ids.full(m.repairItem);
+        if (r.isEmpty()) return "Ingredient.EMPTY";
+        if (Ids.isTag(r)) return "Ingredient.of(ModProcedures.itemTag(" + Src.str(r.substring(1)) + "))";
+        return "Ingredient.of(" + anyItemRef(r) + ")";
+    }
+
+    /** ModArmorMaterials for this version and loader. */
+    public void armorMaterials() {
+        List<Elements.ArmorMaterial> mats = ctx.all(Elements.ArmorMaterial.class);
+        String main = ctx.mainClass;
+        Src s = new Src(ctx.pkg);
+        s.imp("net.minecraft.sounds.SoundEvents");
+        if (!equipmentArmor() && !registeredArmor()) {
+            // 1.20.1 - 1.20.4: an enum implementing the ArmorMaterial interface
+            s.imp("net.minecraft.sounds.SoundEvent", "net.minecraft.world.item.ArmorItem", "net.minecraft.world.item.ArmorMaterial",
+                    "net.minecraft.world.item.crafting.Ingredient", "java.util.function.Supplier");
+            s.l("/** Armor materials. Worn textures: assets/minecraft/textures/models/armor/<name>_layer_1.png and _layer_2.png. */");
+            s.l("public enum ModArmorMaterials implements ArmorMaterial {");
+            for (int i = 0; i < mats.size(); i++) {
+                Elements.ArmorMaterial m = mats.get(i);
+                s.l(Ids.toConst(m.name) + "(" + Src.str(ctx.ns + "_" + m.name) + ", new int[]{" + m.durabilityOf("helmet") + ", " + m.durabilityOf("chestplate")
+                        + ", " + m.durabilityOf("leggings") + ", " + m.durabilityOf("boots") + "}, new int[]{" + m.helmet + ", " + m.chestplate + ", "
+                        + m.leggings + ", " + m.boots + "}, " + m.enchantability + ", SoundEvents." + equipSound(m.equipSound) + ", "
+                        + Src.f(m.toughness) + ", " + Src.f(m.knockbackResistance) + ", () -> " + repairIngredient(m) + ")" + (i == mats.size() - 1 ? ";" : ","));
+            }
+            s.blank();
+            s.l("private final String name;").l("private final int[] durability;").l("private final int[] defense;").l("private final int enchantability;")
+                    .l("private final SoundEvent sound;").l("private final float toughness;").l("private final float knockbackResistance;")
+                    .l("private final Supplier<Ingredient> repair;");
+            s.blank();
+            s.l("ModArmorMaterials(String name, int[] durability, int[] defense, int enchantability, SoundEvent sound, float toughness, float knockbackResistance, Supplier<Ingredient> repair) {");
+            s.l("this.name = name;").l("this.durability = durability;").l("this.defense = defense;").l("this.enchantability = enchantability;")
+                    .l("this.sound = sound;").l("this.toughness = toughness;").l("this.knockbackResistance = knockbackResistance;").l("this.repair = repair;");
+            s.l("}");
+            s.blank();
+            s.l("private static int index(ArmorItem.Type type) {");
+            s.l("return switch (type) {").l("case HELMET -> 0;").l("case CHESTPLATE -> 1;").l("case LEGGINGS -> 2;").l("default -> 3;").l("};");
+            s.l("}");
+            s.blank();
+            s.l("@Override").l("public int getDurabilityForType(ArmorItem.Type type) {").l("return durability[index(type)];").l("}");
+            s.blank();
+            s.l("@Override").l("public int getDefenseForType(ArmorItem.Type type) {").l("return defense[index(type)];").l("}");
+            s.blank();
+            s.l("@Override").l("public int getEnchantmentValue() {").l("return enchantability;").l("}");
+            s.blank();
+            s.l("@Override").l("public SoundEvent getEquipSound() {").l("return sound;").l("}");
+            s.blank();
+            s.l("@Override").l("public Ingredient getRepairIngredient() {").l("return repair.get();").l("}");
+            s.blank();
+            s.l("@Override").l("public String getName() {").l("return name;").l("}");
+            s.blank();
+            s.l("@Override").l("public float getToughness() {").l("return toughness;").l("}");
+            s.blank();
+            s.l("@Override").l("public float getKnockbackResistance() {").l("return knockbackResistance;").l("}");
+            s.l("}");
+            ctx.files.text(ctx.javaDir() + "ModArmorMaterials.java", s.toString());
+            return;
+        }
+        s.imp("java.util.EnumMap", "java.util.Map");
+        String typeCls = equipmentArmor() ? "ArmorType" : "ArmorItem.Type";
+        if (equipmentArmor()) {
+            s.imp("net.minecraft.world.item.equipment.ArmorMaterial", "net.minecraft.world.item.equipment.ArmorType",
+                    "net.minecraft.world.item.equipment.EquipmentAssets", "net.minecraft.core.registries.Registries",
+                    "net.minecraft.resources.ResourceKey", "net.minecraft.tags.TagKey");
+            s.l("/** Armor materials. Worn textures come from the equipment assets in assets/" + ctx.ns + "/equipment. */");
+            s.l("public final class ModArmorMaterials {");
+            for (Elements.ArmorMaterial m : mats) {
+                s.l("public static final ArmorMaterial " + Ids.toConst(m.name) + " = new ArmorMaterial(" + Math.max(1, m.durability) + ", "
+                        + defenseCall(m) + ", " + m.enchantability + ", SoundEvents." + equipSound(m.equipSound) + ", " + Src.f(m.toughness) + ", "
+                        + Src.f(m.knockbackResistance) + ", TagKey.create(Registries.ITEM, " + main + ".id(" + Src.str("repairs_" + m.name) + ")), "
+                        + "ResourceKey.create(EquipmentAssets.ROOT_ID, " + main + ".id(" + Src.str(m.name) + ")));");
+            }
+        } else {
+            s.imp("net.minecraft.core.Holder", "net.minecraft.world.item.ArmorItem", "net.minecraft.world.item.ArmorMaterial",
+                    "net.minecraft.world.item.crafting.Ingredient", "java.util.List");
+            s.l("/** Armor materials. Worn textures: assets/" + ctx.ns + "/textures/models/armor/<name>_layer_1.png and _layer_2.png. */");
+            s.l("public final class ModArmorMaterials {");
+            if (loader != Loader.FABRIC) {
+                s.imp("net.minecraft.core.registries.Registries",
+                        loader == Loader.NEOFORGE ? "net.neoforged.neoforge.registries.DeferredRegister" : "net.minecraftforge.registries.DeferredRegister");
+                s.l("public static final DeferredRegister<ArmorMaterial> ARMOR_MATERIALS = DeferredRegister.create(Registries.ARMOR_MATERIAL, " + main + ".MODID);");
+                s.blank();
+            } else {
+                s.imp("net.minecraft.core.Registry", "net.minecraft.core.registries.BuiltInRegistries");
+            }
+            for (Elements.ArmorMaterial m : mats) {
+                String c = Ids.toConst(m.name);
+                String expr = "new ArmorMaterial(" + defenseCall(m) + ", " + m.enchantability + ", SoundEvents." + equipSound(m.equipSound)
+                        + ", () -> " + repairIngredient(m) + ", List.of(new ArmorMaterial.Layer(" + main + ".id(" + Src.str(m.name) + "))), "
+                        + Src.f(m.toughness) + ", " + Src.f(m.knockbackResistance) + ")";
+                switch (loader) {
+                    case FABRIC -> s.l("public static final Holder<ArmorMaterial> " + c + " = Registry.registerForHolder(BuiltInRegistries.ARMOR_MATERIAL, "
+                            + main + ".id(" + Src.str(m.name) + "), " + expr + ");");
+                    case NEOFORGE -> {
+                        s.imp("net.neoforged.neoforge.registries.DeferredHolder");
+                        s.l("public static final DeferredHolder<ArmorMaterial, ArmorMaterial> " + c + " = ARMOR_MATERIALS.register(" + Src.str(m.name) + ", () -> " + expr + ");");
+                    }
+                    case FORGE -> {
+                        // the item constructors need a holder before the registry event runs
+                        s.l("private static final ArmorMaterial " + c + "_MATERIAL = " + expr + ";");
+                        s.l("public static final Holder<ArmorMaterial> " + c + " = Holder.direct(" + c + "_MATERIAL);");
+                    }
+                }
+            }
+            if (loader == Loader.FORGE) {
+                s.blank().l("static {");
+                for (Elements.ArmorMaterial m : mats) s.l("ARMOR_MATERIALS.register(" + Src.str(m.name) + ", () -> " + Ids.toConst(m.name) + "_MATERIAL);");
+                s.l("}");
+            }
+        }
+        s.blank().l("private ModArmorMaterials() {").l("}");
+        s.blank();
+        s.l("private static Map<" + typeCls + ", Integer> defense(int helmet, int chestplate, int leggings, int boots) {");
+        s.l("Map<" + typeCls + ", Integer> map = new EnumMap<>(" + typeCls + ".class);");
+        s.l("map.put(" + typeCls + ".HELMET, helmet);").l("map.put(" + typeCls + ".CHESTPLATE, chestplate);")
+                .l("map.put(" + typeCls + ".LEGGINGS, leggings);").l("map.put(" + typeCls + ".BOOTS, boots);")
+                .l("map.put(" + typeCls + ".BODY, chestplate);");
+        s.l("return map;");
+        s.l("}");
+        s.blank().l("public static void init() {").l("}");
+        s.l("}");
+        ctx.files.text(ctx.javaDir() + "ModArmorMaterials.java", s.toString());
+    }
+
+    private static String defenseCall(Elements.ArmorMaterial m) {
+        return "defense(" + m.helmet + ", " + m.chestplate + ", " + m.leggings + ", " + m.boots + ")";
+    }
+
+    // ------------------------------------------------------------------ status effects and potions
+
+    public boolean hasEffects() {
+        return !ctx.all(Elements.StatusEffect.class).isEmpty();
+    }
+
+    public boolean hasPotions() {
+        return ctx.all(Elements.StatusEffect.class).stream().anyMatch(e -> e.potion);
+    }
+
+    /** Attributes that exist as Attributes constants in this version. */
+    public boolean attributeExists(String a) {
+        if (ctx.components()) return true;
+        return List.of("max_health", "movement_speed", "attack_damage", "attack_speed", "armor", "armor_toughness",
+                "knockback_resistance", "luck", "follow_range", "attack_knockback", "flying_speed").contains(a);
+    }
+
+    private String operation(String op) {
+        if (ctx.components()) {
+            return "AttributeModifier.Operation." + switch (op) {
+                case "add_value" -> "ADD_VALUE";
+                case "add_multiplied_base" -> "ADD_MULTIPLIED_BASE";
+                default -> "ADD_MULTIPLIED_TOTAL";
+            };
+        }
+        return "AttributeModifier.Operation." + switch (op) {
+            case "add_value" -> "ADDITION";
+            case "add_multiplied_base" -> "MULTIPLY_BASE";
+            default -> "MULTIPLY_TOTAL";
+        };
+    }
+
+    private static String color(String hex) {
+        try {
+            return "0x" + String.format("%06X", Integer.parseInt(hex.trim().replace("#", ""), 16) & 0xFFFFFF);
+        } catch (Exception e) {
+            return "0xE0115F";
+        }
+    }
+
+    /** Effect value for a MobEffectInstance: a Holder from 1.20.5. */
+    private String effectArg(String name) {
+        String c = "ModEffects." + Ids.toConst(name);
+        if (!ctx.components()) return loader == Loader.FABRIC ? c : c + ".get()";
+        return loader == Loader.FORGE ? c + ".getHolder().orElseThrow()" : c;
+    }
+
+    /** ModMobEffect (tick procedure), ModEffects and ModPotions for this version and loader. */
+    public void effects() {
+        String main = ctx.mainClass;
+        // the effect class
+        Src e = new Src(ctx.pkg);
+        e.imp("net.minecraft.world.effect.MobEffect", "net.minecraft.world.effect.MobEffectCategory", "net.minecraft.world.entity.LivingEntity");
+        e.l("/** Status effect that runs a compiled procedure every few ticks while active. */");
+        e.l("public class ModMobEffect extends MobEffect {");
+        e.l("private final String tickFunction;").l("private final int interval;");
+        e.blank();
+        e.l("public ModMobEffect(MobEffectCategory category, int color, String tickFunction, int interval) {");
+        e.l("super(category, color);").l("this.tickFunction = tickFunction;").l("this.interval = Math.max(1, interval);").l("}");
+        e.blank().l("@Override");
+        e.l(ctx.v.atLeast(McVersion.V1_20_4) ? "public boolean shouldApplyEffectTickThisTick(int duration, int amplifier) {"
+                : "public boolean isDurationEffectTick(int duration, int amplifier) {");
+        e.l("return tickFunction != null && duration % interval == 0;").l("}");
+        e.blank().l("@Override");
+        if (ctx.registryKeys()) {
+            e.imp("net.minecraft.server.level.ServerLevel");
+            e.l("public boolean applyEffectTick(ServerLevel level, LivingEntity entity, int amplifier) {");
+        } else if (ctx.components()) {
+            e.l("public boolean applyEffectTick(LivingEntity entity, int amplifier) {");
+        } else {
+            e.l("public void applyEffectTick(LivingEntity entity, int amplifier) {");
+        }
+        e.l("if (tickFunction != null) ModProcedures.run(entity, tickFunction);");
+        if (ctx.components()) e.l("return true;");
+        e.l("}");
+        e.l("}");
+        ctx.files.text(ctx.javaDir() + "ModMobEffect.java", e.toString());
+
+        // registration
+        Src s = new Src(ctx.pkg);
+        s.imp("net.minecraft.world.effect.MobEffect", "net.minecraft.world.effect.MobEffectCategory",
+                "net.minecraft.world.entity.ai.attributes.AttributeModifier", "net.minecraft.world.entity.ai.attributes.Attributes");
+        s.l("public final class ModEffects {");
+        if (loader != Loader.FABRIC) {
+            s.imp("net.minecraft.core.registries.Registries",
+                    loader == Loader.NEOFORGE ? "net.neoforged.neoforge.registries.DeferredRegister" : "net.minecraftforge.registries.DeferredRegister");
+            s.l("public static final DeferredRegister<MobEffect> EFFECTS = DeferredRegister.create(Registries.MOB_EFFECT, " + main + ".MODID);");
+            s.blank();
+        } else {
+            s.imp("net.minecraft.core.Registry", "net.minecraft.core.registries.BuiltInRegistries");
+        }
+        for (Elements.StatusEffect se : ctx.all(Elements.StatusEffect.class)) {
+            String tickFn = se.onTick.isEmpty() ? "null" : Src.str("status/" + se.name + "/tick");
+            StringBuilder expr = new StringBuilder("new ModMobEffect(MobEffectCategory." + se.category.toUpperCase() + ", " + color(se.color)
+                    + ", " + tickFn + ", " + Math.max(1, se.tickInterval) + ")");
+            int i = 0;
+            for (Elements.EffectModifier m : se.modifiers) {
+                if (m.attribute.isBlank()) continue;
+                String a = m.attribute.contains(":") ? Ids.path(m.attribute) : m.attribute;
+                if (!attributeExists(a)) {
+                    ctx.note("status effect " + se.name + ": attribute " + a + " does not exist in " + ctx.v.id);
+                    continue;
+                }
+                String id;
+                if (ctx.singular()) id = main + ".id(" + Src.str("effect." + se.name + "." + i) + ")";
+                else id = Src.str(java.util.UUID.nameUUIDFromBytes((ctx.ns + ":" + se.name + ":" + i).getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString());
+                expr.append(".addAttributeModifier(Attributes.").append(a.toUpperCase()).append(", ").append(id).append(", ")
+                        .append(Src.d(m.amount)).append(", ").append(operation(m.operation)).append(')');
+                i++;
+            }
+            String c = Ids.toConst(se.name);
+            switch (loader) {
+                case FABRIC -> {
+                    if (ctx.components()) {
+                        s.imp("net.minecraft.core.Holder");
+                        s.l("public static final Holder<MobEffect> " + c + " = Registry.registerForHolder(BuiltInRegistries.MOB_EFFECT, " + main + ".id("
+                                + Src.str(se.name) + "), " + expr + ");");
+                    } else {
+                        s.l("public static final MobEffect " + c + " = Registry.register(BuiltInRegistries.MOB_EFFECT, " + main + ".id("
+                                + Src.str(se.name) + "), " + expr + ");");
+                    }
+                }
+                case NEOFORGE -> {
+                    s.imp("net.neoforged.neoforge.registries.DeferredHolder");
+                    s.l("public static final DeferredHolder<MobEffect, MobEffect> " + c + " = EFFECTS.register(" + Src.str(se.name) + ", () -> " + expr + ");");
+                }
+                case FORGE -> {
+                    s.imp("net.minecraftforge.registries.RegistryObject");
+                    s.l("public static final RegistryObject<MobEffect> " + c + " = EFFECTS.register(" + Src.str(se.name) + ", () -> " + expr + ");");
+                }
+            }
+        }
+        s.blank().l("private ModEffects() {").l("}");
+        s.blank().l("public static void init() {").l("}");
+        s.l("}");
+        ctx.files.text(ctx.javaDir() + "ModEffects.java", s.toString());
+
+        if (!hasPotions()) return;
+        Src po = new Src(ctx.pkg);
+        po.imp("net.minecraft.world.effect.MobEffectInstance", "net.minecraft.world.item.alchemy.Potion");
+        po.l("public final class ModPotions {");
+        if (loader != Loader.FABRIC) {
+            po.imp("net.minecraft.core.registries.Registries",
+                    loader == Loader.NEOFORGE ? "net.neoforged.neoforge.registries.DeferredRegister" : "net.minecraftforge.registries.DeferredRegister");
+            po.l("public static final DeferredRegister<Potion> POTIONS = DeferredRegister.create(Registries.POTION, " + main + ".MODID);");
+            po.blank();
+        } else {
+            po.imp("net.minecraft.core.Registry", "net.minecraft.core.registries.BuiltInRegistries");
+        }
+        for (Elements.StatusEffect se : ctx.all(Elements.StatusEffect.class)) {
+            if (!se.potion) continue;
+            String expr = "new Potion(" + Src.str(potionKey(ctx, se)) + ", new MobEffectInstance(" + effectArg(se.name) + ", "
+                    + Math.max(1, se.potionSeconds) * 20 + ", " + Math.max(0, se.potionAmplifier) + "))";
+            String c = Ids.toConst(se.name);
+            switch (loader) {
+                case FABRIC -> po.l("public static final Potion " + c + " = Registry.register(BuiltInRegistries.POTION, " + main + ".id("
+                        + Src.str(se.name) + "), " + expr + ");");
+                case NEOFORGE -> {
+                    po.imp("net.neoforged.neoforge.registries.DeferredHolder");
+                    po.l("public static final DeferredHolder<Potion, Potion> " + c + " = POTIONS.register(" + Src.str(se.name) + ", () -> " + expr + ");");
+                }
+                case FORGE -> {
+                    po.imp("net.minecraftforge.registries.RegistryObject");
+                    po.l("public static final RegistryObject<Potion> " + c + " = POTIONS.register(" + Src.str(se.name) + ", () -> " + expr + ");");
+                }
+            }
+        }
+        po.blank().l("private ModPotions() {").l("}");
+        po.blank().l("public static void init() {").l("}");
+        po.l("}");
+        ctx.files.text(ctx.javaDir() + "ModPotions.java", po.toString());
+    }
+
+    /** Potion name used in the translation keys item.minecraft.potion.effect.<name>. */
+    public static String potionKey(GenContext ctx, Elements.StatusEffect se) {
+        return ctx.ns + "." + se.name;
+    }
+
+    // ------------------------------------------------------------------ paintings before 1.21 (registered in code)
+
+    public boolean codePaintings() {
+        return !ctx.singular() && !ctx.all(Elements.Painting.class).isEmpty();
+    }
+
+    public void paintings() {
+        String main = ctx.mainClass;
+        Src s = new Src(ctx.pkg);
+        s.imp("net.minecraft.world.entity.decoration.PaintingVariant");
+        s.l("public final class ModPaintings {");
+        if (loader != Loader.FABRIC) {
+            s.imp("net.minecraft.core.registries.Registries",
+                    loader == Loader.NEOFORGE ? "net.neoforged.neoforge.registries.DeferredRegister" : "net.minecraftforge.registries.DeferredRegister");
+            s.l("public static final DeferredRegister<PaintingVariant> PAINTINGS = DeferredRegister.create(Registries.PAINTING_VARIANT, " + main + ".MODID);");
+            s.blank();
+        } else {
+            s.imp("net.minecraft.core.Registry", "net.minecraft.core.registries.BuiltInRegistries");
+        }
+        for (Elements.Painting pa : ctx.all(Elements.Painting.class)) {
+            String expr = "new PaintingVariant(" + 16 * Math.max(1, Math.min(16, pa.width)) + ", " + 16 * Math.max(1, Math.min(16, pa.height)) + ")";
+            String c = Ids.toConst(pa.name);
+            switch (loader) {
+                case FABRIC -> s.l("public static final PaintingVariant " + c + " = Registry.register(BuiltInRegistries.PAINTING_VARIANT, " + main + ".id("
+                        + Src.str(pa.name) + "), " + expr + ");");
+                case NEOFORGE -> {
+                    s.imp("net.neoforged.neoforge.registries.DeferredHolder");
+                    s.l("public static final DeferredHolder<PaintingVariant, PaintingVariant> " + c + " = PAINTINGS.register(" + Src.str(pa.name) + ", () -> " + expr + ");");
+                }
+                case FORGE -> {
+                    s.imp("net.minecraftforge.registries.RegistryObject");
+                    s.l("public static final RegistryObject<PaintingVariant> " + c + " = PAINTINGS.register(" + Src.str(pa.name) + ", () -> " + expr + ");");
+                }
+            }
+        }
+        s.blank().l("private ModPaintings() {").l("}");
+        s.blank().l("public static void init() {").l("}");
+        s.l("}");
+        ctx.files.text(ctx.javaDir() + "ModPaintings.java", s.toString());
+    }
+
     /** Whether the tool kind still has its own item class in this version. */
     private boolean toolClass(Item it) {
         if (!toolProps()) return true;
@@ -82,6 +475,7 @@ public final class JavaCommon {
 
     public String superClass(Item it) {
         if (it.isTool() && !toolClass(it)) return "Item";
+        if (armor(it)) return armorProps() ? "Item" : "ArmorItem";
         return switch (it.kind) {
             case "sword" -> "SwordItem";
             case "pickaxe" -> "PickaxeItem";
@@ -108,6 +502,11 @@ public final class JavaCommon {
                 }
             }
             if (it.kind.equals("food") && it.fastFood && ctx.registryKeys()) s.imp("net.minecraft.world.item.component.Consumables");
+            if (!it.song.isBlank() && ctx.singular()) s.imp("net.minecraft.resources.ResourceKey", "net.minecraft.core.registries.Registries");
+            if (armor(it)) {
+                if (!armorProps()) s.imp("net.minecraft.world.item.ArmorItem");
+                if (equipmentArmor()) s.imp("net.minecraft.world.item.equipment.ArmorType");
+            }
             if (needsClass(it)) s.imp(ctx.pkg + ".item." + className(it));
         }
     }
@@ -138,7 +537,7 @@ public final class JavaCommon {
     public String itemProps(Item it) {
         StringBuilder sb = new StringBuilder("new Item.Properties()");
         if (ctx.registryKeys()) sb.append(".setId(").append(itemKey(it.name)).append(')');
-        if (!it.isTool() && it.maxStack != 64) sb.append(".stacksTo(").append(Math.max(1, Math.min(64, it.maxStack))).append(')');
+        if (!it.damageable() && it.maxStack != 64) sb.append(".stacksTo(").append(Math.max(1, Math.min(64, it.maxStack))).append(')');
         if (!it.rarity.equals("common")) sb.append(".rarity(Rarity.").append(it.rarity.toUpperCase()).append(')');
         if (it.fireResistant) sb.append(".fireResistant()");
         if (it.kind.equals("food")) {
@@ -146,6 +545,13 @@ public final class JavaCommon {
             if (it.fastFood && ctx.registryKeys()) sb.append(", Consumables.defaultFood().consumeSeconds(0.8F).build()");
             sb.append(')');
         }
+        if (!it.song.isBlank() && ctx.singular() && ctx.p.byName(ElementType.SONG, it.song) != null) {
+            sb.append(".jukeboxPlayable(ResourceKey.create(Registries.JUKEBOX_SONG, ").append(ctx.mainClass).append(".id(")
+                    .append(Src.str(it.song)).append("))).stacksTo(1)");
+        }
+        Elements.ArmorMaterial am = armorMat(it);
+        if (am != null && armorProps()) sb.append(".humanoidArmor(").append(armorConst(it)).append(", ").append(armorType(it)).append(')');
+        else if (am != null && registeredArmor()) sb.append(".durability(").append(am.durabilityOf(it.kind)).append(')');
         if (it.isTool() && !toolClass(it)) {
             sb.append('.').append(it.kind).append('(').append(tier(it.tier)).append(", ").append(Src.f(it.attackDamage))
                     .append(", ").append(Src.f(it.attackSpeed)).append(')');
@@ -156,6 +562,7 @@ public final class JavaCommon {
     public String itemConstruct(Item it) {
         String cls = needsClass(it) ? className(it) : superClass(it);
         String props = itemProps(it);
+        if (armor(it) && !armorProps()) return "new " + cls + "(" + armorConst(it) + ", " + armorType(it) + ", " + props + ")";
         if (!it.isTool() || !toolClass(it)) return "new " + cls + "(" + props + ")";
         String tier = tier(it.tier);
         boolean intDamage = it.kind.equals("sword") || it.kind.equals("pickaxe") || it.kind.equals("hoe");
@@ -178,12 +585,24 @@ public final class JavaCommon {
         String sup = superClass(it);
         Src s = new Src(ctx.pkg + ".item");
         s.imp("net.minecraft.world.item.Item", "net.minecraft.world.item.ItemStack");
-        if (!sup.equals("Item")) {
+        if (sup.equals("ArmorItem")) {
+            s.imp("net.minecraft.world.item.ArmorItem");
+        } else if (!sup.equals("Item")) {
             s.imp("net.minecraft.world.item." + sup, ctx.registryKeys() ? "net.minecraft.world.item.ToolMaterial" : "net.minecraft.world.item.Tier");
         }
         s.l("public class " + cls + " extends " + sup + " {");
         boolean intDamage = it.kind.equals("sword") || it.kind.equals("pickaxe") || it.kind.equals("hoe");
-        if (!it.isTool() || !toolClass(it)) {
+        if (armor(it) && !armorProps()) {
+            String mat = "ArmorMaterial";
+            if (equipmentArmor()) s.imp("net.minecraft.world.item.equipment.ArmorMaterial", "net.minecraft.world.item.equipment.ArmorType");
+            else s.imp("net.minecraft.world.item.ArmorMaterial");
+            if (registeredArmor()) {
+                s.imp("net.minecraft.core.Holder");
+                mat = "Holder<ArmorMaterial>";
+            }
+            s.l("public " + cls + "(" + mat + " material, " + (equipmentArmor() ? "ArmorType" : "ArmorItem.Type") + " type, Item.Properties properties) {")
+                    .l("super(material, type, properties);").l("}");
+        } else if (!it.isTool() || !toolClass(it)) {
             s.l("public " + cls + "(Item.Properties properties) {").l("super(properties);").l("}");
         } else if (ctx.registryKeys()) {
             s.l("public " + cls + "(ToolMaterial material, float attackDamage, float attackSpeed, Item.Properties properties) {")
@@ -272,6 +691,11 @@ public final class JavaCommon {
     public String blockProps(Block b) {
         StringBuilder sb = new StringBuilder("BlockBehaviour.Properties.of()");
         if (ctx.registryKeys()) sb.append(".setId(").append(blockKey(b.name)).append(')');
+        if (b.isCrop()) {
+            sb.append(".noCollission().randomTicks().instabreak().sound(SoundType.CROP).pushReaction(PushReaction.DESTROY)");
+            if (b.light > 0) sb.append(".lightLevel(state -> ").append(Math.min(15, b.light)).append(')');
+            return sb.toString();
+        }
         sb.append(".strength(").append(Src.f(b.hardness)).append(", ").append(Src.f(b.resistance)).append(')');
         sb.append(".sound(").append(soundType(b.sound)).append(')');
         if (b.light > 0) sb.append(".lightLevel(state -> ").append(Math.min(15, b.light)).append(')');
@@ -291,6 +715,7 @@ public final class JavaCommon {
 
     /** Model blocks with a custom outline or a facing direction get their own class. */
     public boolean needsBlockClass(Block b) {
+        if (b.isCrop()) return true;
         if (!b.shape.equals("model")) return false;
         return b.rotatable || shaped(b);
     }
@@ -308,6 +733,10 @@ public final class JavaCommon {
 
     /** Generates a block class with the model's outline and, when rotatable, a horizontal facing property. */
     public void blockClass(Block b) {
+        if (b.isCrop()) {
+            cropClass(b);
+            return;
+        }
         String cls = blockClassName(b);
         Model m = ctx.p.model(b.model);
         boolean shaped = shaped(b), rot = b.rotatable;
@@ -357,6 +786,23 @@ public final class JavaCommon {
         ctx.files.text(ctx.javaDir() + "block/" + cls + ".java", s.toString());
     }
 
+    /** A CropBlock whose seed is the block's own item. */
+    private void cropClass(Block b) {
+        String cls = blockClassName(b);
+        boolean codec = ctx.v.atLeast(McVersion.V1_20_4);
+        Src s = new Src(ctx.pkg + ".block");
+        s.imp("net.minecraft.world.level.ItemLike", "net.minecraft.world.level.block.CropBlock",
+                "net.minecraft.world.level.block.state.BlockBehaviour", ctx.pkg + ".ModItems");
+        if (codec) s.imp("com.mojang.serialization.MapCodec");
+        s.l("public class " + cls + " extends CropBlock {");
+        if (codec) s.l("public static final MapCodec<" + cls + "> CODEC = simpleCodec(" + cls + "::new);").blank();
+        s.l("public " + cls + "(BlockBehaviour.Properties properties) {").l("super(properties);").l("}");
+        if (codec) s.blank().l("@Override").l("public MapCodec<? extends CropBlock> codec() {").l("return CODEC;").l("}");
+        s.blank().l("@Override").l("protected ItemLike getBaseSeedId() {").l("return " + itemRef(b.name) + ";").l("}");
+        s.l("}");
+        ctx.files.text(ctx.javaDir() + "block/" + cls + ".java", s.toString());
+    }
+
     /** Java expression combining the boxes (0..16 units) after turning them quarterTurns clockwise. */
     static String shapeExpr(List<double[]> boxes, int quarterTurns) {
         if (boxes.isEmpty()) return "Shapes.block()";
@@ -380,6 +826,7 @@ public final class JavaCommon {
                 "net.minecraft.world.level.block.state.BlockBehaviour");
         for (Block b : ctx.all(Block.class)) {
             if (needsBlockClass(b)) s.imp(ctx.pkg + ".block." + blockClassName(b));
+            if (b.isCrop()) s.imp("net.minecraft.world.level.material.PushReaction");
             else if (b.shape.equals("pillar")) s.imp("net.minecraft.world.level.block.RotatedPillarBlock");
         }
     }

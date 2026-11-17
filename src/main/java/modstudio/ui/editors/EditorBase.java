@@ -147,7 +147,7 @@ abstract class EditorBase<T extends Element> {
         e.name = n;
         String ns = p.meta.modId;
         switch (e.type()) {
-            case ITEM, BLOCK, FUNCTION, LOOT_TABLE, ADVANCEMENT, SOUND -> Refactor.renameId(p, ns + ":" + old, ns + ":" + n);
+            case ITEM, BLOCK, FUNCTION, LOOT_TABLE, ADVANCEMENT, SOUND, STATUS_EFFECT, ENCHANTMENT, DAMAGE_TYPE -> Refactor.renameId(p, ns + ":" + old, ns + ":" + n);
             case TAG -> {
                 String tns = modstudio.ui.controls.Catalog.tagNs((Elements.Tag) e, ns);
                 Refactor.renameId(p, tns + ":" + old, tns + ":" + n);

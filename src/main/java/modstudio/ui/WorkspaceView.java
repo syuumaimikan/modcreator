@@ -113,9 +113,11 @@ public final class WorkspaceView extends BorderPane {
         item(box, "secrets", "mdi2k-key-outline", I18n.t("page.secrets"));
         item(box, "compat", "mdi2s-swap-horizontal", I18n.t("page.compat"));
         section(box, I18n.t("nav.content"));
-        for (ElementType t : List.of(ElementType.ITEM, ElementType.BLOCK, ElementType.MODEL, ElementType.SHADER, ElementType.CREATIVE_TAB, ElementType.SOUND)) typeItem(box, t);
+        for (ElementType t : List.of(ElementType.ITEM, ElementType.BLOCK, ElementType.ARMOR_MATERIAL, ElementType.MODEL, ElementType.SHADER, ElementType.CREATIVE_TAB, ElementType.SOUND)) typeItem(box, t);
         section(box, I18n.t("nav.data"));
         for (ElementType t : List.of(ElementType.RECIPE, ElementType.LOOT_TABLE, ElementType.ADVANCEMENT, ElementType.TAG, ElementType.FUNCTION)) typeItem(box, t);
+        section(box, I18n.t("nav.gameplay"));
+        for (ElementType t : List.of(ElementType.STATUS_EFFECT, ElementType.ENCHANTMENT, ElementType.DAMAGE_TYPE, ElementType.PAINTING, ElementType.SONG)) typeItem(box, t);
         section(box, I18n.t("nav.logic"));
         for (ElementType t : List.of(ElementType.PROCEDURE, ElementType.COMMAND, ElementType.CODE_FILE)) typeItem(box, t);
         section(box, I18n.t("nav.world"));

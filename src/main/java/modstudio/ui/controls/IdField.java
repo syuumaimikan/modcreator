@@ -15,7 +15,7 @@ import java.util.function.Consumer;
 
 /** Text field for a resource id with a search picker. */
 public final class IdField extends HBox {
-    public enum Kind { ITEM, ITEM_OR_TAG, BLOCK, BLOCK_OR_TAG, ENTITY, EFFECT, SOUND, PARTICLE, FUNCTION, DIMENSION, ADVANCEMENT, LOOT_TABLE, RECIPE, ENCHANTMENT, ANY }
+    public enum Kind { ITEM, ITEM_OR_TAG, BLOCK, BLOCK_OR_TAG, ENTITY, EFFECT, SOUND, PARTICLE, FUNCTION, DIMENSION, ADVANCEMENT, LOOT_TABLE, RECIPE, ENCHANTMENT, DAMAGE_TYPE, ANY }
 
     public record Env(Workspace ws, Window window) {}
 

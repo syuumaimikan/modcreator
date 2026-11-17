@@ -267,7 +267,13 @@ public final class PaperGen {
             String tip = it.shiftTooltip.isBlank() ? it.tooltip : (it.tooltip.isBlank() ? "" : it.tooltip + "\n") + it.shiftTooltip;
             if (!tip.isBlank()) for (String l : tip.split("\\R")) lore.add(Src.str((l.contains("&") ? "" : "§7") + GenContext.legacy(l)));
             String name = it.displayName.isBlank() ? Ids.titleCase(it.name) : it.displayName;
-            int stack = it.isTool() ? 1 : Math.max(1, Math.min(99, it.maxStack));
+            int stack = it.damageable() ? 1 : Math.max(1, Math.min(99, it.maxStack));
+            if (it.isArmor() && ctx.p.byName(ElementType.ARMOR_MATERIAL, it.armorMaterial) != null) {
+                // armor attributes, durability and the worn look are item components: parse the same stack as /give
+                s.imp("org.bukkit.Bukkit");
+                s.l("ITEMS.put(" + Src.str(it.name) + ", () -> Bukkit.getItemFactory().createItemStack(" + Src.str(ItemSpec.give(ctx, it)) + "));");
+                continue;
+            }
             s.l("ITEMS.put(" + Src.str(it.name) + ", () -> build(" + Src.str(it.name) + ", " + Src.str(ItemSpec.base(it)) + ", "
                     + Src.str(name) + ", " + Src.str(it.rarity) + ", List.of(" + String.join(", ", lore) + "), "
                     + ItemSpec.modelData(it) + ", " + it.glint + ", " + stack + ", " + it.fireResistant + "));");

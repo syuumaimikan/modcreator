@@ -82,8 +82,9 @@ public final class TextureField extends HBox {
     private void createNew() {
         TextureAsset t = new TextureAsset();
         t.name = ws.project.uniqueTextureName(suggestedName.get());
-        t.width = 16;
-        t.height = 16;
+        int[] size = modstudio.core.TextureTemplates.size(template);
+        t.width = size[0];
+        t.height = size[1];
         if (TextureEditor.edit(owner, t, template, n -> nameCheck(n, t))) {
             ws.project.textures.add(t);
             ws.structureChanged();

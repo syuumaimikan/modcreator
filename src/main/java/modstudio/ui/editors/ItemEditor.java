@@ -46,6 +46,7 @@ final class ItemEditor extends EditorBase<Item> {
             case "sword" -> "sword";
             case "pickaxe", "axe", "shovel", "hoe" -> "pickaxe";
             case "food" -> "apple";
+            case "helmet", "chestplate", "leggings", "boots" -> kind;
             default -> "gem";
         };
     }
@@ -63,11 +64,11 @@ final class ItemEditor extends EditorBase<Item> {
             f.changed();
         }), t("help.texture"));
         f.choice(t("field.model"), ModelEditor.modelChoices(c), x -> x.isEmpty() ? t("model.none") : x, () -> e.model, v -> e.model = v, t("help.item_model"));
-        f.choice(t("field.item_kind"), List.of("basic", "food", "sword", "pickaxe", "axe", "shovel", "hoe"),
+        f.choice(t("field.item_kind"), List.of("basic", "food", "sword", "pickaxe", "axe", "shovel", "hoe", "helmet", "chestplate", "leggings", "boots"),
                 k -> t("kind." + k), () -> e.kind, v -> e.kind = v);
         f.choice(t("field.creative_tab"), creativeTabs(c), id -> tabName(c, id), () -> e.creativeTab, v -> e.creativeTab = v);
         f.integer(t("field.max_stack"), 1, 99, () -> e.maxStack, v -> e.maxStack = v);
-        f.showIf(() -> !e.isTool());
+        f.showIf(() -> !e.damageable());
         f.choice(t("field.rarity"), List.of("common", "uncommon", "rare", "epic"), r -> t("rarity." + r), () -> e.rarity, v -> e.rarity = v);
         f.check(t("field.glint"), () -> e.glint, v -> e.glint = v);
         f.check(t("field.fire_resistant"), () -> e.fireResistant, v -> e.fireResistant = v);
@@ -86,6 +87,18 @@ final class ItemEditor extends EditorBase<Item> {
         f.choice(t("field.tier"), List.of("wood", "stone", "iron", "gold", "diamond", "netherite"), x -> t("tier." + x), () -> e.tier, v -> e.tier = v, t("help.tier"));
         f.decimal(t("field.attack_damage"), () -> e.attackDamage, v -> e.attackDamage = v, t("help.attack_damage"));
         f.decimal(t("field.attack_speed"), () -> e.attackSpeed, v -> e.attackSpeed = v, t("help.attack_speed"));
+
+        f.section(t("section.armor"), t("help.armor_piece"));
+        f.sectionShowIf(e::isArmor);
+        List<String> mats = new ArrayList<>();
+        for (var m : c.p.all(modstudio.core.Elements.ArmorMaterial.class)) mats.add(m.name);
+        MachineEditors.ref(f, t("field.armor_material"), mats, false, () -> e.armorMaterial, v -> e.armorMaterial = v, t("help.armor_material"));
+
+        f.section(t("section.music_disc"), t("help.music_disc"));
+        f.sectionShowIf(() -> e.kind.equals("basic"));
+        List<String> songs = new ArrayList<>();
+        for (var s : c.p.all(modstudio.core.Elements.Song.class)) songs.add(s.name);
+        MachineEditors.ref(f, t("field.song"), songs, true, () -> e.song, v -> e.song = v, t("help.song_item"));
 
         f.section(t("section.fuel"));
         f.integer(t("field.burn_time"), 0, 100000, () -> e.burnTime, v -> e.burnTime = v, t("help.burn_time"));
@@ -138,6 +151,16 @@ final class ItemEditor extends EditorBase<Item> {
             Label l = new Label("+" + fmt(e.attackDamage + tierBonus()) + " " + t("preview.attack_damage"));
             l.getStyleClass().add("mc-tooltip-stat");
             previewLines.getChildren().add(l);
+        }
+        if (e.isArmor() && c.p.byName(modstudio.core.ElementType.ARMOR_MATERIAL, e.armorMaterial) instanceof modstudio.core.Elements.ArmorMaterial m) {
+            Label l = new Label("+" + m.defense(e.kind) + " " + t("preview.armor"));
+            l.getStyleClass().add("mc-tooltip-stat");
+            previewLines.getChildren().add(l);
+            if (m.toughness > 0) {
+                Label tl = new Label("+" + fmt(m.toughness) + " " + t("preview.armor_toughness"));
+                tl.getStyleClass().add("mc-tooltip-stat");
+                previewLines.getChildren().add(tl);
+            }
         }
         if (e.kind.equals("food")) {
             Label l = new Label(t("preview.food", e.nutrition, fmt(e.saturation)));

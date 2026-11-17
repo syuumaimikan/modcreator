@@ -34,6 +34,11 @@ public final class BlockPreview extends StackPane {
             if (side != null) g.drawImage(side, 27, 27, 96, 96);
             return;
         }
+        if (b.isCrop()) {
+            Image ripe = b.stageTextures.isEmpty() ? null : img(b.stageTextures.get(b.stageTextures.size() - 1));
+            if (ripe != null) g.drawImage(ripe, 27, 27, 96, 96);
+            return;
+        }
         double cx = 75, w = 56, y0 = 14, hgt = 64;
         // top: A(cx,y0) B(cx+w,y0+w/2) D(cx-w,y0+w/2)
         face(g, top, cx, y0, w / 16, w / 32, -w / 16, w / 32, 1.0);

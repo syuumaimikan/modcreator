@@ -33,6 +33,9 @@ public final class ForgeLikeGen {
         registries();
         events();
         jc.procedures();
+        if (jc.hasArmor()) jc.armorMaterials();
+        if (jc.hasEffects()) jc.effects();
+        if (jc.codePaintings()) jc.paintings();
         if (jc.hasCommands()) jc.commands();
         for (Item it : ctx.all(Item.class)) if (jc.needsClass(it)) jc.itemClass(it);
         for (Block bl : ctx.all(Block.class)) if (jc.needsBlockClass(bl)) jc.blockClass(bl);
@@ -392,6 +395,10 @@ public final class ForgeLikeGen {
         s.l("ModItems.ITEMS.register(modBus);");
         s.l("ModTabs.TABS.register(modBus);");
         s.l("ModSounds.SOUNDS.register(modBus);");
+        if (jc.hasArmor() && jc.registeredArmor()) s.l("ModArmorMaterials.ARMOR_MATERIALS.register(modBus);");
+        if (jc.hasEffects()) s.l("ModEffects.EFFECTS.register(modBus);");
+        if (jc.hasPotions()) s.l("ModPotions.POTIONS.register(modBus);");
+        if (jc.codePaintings()) s.l("ModPaintings.PAINTINGS.register(modBus);");
         s.l(eventBus7() ? "BuildCreativeModeTabContentsEvent.getBus(modBus).addListener(this::addToVanillaTabs);"
                 : "modBus.addListener(this::addToVanillaTabs);");
         s.l((neo ? "NeoForge" : "MinecraftForge") + ".EVENT_BUS.register(ModEvents.class);");

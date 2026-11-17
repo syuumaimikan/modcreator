@@ -182,7 +182,8 @@ public final class BedrockGen {
             String tex = texKey(it.texture, false);
             if (tex != null) c.addProperty("minecraft:icon", tex);
             c.add("minecraft:display_name", J.obj("value", it.displayName.isBlank() ? Ids.titleCase(it.name) : it.displayName));
-            c.addProperty("minecraft:max_stack_size", it.isTool() ? 1 : Math.max(1, Math.min(64, it.maxStack)));
+            c.addProperty("minecraft:max_stack_size", it.damageable() ? 1 : Math.max(1, Math.min(64, it.maxStack)));
+            armorPiece(it, c);
             if (it.glint) c.addProperty("minecraft:glint", true);
             if (it.burnTime > 0) c.add("minecraft:fuel", J.obj("duration", it.burnTime / 20.0));
             if (it.kind.equals("food")) {
@@ -214,6 +215,35 @@ public final class BedrockGen {
         }
     }
 
+    private static final java.util.Map<String, String[]> ARMOR_SLOTS = java.util.Map.of(
+            "helmet", new String[]{"slot.armor.head", "armor_head", "helmet", "variable.helmet_layer_visible = 0.0;"},
+            "chestplate", new String[]{"slot.armor.chest", "armor_torso", "chestplate", "variable.chest_layer_visible = 0.0;"},
+            "leggings", new String[]{"slot.armor.legs", "armor_legs", "leggings", "variable.leg_layer_visible = 0.0;"},
+            "boots", new String[]{"slot.armor.feet", "armor_feet", "boots", "variable.boot_layer_visible = 0.0;"});
+
+    /** Wearable armor: protection, durability, repair and an attachable that draws the worn layer texture. */
+    private void armorPiece(Item it, JsonObject c) {
+        if (!it.isArmor() || !(ctx.p.byName(ElementType.ARMOR_MATERIAL, it.armorMaterial) instanceof ArmorMaterial m)) return;
+        String[] slot = ARMOR_SLOTS.get(it.kind);
+        c.add("minecraft:wearable", J.obj("slot", slot[0], "protection", m.defense(it.kind)));
+        c.add("minecraft:durability", J.obj("max_durability", m.durabilityOf(it.kind)));
+        c.add("minecraft:enchantable", J.obj("value", Math.max(1, m.enchantability), "slot", slot[1]));
+        if (!m.repairItem.isBlank() && !Ids.isTag(Ids.full(m.repairItem))) {
+            c.add("minecraft:repairable", J.obj("repair_items", J.arr(J.obj("items", J.arr(Ids.full(m.repairItem)),
+                    "repair_amount", Math.max(1, m.durabilityOf(it.kind) / 4)))));
+        }
+        TextureAsset layer = ctx.p.texture(it.kind.equals("leggings") ? m.layer2 : m.layer1);
+        String tex = "textures/models/armor/" + ctx.ns + "_" + m.name + (it.kind.equals("leggings") ? "_layer_2" : "_layer_1");
+        if (layer != null) ctx.files.bytes(rp + tex + ".png", layer.bytes());
+        JsonObject desc = J.obj("identifier", ctx.id(it.name),
+                "materials", J.obj("default", "armor", "enchanted", "armor_enchanted"),
+                "textures", J.obj("default", layer != null ? tex : "textures/models/armor/iron_1", "enchanted", "textures/misc/enchanted_item_glint"),
+                "geometry", J.obj("default", "geometry.humanoid.armor." + slot[2]),
+                "scripts", J.obj("parent_setup", slot[3]),
+                "render_controllers", J.arr("controller.render.armor"));
+        ctx.files.json(rp + "attachables/" + it.name + ".json", J.obj("format_version", "1.10.0", "minecraft:attachable", J.obj("description", desc)));
+    }
+
     private static String sound(String s) {
         return switch (s) {
             case "wool" -> "cloth";
@@ -226,6 +256,10 @@ public final class BedrockGen {
     private void blocks() {
         JsonObject blocksJson = J.obj("format_version", J.arr(1, 1, 0));
         for (Block b : ctx.all(Block.class)) {
+            if (b.isCrop()) {
+                ctx.note("crop " + b.name + " is not exported to Bedrock Edition (custom crops need scripts there)");
+                continue;
+            }
             JsonObject c = new JsonObject();
             c.add("minecraft:destructible_by_mining", J.obj("seconds_to_destroy", b.hardness < 0 ? 1e9 : b.hardness));
             c.add("minecraft:destructible_by_explosion", J.obj("explosion_resistance", b.resistance));
@@ -547,6 +581,7 @@ public final class BedrockGen {
             case "gamerule" -> r.add("gamerule " + s.get("rule").trim().toLowerCase(Locale.ROOT) + " " + s.get("value"));
             case "difficulty" -> r.add("difficulty " + s.get("value"));
             case "scoreboard_show" -> r.add("scoreboard objectives setdisplay " + (s.get("slot").equals("below_name") ? "belowname" : s.get("slot")) + " " + s.get("objective"));
+            case "shoot" -> r.add("summon " + Ids.full(s.get("entity").isBlank() ? "minecraft:arrow" : s.get("entity")).replace("minecraft:", "") + " ^ ^1.5 ^1.5");
             case "random_score" -> r.add("scoreboard players random " + sel(s) + " " + s.get("objective") + " " + s.get("min") + " " + s.get("max"));
             default -> {
             }

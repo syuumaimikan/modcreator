@@ -97,6 +97,12 @@ public final class Ui {
         return switch (t) {
             case ITEM -> "mdi2d-diamond-stone";
             case BLOCK -> "mdi2c-cube-outline";
+            case ARMOR_MATERIAL -> "mdi2s-shield-half-full";
+            case STATUS_EFFECT -> "mdi2f-flask-outline";
+            case ENCHANTMENT -> "mdi2b-book-open-variant";
+            case DAMAGE_TYPE -> "mdi2h-heart-broken-outline";
+            case PAINTING -> "mdi2i-image-frame";
+            case SONG -> "mdi2a-album";
             case MODEL -> "mdi2r-rotate-3d-variant";
             case CREATIVE_TAB -> "mdi2t-tab";
             case SOUND -> "mdi2m-music-note-outline";

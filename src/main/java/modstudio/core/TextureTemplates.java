@@ -44,6 +44,23 @@ public final class TextureTemplates {
                 "................",
                 "................",
                 "................"});
+        PATTERNS.put("seeds", new String[]{
+                "................",
+                "................",
+                "................",
+                "................",
+                "......1.........",
+                ".....141...1....",
+                ".....131..141...",
+                "......1...131...",
+                "...1.......1....",
+                "..141...1.......",
+                "..131..141..1...",
+                "...1...131.141..",
+                "........1..131..",
+                "............1...",
+                "................",
+                "................"});
         PATTERNS.put("dust", new String[]{
                 "................",
                 "................",
@@ -129,23 +146,133 @@ public final class TextureTemplates {
                 ".....111111.....",
                 "................",
                 "................"});
-    }
+
+        PATTERNS.put("helmet", new String[]{
+                "................",
+                "................",
+                "................",
+                "....11111111....",
+                "...1455555531...",
+                "..145333333321..",
+                "..143333333321..",
+                "..143322223321..",
+                "..1431....1321..",
+                "..1431....1321..",
+                "..1321....1221..",
+                "..111......111..",
+                "................",
+                "................",
+                "................",
+                "................"});
+        PATTERNS.put("chestplate", new String[]{
+                "................",
+                "..111......111..",
+                ".14531....13541.",
+                ".14533111133541.",
+                ".14533333333341.",
+                "..114333333311..",
+                "....14333331....",
+                "....14333321....",
+                "....14333321....",
+                "....14322221....",
+                "....14333321....",
+                "....13333321....",
+                "....11111111....",
+                "................",
+                "................",
+                "................"});
+        PATTERNS.put("leggings", new String[]{
+                "................",
+                "................",
+                "....11111111....",
+                "....14555541....",
+                "....14333321....",
+                "....14311321....",
+                "....1431.1321...",
+                "....1431.1321...",
+                "....1431.1321...",
+                "....1431.1321...",
+                "....1431.1321...",
+                "....1321.1221...",
+                "....1111.1111...",
+                "................",
+                "................",
+                "................"});
+        PATTERNS.put("boots", new String[]{
+                "................",
+                "................",
+                "................",
+                "................",
+                "................",
+                "................",
+                "..1111....1111..",
+                "..1451....1451..",
+                "..1431....1431..",
+                "..1431....1431..",
+                ".14331...14331..",
+                "1443321.1443321.",
+                "1333221.1333221.",
+                "1111111.1111111.",
+                "................",
+                "................"});    }
 
     public static String[] names() {
-        String[] r = new String[PATTERNS.size() + 2];
-        int i = 0;
-        for (String k : PATTERNS.keySet()) r[i++] = k;
-        r[i++] = "block";
-        r[i] = "ore";
-        return r;
+        java.util.List<String> r = new java.util.ArrayList<>(PATTERNS.keySet());
+        r.addAll(java.util.List.of("block", "ore", "crop", "armor_layer_1", "armor_layer_2"));
+        return r.toArray(String[]::new);
+    }
+
+    /**
+     * One growth stage of a crop: green stalks that grow taller with each stage, with fruit in the base colour on the
+     * last stage. Stage runs from 0 to stages - 1.
+     */
+    public static int[] cropStage(int stage, int stages, int baseArgb) {
+        int[] shades = shades(baseArgb);
+        int[] px = new int[256];
+        stages = Math.max(1, stages);
+        stage = Math.max(0, Math.min(stages - 1, stage));
+        int dark = 0xFF2E5A1C, mid = 0xFF4C8A2A, light = 0xFF6DB33F;
+        int height = Math.min(14, 3 + (stage + 1) * 11 / stages);
+        int[] xs = {2, 6, 9, 13};
+        for (int s = 0; s < xs.length; s++) {
+            int x = xs[s];
+            int h = Math.max(2, height - (s % 2 == 0 ? 0 : 1));
+            int top = 16 - h;
+            for (int y = 15; y >= top; y--) {
+                px[y * 16 + x] = y > 12 ? dark : mid;
+                if ((y + s) % 3 == 0 && y < 15 && y > top) {
+                    int lx = x + ((y / 3 + s) % 2 == 0 ? 1 : -1);
+                    if (lx >= 0 && lx < 16) px[y * 16 + lx] = light;
+                }
+            }
+            if (stage == stages - 1 && stages > 1) {
+                for (int dy = 0; dy < 2; dy++) {
+                    for (int dx = -1; dx <= 1; dx++) {
+                        int fx = x + dx, fy = top + dy;
+                        if (fx < 0 || fx > 15 || fy > 15) continue;
+                        px[fy * 16 + fx] = dx == 0 && dy == 0 ? shades[4] : dy == 1 ? shades[1] : shades[3];
+                    }
+                }
+            }
+        }
+        return px;
+    }
+
+    /** Width and height of a template's image: 64 x 32 for worn armor layers, 16 x 16 otherwise. */
+    public static int[] size(String template) {
+        return template != null && template.startsWith("armor_layer") ? new int[]{64, 32} : new int[]{16, 16};
     }
 
     public static int[] generate(String template, int baseArgb) {
         int[] shades = shades(baseArgb);
+        if (template.startsWith("armor_layer")) return armorLayer(template.endsWith("2") ? 2 : 1, shades);
         int[] px = new int[256];
         switch (template) {
             case "block" -> block(px, shades);
             case "ore" -> ore(px, shades);
+            case "crop" -> {
+                return cropStage(3, 4, baseArgb);
+            }
             default -> {
                 String[] rows = PATTERNS.get(template);
                 if (rows == null) return px;
@@ -238,6 +365,53 @@ public final class TextureTemplates {
                 char o = ORE[y].charAt(x);
                 if (o != '.') c = color(o, s);
                 px[y * 16 + x] = c;
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ worn armor (64 x 32, vanilla humanoid layout)
+
+    /** Layer 1 covers the head, body, arms and the boot part of the legs; layer 2 the waist and the legs. */
+    public static int[] armorLayer(int layer, int[] s) {
+        int[] px = new int[64 * 32];
+        if (layer == 1) {
+            box(px, 0, 0, 8, 8, 8, s, 0, 8, true);
+            box(px, 16, 16, 8, 12, 4, s, 0, 12, false);
+            box(px, 40, 16, 4, 12, 4, s, 0, 12, false);
+            box(px, 0, 16, 4, 12, 4, s, 8, 12, false);
+        } else {
+            box(px, 16, 16, 8, 12, 4, s, 7, 12, false);
+            box(px, 0, 16, 4, 12, 4, s, 0, 10, false);
+        }
+        return px;
+    }
+
+    /**
+     * Paints the six faces of a model box whose texture starts at (u, v) and measures dx, dy, dz.
+     * Only rows y0 to y1 of the side faces are painted; a visor leaves the middle of the front face open.
+     */
+    private static void box(int[] px, int u, int v, int dx, int dy, int dz, int[] s, int y0, int y1, boolean visor) {
+        if (y0 == 0) face(px, u + dz, v, dx, dz, s, 0, dz, false);
+        if (y1 == dy) face(px, u + dz + dx, v, dx, dz, s, 0, dz, false);
+        face(px, u, v + dz, dz, dy, s, y0, y1, false);
+        face(px, u + dz, v + dz, dx, dy, s, y0, y1, visor);
+        face(px, u + dz + dx, v + dz, dz, dy, s, y0, y1, false);
+        face(px, u + dz + dx + dz, v + dz, dx, dy, s, y0, y1, false);
+        if (y0 > 0) {
+            // a bright rim where a partial piece (boots) starts
+            for (int x = u; x < u + 2 * (dx + dz); x++) px[(v + dz + y0) * 64 + x] = s[4];
+        }
+    }
+
+    private static void face(int[] px, int x0, int y0, int w, int h, int[] s, int from, int to, boolean visor) {
+        for (int y = from; y < to; y++) {
+            for (int x = 0; x < w; x++) {
+                if (visor && y >= 3 && x > 0 && x < w - 1 && y < h - 1) continue;
+                int c;
+                if (y == from || x == 0) c = s[3];
+                else if (y == to - 1 || x == w - 1) c = s[1];
+                else c = hash(x0 + x, y0 + y) % 5 == 0 ? s[3] : s[2];
+                px[(y0 + y) * 64 + x0 + x] = c;
             }
         }
     }

@@ -72,9 +72,41 @@ public final class Compat {
         switch (e) {
             case Item it -> {
                 if (paper || pack) a.fallback("compat.item_cmd");
+                if (it.isArmor() && (paper || pack) && p.mcVersions().stream().anyMatch(v -> !v.atLeast(McVersion.V1_21_4)))
+                    a.fallback("compat.armor_leather");
+            }
+            case Elements.StatusEffect se -> {
+                if (paper || pack) a.fallback("compat.effect_emulated");
+                if (bedrock) a.none("compat.java_only");
+            }
+            case Elements.Enchantment en -> {
+                if (bedrock) a.none("compat.java_only");
+                else if (p.mcVersions().stream().anyMatch(v -> !v.atLeast(McVersion.V1_21_1))) a.fallback("compat.needs_121");
+                if (paper) a.notes.add(I18n.t("compat.paper_registry"));
+            }
+            case Elements.DamageType dt -> {
+                if (bedrock) a.none("compat.java_only");
+                if (paper) a.notes.add(I18n.t("compat.paper_registry"));
+            }
+            case Elements.Painting pa -> {
+                if (bedrock) a.none("compat.java_only");
+                else if ((paper || pack) && p.mcVersions().stream().anyMatch(v -> !v.atLeast(McVersion.V1_21_1))) a.fallback("compat.needs_121");
+                if (paper) a.notes.add(I18n.t("compat.paper_registry"));
+            }
+            case Elements.Song so -> {
+                if (bedrock) a.none("compat.java_only");
+                else if (p.mcVersions().stream().anyMatch(v -> !v.atLeast(McVersion.V1_21_1))) a.fallback("compat.needs_121");
+            }
+            case Elements.ArmorMaterial am -> {
+                if (paper || pack) {
+                    if (p.mcVersions().stream().anyMatch(v -> !v.atLeast(McVersion.V1_21_4))) a.fallback("compat.armor_leather");
+                    else a.notes.add(I18n.t("compat.armor_equippable"));
+                }
+                if (bedrock) a.notes.add(I18n.t("compat.armor_bedrock"));
             }
             case Block b -> {
                 if (paper || pack) a.none("compat.block_pack");
+                if (bedrock && b.isCrop()) a.none("compat.crop_bedrock");
             }
             case Elements.Model m -> {
                 if (paper || pack) a.fallback("compat.model_rp");
@@ -186,6 +218,10 @@ public final class Compat {
                     case "open_menu" -> {
                         if (pack) a.fallback("compat.menu_chat");
                     }
+                    case "effect" -> {
+                        String id = Ids.full(s.get("effect"));
+                        if ((pack || t == Target.PAPER) && id.startsWith(p.meta.modId + ":")) a.fallback("compat.effect_emulated");
+                    }
                     case "random_score" -> {
                         if (old) a.fallback("compat.random_shim");
                     }
@@ -197,6 +233,7 @@ public final class Compat {
                 }
                 if (old && (Validator.needsMacro(s.p) || (s.cond != null && Validator.needsMacro(s.cond.p)))) a.fallback("compat.macro_old");
             }
+            if (bedrock && s.kind.equals("shoot")) a.fallback("compat.shoot_bedrock");
             steps(p, s.then, t, old, a);
             steps(p, s.orElse, t, old, a);
         }

@@ -58,8 +58,44 @@ public final class Validator {
                         r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.texture_missing", it.name)));
                     if (it.creativeTab.startsWith("tab:") && p.byName(ElementType.CREATIVE_TAB, it.creativeTab.substring(4)) == null)
                         r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.unknown_tab", it.creativeTab.substring(4))));
-                    if ((p.has(Target.PAPER) || p.has(Target.DATAPACK)) && !Vanilla.CMD_BASES.containsKey(Ids.full(it.baseItem)))
+                    if (!it.song.isBlank() && p.byName(ElementType.SONG, it.song) == null)
+                        r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.song_missing", it.name, it.song)));
+                    if (it.isArmor() && !(p.byName(ElementType.ARMOR_MATERIAL, it.armorMaterial) instanceof Elements.ArmorMaterial))
+                        r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.armor_material_missing", it.name, it.armorMaterial)));
+                    if (!it.isArmor() && (p.has(Target.PAPER) || p.has(Target.DATAPACK)) && !Vanilla.CMD_BASES.containsKey(Ids.full(it.baseItem)))
                         r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.base_item_model", it.baseItem)));
+                }
+                case StatusEffect se -> {
+                    if (p.texture(se.icon) == null) r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.effect_icon", se.name)));
+                }
+                case Enchantment en -> {
+                    if (p.mcVersions().stream().anyMatch(v -> !v.atLeast(McVersion.V1_21_1)))
+                        r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.needs_121", en.name)));
+                    if (en.supportedItems.isBlank()) r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.enchant_items", en.name)));
+                    if (en.damagePerLevel == 0 && en.protectionPerLevel == 0 && (en.attribute.isBlank() || en.attributePerLevel == 0)
+                            && en.onHit.isEmpty() && en.onTick.isEmpty())
+                        r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.enchant_no_effect", en.name)));
+                }
+                case Painting pa -> {
+                    TextureAsset tex = p.texture(pa.texture);
+                    if (tex == null) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.texture_missing", pa.name)));
+                    else if (tex.width * pa.height != tex.frameHeight() * pa.width)
+                        r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.painting_ratio", pa.name, pa.width, pa.height)));
+                }
+                case Song so -> {
+                    if (so.sound.isBlank()) r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.song_sound", so.name)));
+                    if (p.mcVersions().stream().anyMatch(v -> !v.atLeast(McVersion.V1_21_1)))
+                        r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.needs_121", so.name)));
+                }
+                case Elements.ArmorMaterial am -> {
+                    if (p.texture(am.layer1) == null || p.texture(am.layer2) == null)
+                        r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.armor_layers", am.name)));
+                    TextureAsset l1 = p.texture(am.layer1);
+                    if (l1 != null && (l1.width != 2 * l1.height))
+                        r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.armor_layer_size", am.name)));
+                    if (!am.repairItem.isBlank()) checkRef(p, r, e, am.repairItem);
+                    if (p.all(Item.class).stream().noneMatch(i -> i.isArmor() && i.armorMaterial.equals(am.name)))
+                        r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.armor_no_pieces", am.name)));
                 }
                 case Block b -> {
                     boolean missing = switch (b.shape) {
@@ -71,7 +107,16 @@ public final class Validator {
                     if (missing) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.texture_missing", b.name)));
                     if (b.shape.equals("model") && p.model(b.model) == null)
                         r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.model_missing", b.name, b.model)));
-                    if (b.drop.equals("item")) checkRef(p, r, e, b.dropItem);
+                    if (b.drop.equals("item") && !b.isCrop()) checkRef(p, r, e, b.dropItem);
+                    if (b.isCrop()) {
+                        if (b.stageTextures.isEmpty() || b.stageTextures.stream().anyMatch(id -> p.texture(id) == null))
+                            r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.crop_stages", b.name)));
+                        if (b.stageTextures.size() > 8)
+                            r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.crop_too_many", b.name)));
+                        if (!b.cropProduce.isBlank()) checkRef(p, r, e, b.cropProduce);
+                        if (b.cropProduceMax < b.cropProduceMin)
+                            r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.crop_range", b.name)));
+                    }
                     if (b.creativeTab.startsWith("tab:") && p.byName(ElementType.CREATIVE_TAB, b.creativeTab.substring(4)) == null)
                         r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.unknown_tab", b.creativeTab.substring(4))));
                     for (Target t : targets) {

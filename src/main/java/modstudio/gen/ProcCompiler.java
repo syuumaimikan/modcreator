@@ -227,6 +227,14 @@ public final class ProcCompiler {
         }
     }
 
+    private static double parseD(String s, double def) {
+        try {
+            return Double.parseDouble(s.trim());
+        } catch (Exception e) {
+            return def;
+        }
+    }
+
     private static String num(String s, String def) {
         if (s == null || s.isBlank()) return def;
         try {
@@ -508,8 +516,38 @@ public final class ProcCompiler {
                 if (arg == null) r.add("# blocks from this project are not available on this platform");
                 else r.add("clear " + sel(s) + " " + arg + " " + Math.max(0, intOr(s.get("count"), 1)));
             }
-            case "effect" -> r.add("effect give " + sel(s) + " " + Ids.full(s.get("effect")) + " " + Math.max(1, intOr(s.get("seconds"), 10))
-                    + " " + Math.max(0, intOr(s.get("amplifier"), 0)) + " " + Boolean.parseBoolean(s.get("hide")));
+            case "effect" -> {
+                String id = Ids.full(s.get("effect"));
+                // data packs and plugins cannot register effects: project effects run on scores and tags
+                if (customItems && id.startsWith(ns + ":") && ctx.p.byName(modstudio.core.ElementType.STATUS_EFFECT, Ids.path(id)) instanceof Elements.StatusEffect se) {
+                    objectives.add(GameplayGen.objective(ns, se.name));
+                    r.addAll(GameplayGen.applyEmulated(ctx, se, sel(s), Math.max(1, intOr(s.get("seconds"), 10))));
+                } else {
+                    r.add("effect give " + sel(s) + " " + id + " " + Math.max(1, intOr(s.get("seconds"), 10))
+                            + " " + Math.max(0, intOr(s.get("amplifier"), 0)) + " " + Boolean.parseBoolean(s.get("hide")));
+                }
+            }
+            case "shoot" -> {
+                // direction from two markers in front of the eyes, scaled into the projectile's Motion
+                String e = Ids.full(or(s.get("entity"), "minecraft:arrow"));
+                double speed = Math.max(0.05, Math.min(10, parseD(s.get("speed"), 1.5)));
+                String t0 = ns + ".dir0", t1 = ns + ".dir1", shot = ns + ".shot";
+                objectives.add(tmp());
+                r.add("execute anchored eyes positioned ^ ^ ^ run summon minecraft:marker ~ ~ ~ {Tags:[\"" + t0 + "\"]}");
+                r.add("execute anchored eyes positioned ^ ^ ^1 run summon minecraft:marker ~ ~ ~ {Tags:[\"" + t1 + "\"]}");
+                r.add("execute anchored eyes positioned ^ ^ ^1 run summon " + e + " ~ ~ ~ {Tags:[\"" + shot + "\"]}");
+                String scale = String.valueOf(speed * 1000);
+                for (int i = 0; i < 3; i++) {
+                    r.add("execute store result score #a " + tmp() + " run data get entity @e[tag=" + t0 + ",limit=1,sort=nearest] Pos[" + i + "] " + scale);
+                    r.add("execute store result score #b " + tmp() + " run data get entity @e[tag=" + t1 + ",limit=1,sort=nearest] Pos[" + i + "] " + scale);
+                    r.add("scoreboard players operation #b " + tmp() + " -= #a " + tmp());
+                    r.add("execute store result entity @e[tag=" + shot + ",limit=1,sort=nearest] Motion[" + i + "] double 0.001 run scoreboard players get #b " + tmp());
+                }
+                r.add("data modify entity @e[tag=" + shot + ",limit=1,sort=nearest] Owner set from entity @s UUID");
+                r.add("kill @e[tag=" + t0 + "]");
+                r.add("kill @e[tag=" + t1 + "]");
+                r.add("tag @e[tag=" + shot + "] remove " + shot);
+            }
             case "teleport" -> r.add("tp " + sel(s) + " " + coord(s.get("x")) + " " + coord(s.get("y")) + " " + coord(s.get("z")));
             case "damage" -> r.add("damage " + sel(s) + " " + num(s.get("amount"), "1") + " " + Ids.full(s.get("damageType").isBlank() ? "generic" : s.get("damageType")));
             case "xp" -> r.add("xp add " + sel(s) + " " + intOr(s.get("amount"), 1) + " " + (s.get("unit").equals("points") ? "points" : "levels"));

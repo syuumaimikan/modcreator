@@ -41,6 +41,7 @@ public final class DataGen {
         if (realItems) blockData();
         advancements();
         userTags();
+        armorTags();
         functions();
         procedures();
         if (!realItems) giveFunctions();
@@ -320,7 +321,12 @@ public final class DataGen {
             if (ctx.p.byName(ElementType.LOOT_TABLE, "blocks/" + b.name) == null) {
                 ctx.files.json(data(ctx.ns, ctx.lootDir(), "blocks/" + b.name + ".json"), blockLoot(b, id));
             }
-            if (!b.tool.equals("none")) {
+            if (b.isCrop()) {
+                tag("block", "minecraft", "crops").values.add(id);
+                tag("block", "minecraft", "bee_growables").values.add(id);
+                tag("block", "minecraft", "maintains_farmland").values.add(id);
+                tag("item", "minecraft", "villager_plantable_seeds").values.add(id);
+            } else if (!b.tool.equals("none")) {
                 tag("block", "minecraft", "mineable/" + b.tool).values.add(id);
                 switch (b.toolLevel) {
                     case "stone" -> tag("block", "minecraft", "needs_stone_tool").values.add(id);
@@ -335,6 +341,7 @@ public final class DataGen {
     }
 
     private JsonObject blockLoot(Block b, String id) {
+        if (b.isCrop()) return cropLoot(b, id);
         JsonObject survives = J.obj("condition", "minecraft:survives_explosion");
         switch (b.drop) {
             case "none" -> {
@@ -359,6 +366,25 @@ public final class DataGen {
         }
         return J.obj("type", "minecraft:block", "pools", J.arr(J.obj("rolls", 1, "bonus_rolls", 0,
                 "entries", J.arr(J.obj("type", "minecraft:item", "name", id)), "conditions", J.arr(survives))));
+    }
+
+    /** Seeds always; when ripe the produce and, optionally, bonus seeds (like wheat). */
+    private JsonObject cropLoot(Block b, String id) {
+        JsonObject ripe = J.obj("condition", "minecraft:block_state_property", "block", id, "properties", J.obj("age", "7"));
+        String produce = b.cropProduce.isBlank() ? id : Ids.full(b.cropProduce);
+        int min = Math.max(0, b.cropProduceMin), max = Math.max(min, b.cropProduceMax);
+        JsonObject produceEntry = J.obj("type", "minecraft:item", "name", produce, "conditions", J.arr(ripe));
+        if (min != 1 || max != 1) produceEntry.add("functions", J.arr(countFn(min, max)));
+        JsonObject seedEntry = J.obj("type", "minecraft:item", "name", id);
+        JsonArray pools = J.arr(J.obj("rolls", 1, "bonus_rolls", 0,
+                "entries", J.arr(J.obj("type", "minecraft:alternatives", "children", J.arr(produceEntry, seedEntry)))));
+        if (b.cropSeedBonus) {
+            pools.add(J.obj("rolls", 1, "bonus_rolls", 0, "conditions", J.arr(ripe.deepCopy()),
+                    "entries", J.arr(J.obj("type", "minecraft:item", "name", id, "functions", J.arr(J.obj(
+                            "function", "minecraft:apply_bonus", "enchantment", "minecraft:fortune",
+                            "formula", "minecraft:binomial_with_bonus_count", "parameters", J.obj("extra", 3, "probability", 0.5714286)))))));
+        }
+        return J.obj("type", "minecraft:block", "pools", pools, "functions", J.arr(J.obj("function", "minecraft:explosion_decay")));
     }
 
     /** Name of the configured and placed ore feature; avoids names like ruby_ore_ore. */
@@ -528,6 +554,15 @@ public final class DataGen {
         }
     }
 
+    /** 1.21.2+ mod armor materials repair with an item tag. */
+    private void armorTags() {
+        if (!realItems || !ctx.registryKeys()) return;
+        for (ArmorMaterial m : ctx.all(ArmorMaterial.class)) {
+            if (m.repairItem.isBlank()) continue;
+            tag("item", ctx.ns, "repairs_" + m.name).values.add(Ids.full(m.repairItem));
+        }
+    }
+
     private void writeTags() {
         for (var e : tags.entrySet()) {
             String[] k = e.getKey().split("\\|", 3);
@@ -672,6 +707,7 @@ public final class DataGen {
             }
         }
         new SystemsGen(ctx, pc, root, realItems, load, tick).generate();
+        new GameplayGen(ctx, pc, root, realItems, tick, (reg, n, path, value) -> tag(reg, n, path).values.add(value)).generate();
         new InterfaceGen(ctx, pc, load, tick, joinCalls).generate();
         new MachineGen(ctx, pc, root, realItems, tick).generate();
         if (!joinCalls.isEmpty()) {

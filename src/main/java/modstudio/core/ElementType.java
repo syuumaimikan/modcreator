@@ -5,6 +5,12 @@ import java.util.function.Supplier;
 public enum ElementType {
     ITEM("item", Elements.Item.class, Elements.Item::new),
     BLOCK("block", Elements.Block.class, Elements.Block::new),
+    ARMOR_MATERIAL("armor_material", Elements.ArmorMaterial.class, Elements.ArmorMaterial::new),
+    STATUS_EFFECT("status_effect", Elements.StatusEffect.class, Elements.StatusEffect::new),
+    ENCHANTMENT("enchantment", Elements.Enchantment.class, Elements.Enchantment::new),
+    DAMAGE_TYPE("damage_type", Elements.DamageType.class, Elements.DamageType::new),
+    PAINTING("painting", Elements.Painting.class, Elements.Painting::new),
+    SONG("song", Elements.Song.class, Elements.Song::new),
     MODEL("model", Elements.Model.class, Elements.Model::new),
     SHADER("shader", Systems.Shader.class, Systems.Shader::new),
     CREATIVE_TAB("creative_tab", Elements.CreativeTab.class, Elements.CreativeTab::new),

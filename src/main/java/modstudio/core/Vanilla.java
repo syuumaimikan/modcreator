@@ -101,6 +101,11 @@ public final class Vanilla {
         ui.toast.challenge_complete item.totem.use item.trident.thunder item.armor.equip_diamond block.bell.use
         """);
 
+    public static final List<String> DAMAGE_TYPES = split("""
+            generic magic indirect_magic in_fire on_fire lava hot_floor lightning_bolt freeze drown starve cactus fall
+            fly_into_wall out_of_world wither dragon_breath sweet_berry_bush sting thorns player_attack mob_attack arrow
+            trident fireball explosion player_explosion sonic_boom falling_block falling_anvil cramming generic_kill""");
+
     public static final List<String> ENCHANTMENTS = split("""
         protection fire_protection feather_falling blast_protection projectile_protection respiration aqua_affinity
         thorns depth_strider frost_walker binding_curse soul_speed swift_sneak sharpness smite bane_of_arthropods
@@ -155,12 +160,19 @@ public final class Vanilla {
                 "diamond_shovel", "iron_hoe", "diamond_hoe", "blaze_rod")) {
             CMD_BASES.put("minecraft:" + s, "minecraft:item/handheld");
         }
+        for (String s : List.of("leather_helmet", "leather_chestplate", "leather_leggings", "leather_boots")) {
+            CMD_BASES.put("minecraft:" + s, "minecraft:item/generated");
+        }
+        for (String s : List.of("13", "cat", "blocks", "chirp", "far", "mall", "mellohi", "stal", "strad", "ward", "11", "wait",
+                "otherside", "5", "pigstep", "relic")) {
+            CMD_BASES.put("minecraft:music_disc_" + s, "minecraft:item/template_music_disc");
+        }
         CMD_BASES.put("minecraft:carrot_on_a_stick", "minecraft:item/handheld_rod");
         CMD_BASES.put("minecraft:warped_fungus_on_a_stick", "minecraft:item/handheld_rod");
     }
 
     public static final List<String> SOUND_TYPES = Arrays.asList("stone", "wood", "gravel", "grass", "metal", "glass",
-            "wool", "sand", "snow", "amethyst", "deepslate", "copper", "netherite", "chain", "lantern", "bone", "slime");
+            "wool", "sand", "snow", "amethyst", "deepslate", "copper", "netherite", "chain", "lantern", "bone", "slime", "crop");
 
     public static List<String> allItems() {
         List<String> r = new ArrayList<>(ITEMS);

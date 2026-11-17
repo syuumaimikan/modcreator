@@ -255,7 +255,7 @@ public final class StepsEditor extends VBox {
                 });
                 return c;
             }
-            case ITEM, BLOCK, ENTITY, EFFECT, SOUND, PARTICLE, FUNCTION, DIMENSION -> {
+            case ITEM, BLOCK, ENTITY, EFFECT, SOUND, PARTICLE, FUNCTION, DIMENSION, ENCHANTMENT, DAMAGE_TYPE -> {
                 IdField f = new IdField(env, Catalog.forParam(p.type()), v, s -> {
                     values.put(p.key(), s);
                     changed.run();

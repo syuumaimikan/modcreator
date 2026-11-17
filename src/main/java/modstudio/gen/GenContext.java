@@ -65,9 +65,11 @@ public final class GenContext {
 
     public String tagDir(String registry) {
         if (singular()) return registry;
+        // before 1.21 only the legacy registries used plural tag folders
         return switch (registry) {
             case "entity_type" -> "entity_types";
-            default -> registry + "s";
+            case "block", "item", "fluid", "function", "game_event" -> registry + "s";
+            default -> registry;
         };
     }
 

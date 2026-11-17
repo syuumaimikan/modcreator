@@ -44,9 +44,22 @@ public final class Catalog {
                 }
             }
             case ENTITY -> Vanilla.ENTITIES.forEach(s -> r.add(vanilla(s, vanilla)));
-            case EFFECT -> Vanilla.EFFECTS.forEach(s -> r.add(vanilla(s, vanilla)));
+            case EFFECT -> {
+                for (Elements.StatusEffect s : p.all(Elements.StatusEffect.class))
+                    r.add(new Picker.Entry(ns + ":" + s.name, label(s.displayName, s.name), null, project));
+                Vanilla.EFFECTS.forEach(s -> r.add(vanilla(s, vanilla)));
+            }
             case PARTICLE -> Vanilla.PARTICLES.forEach(s -> r.add(vanilla(s, vanilla)));
-            case ENCHANTMENT -> Vanilla.ENCHANTMENTS.forEach(s -> r.add(vanilla(s, vanilla)));
+            case ENCHANTMENT -> {
+                for (Elements.Enchantment s : p.all(Elements.Enchantment.class))
+                    r.add(new Picker.Entry(ns + ":" + s.name, label(s.displayName, s.name), null, project));
+                Vanilla.ENCHANTMENTS.forEach(s -> r.add(vanilla(s, vanilla)));
+            }
+            case DAMAGE_TYPE -> {
+                for (Elements.DamageType s : p.all(Elements.DamageType.class))
+                    r.add(new Picker.Entry(ns + ":" + s.name, s.name, null, project));
+                Vanilla.DAMAGE_TYPES.forEach(s -> r.add(vanilla(s, vanilla)));
+            }
             case DIMENSION -> Vanilla.DIMENSIONS.forEach(s -> r.add(vanilla(s, vanilla)));
             case SOUND -> {
                 for (Elements.Sound s : p.all(Elements.Sound.class))
@@ -119,6 +132,8 @@ public final class Catalog {
             case PARTICLE -> IdField.Kind.PARTICLE;
             case FUNCTION -> IdField.Kind.FUNCTION;
             case DIMENSION -> IdField.Kind.DIMENSION;
+            case ENCHANTMENT -> IdField.Kind.ENCHANTMENT;
+            case DAMAGE_TYPE -> IdField.Kind.DAMAGE_TYPE;
             default -> IdField.Kind.ANY;
         };
     }

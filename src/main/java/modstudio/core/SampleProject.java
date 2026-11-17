@@ -296,6 +296,9 @@ public final class SampleProject {
         for (String s : List.of("grayscale", "hue_shift", "tint", "pulse", "emissive")) glsl.append(Shaders.SNIPPETS.get(s)).append('\n');
         effects.fragment = glsl.toString();
         p.elements.add(effects);
+        armor(p, red);
+        gameplay(p, red);
+        crop(p, red);
         systems(p);
         return p;
     }
@@ -704,5 +707,176 @@ public final class SampleProject {
         b.permission = permission == 0 ? -1 : permission;
         b.steps.addAll(List.of(steps));
         return b;
+    }
+
+    /** A ruby armor set: the material with generated worn textures and the four pieces. */
+    private static void armor(Project p, int color) {
+        ArmorMaterial m = new ArmorMaterial();
+        m.name = "ruby";
+        m.durability = 25;
+        m.helmet = 3;
+        m.chestplate = 7;
+        m.leggings = 6;
+        m.boots = 3;
+        m.toughness = 1;
+        m.enchantability = 15;
+        m.equipSound = "diamond";
+        m.repairItem = "rubymod:ruby";
+        TextureAsset l1 = TextureAsset.of("ruby_layer_1", TextureTemplates.generate("armor_layer_1", color), 64, 32);
+        TextureAsset l2 = TextureAsset.of("ruby_layer_2", TextureTemplates.generate("armor_layer_2", color), 64, 32);
+        p.textures.addAll(List.of(l1, l2));
+        m.layer1 = l1.id;
+        m.layer2 = l2.id;
+        p.elements.add(m);
+        String[][] names = {{"helmet", "Ruby Helmet", "ルビーのヘルメット"}, {"chestplate", "Ruby Chestplate", "ルビーのチェストプレート"},
+                {"leggings", "Ruby Leggings", "ルビーのレギンス"}, {"boots", "Ruby Boots", "ルビーのブーツ"}};
+        for (String[] n : names) {
+            TextureAsset icon = TextureAsset.of("ruby_" + n[0], TextureTemplates.generate(n[0], color), 16, 16);
+            p.textures.add(icon);
+            Item it = new Item();
+            it.name = "ruby_" + n[0];
+            it.kind = n[0];
+            it.armorMaterial = m.name;
+            it.displayName = n[1];
+            it.maxStack = 1;
+            it.texture = icon.id;
+            it.creativeTab = "tab:rubies";
+            it.setLoc("name", "ja_jp", n[2]);
+            p.elements.add(it);
+        }
+    }
+
+    /** A status effect with a potion, an enchantment, a damage type, a painting, a music disc and a projectile procedure. */
+    private static void gameplay(Project p, int color) {
+        TextureAsset rushIcon = TextureAsset.of("ruby_rush_icon", TextureTemplates.generate("dust", color), 16, 16);
+        p.textures.add(rushIcon);
+        StatusEffect rush = new StatusEffect();
+        rush.name = "ruby_rush";
+        rush.displayName = "Ruby Rush";
+        rush.setLoc("name", "ja_jp", "ルビーラッシュ");
+        rush.color = "#E0115F";
+        rush.icon = rushIcon.id;
+        EffectModifier speed = new EffectModifier();
+        speed.attribute = "movement_speed";
+        speed.amount = 0.2;
+        rush.modifiers.add(speed);
+        EffectModifier dmg = new EffectModifier();
+        dmg.attribute = "attack_damage";
+        dmg.amount = 1;
+        dmg.operation = "add_value";
+        rush.modifiers.add(dmg);
+        rush.tickInterval = 20;
+        rush.onTick.add(step("particle", "particle", "minecraft:crit", "count", "6", "dy", "0.6"));
+        rush.potionName = "Potion of Ruby Rush";
+        rush.setLoc("potion", "ja_jp", "ルビーラッシュのポーション");
+        rush.potionSeconds = 120;
+
+        Enchantment edge = new Enchantment();
+        edge.name = "ruby_edge";
+        edge.displayName = "Ruby Edge";
+        edge.setLoc("name", "ja_jp", "ルビーの刃");
+        edge.supportedItems = "#minecraft:enchantable/sword";
+        edge.maxLevel = 3;
+        edge.damagePerLevel = 1.5;
+        edge.onHit.add(step("particle", "particle", "minecraft:crimson_spore", "count", "12"));
+        edge.onHit.add(step("effect", "effect", "minecraft:glowing", "seconds", "3"));
+
+        DamageType shard = new DamageType();
+        shard.name = "ruby_shard";
+        shard.deathMessage = "%1$s was pierced by ruby shards";
+        shard.deathMessageAttacker = "%1$s was pierced by ruby shards from %2$s";
+        shard.setLoc("death", "ja_jp", "%1$s はルビーの破片に貫かれた");
+        shard.setLoc("death_attacker", "ja_jp", "%1$s は %2$s のルビーの破片に貫かれた");
+        shard.projectile = true;
+
+        int[] px = new int[32 * 16];
+        int[] shades = TextureTemplates.shades(color);
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 32; x++) {
+                boolean frame = x == 0 || y == 0 || x == 31 || y == 15;
+                int sky = y < 6 ? 0xFF2B1B3D : y < 10 ? shades[2] : 0xFF3A2A1A;
+                boolean sun = (x - 16) * (x - 16) + (y - 9) * (y - 9) * 4 < 30 && y < 10;
+                px[y * 32 + x] = frame ? 0xFF5E3F22 : sun ? shades[4] : sky;
+            }
+        }
+        TextureAsset sunsetTex = TextureAsset.of("ruby_sunset", px, 32, 16);
+        p.textures.add(sunsetTex);
+        Painting sunset = new Painting();
+        sunset.name = "ruby_sunset";
+        sunset.title = "Ruby Sunset";
+        sunset.setLoc("title", "ja_jp", "ルビーの夕焼け");
+        sunset.author = "Mod Studio";
+        sunset.texture = sunsetTex.id;
+        sunset.width = 2;
+        sunset.height = 1;
+
+        Song waltz = new Song();
+        waltz.name = "ruby_waltz";
+        waltz.description = "Ruby Waltz";
+        waltz.setLoc("description", "ja_jp", "ルビーのワルツ");
+        waltz.sound = "minecraft:music_disc.cat";
+        waltz.lengthSeconds = 185;
+        waltz.comparatorOutput = 3;
+        TextureAsset discTex = TextureAsset.of("ruby_disc", TextureTemplates.generate("nugget", color), 16, 16);
+        p.textures.add(discTex);
+        Item disc = new Item();
+        disc.name = "ruby_disc";
+        disc.displayName = "Ruby Music Disc";
+        disc.setLoc("name", "ja_jp", "ルビーのレコード");
+        disc.texture = discTex.id;
+        disc.maxStack = 1;
+        disc.rarity = "rare";
+        disc.song = waltz.name;
+        disc.creativeTab = "tab:rubies";
+        disc.baseItem = "minecraft:music_disc_cat";
+
+        Procedure volley = new Procedure();
+        volley.name = "ruby_volley";
+        volley.trigger = "item_right_click";
+        volley.triggerValue = "rubymod:ruby_sword";
+        volley.steps.add(step("shoot", "entity", "minecraft:arrow", "speed", "2"));
+        volley.steps.add(step("effect", "effect", "rubymod:ruby_rush", "seconds", "5"));
+        volley.steps.add(step("sound", "sound", "minecraft:entity.arrow.shoot"));
+
+        p.elements.addAll(List.of(rush, edge, shard, sunset, waltz, disc, volley));
+    }
+
+    /** A four-stage crop whose seeds are planted on farmland and drop ruby berries when ripe. */
+    private static void crop(Project p, int color) {
+        Block crop = new Block();
+        crop.name = "ruby_berry_bush";
+        crop.displayName = "Ruby Berry Seeds";
+        crop.setLoc("name", "ja_jp", "ルビーベリーの種");
+        crop.shape = "crop";
+        crop.tool = "none";
+        crop.requiresTool = false;
+        crop.hardness = 0;
+        crop.resistance = 0;
+        crop.sound = "crop";
+        crop.creativeTab = "tab:rubies";
+        for (int i = 0; i < 4; i++) {
+            TextureAsset tex = TextureAsset.of("ruby_berry_bush_stage" + i, TextureTemplates.cropStage(i, 4, color), 16, 16);
+            p.textures.add(tex);
+            crop.stageTextures.add(tex.id);
+        }
+        TextureAsset seeds = TextureAsset.of("ruby_berry_seeds", TextureTemplates.generate("seeds", 0xFFB08850), 16, 16);
+        p.textures.add(seeds);
+        crop.texture = seeds.id;
+
+        TextureAsset berryTex = TextureAsset.of("ruby_berry", TextureTemplates.generate("gem", color), 16, 16);
+        p.textures.add(berryTex);
+        Item berry = new Item();
+        berry.name = "ruby_berry";
+        berry.displayName = "Ruby Berry";
+        berry.setLoc("name", "ja_jp", "ルビーベリー");
+        berry.kind = "food";
+        berry.nutrition = 3;
+        berry.saturation = 0.4;
+        berry.texture = berryTex.id;
+        berry.creativeTab = "tab:rubies";
+        crop.cropProduce = "rubymod:ruby_berry";
+        crop.cropProduceMin = 1;
+        crop.cropProduceMax = 3;
+        p.elements.addAll(List.of(crop, berry));
     }
 }

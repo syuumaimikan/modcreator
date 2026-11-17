@@ -31,6 +31,9 @@ public final class FabricGen {
         registries();
         events();
         jc.procedures();
+        if (jc.hasArmor()) jc.armorMaterials();
+        if (jc.hasEffects()) jc.effects();
+        if (jc.codePaintings()) jc.paintings();
         if (jc.hasCommands()) jc.commands();
         for (Item it : ctx.all(Item.class)) if (jc.needsClass(it)) jc.itemClass(it);
         for (Block bl : ctx.all(Block.class)) if (jc.needsBlockClass(bl)) jc.blockClass(bl);
@@ -131,6 +134,10 @@ public final class FabricGen {
         s.blank();
         s.l("@Override");
         s.l("public void onInitialize() {");
+        if (!ctx.all(Elements.ArmorMaterial.class).isEmpty() && ctx.components() && !ctx.registryKeys()) s.l("ModArmorMaterials.init();");
+        if (jc.hasEffects()) s.l("ModEffects.init();");
+        if (jc.hasPotions()) s.l("ModPotions.init();");
+        if (jc.codePaintings()) s.l("ModPaintings.init();");
         s.l("ModBlocks.init();");
         s.l("ModItems.init();");
         s.l("ModTabs.init();");

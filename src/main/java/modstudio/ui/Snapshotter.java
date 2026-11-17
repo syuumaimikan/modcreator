@@ -69,7 +69,9 @@ public final class Snapshotter {
         add(() -> modstudio.ui.controls.LogicEditor.setDefaultMode("blocks"));
         String[][] named = {{"command", "ruby"}, {"menu", "ruby_shop"}, {"hud", "arena_timer"}, {"hud", "ruby_board"},
                 {"api_request", "hypixel_player"}, {"secrets", ""}, {"resource", "mana"}, {"machine", "moon_altar"},
-                {"machine", "millstone"}, {"multiblock", "moon_altar"}, {"compat", ""}, {"shader", "ms_effects"}, {"textures", ""}, {"mob", "ruby_golem"}};
+                {"machine", "millstone"}, {"multiblock", "moon_altar"}, {"compat", ""}, {"shader", "ms_effects"}, {"textures", ""}, {"mob", "ruby_golem"},
+                {"armor_material", "ruby"}, {"status_effect", "ruby_rush"}, {"enchantment", "ruby_edge"}, {"damage_type", "ruby_shard"},
+                {"painting", "ruby_sunset"}, {"song", "ruby_waltz"}, {"block", "ruby_berry_bush"}};
         int k = 40;
         for (String[] pn : named) {
             int num = k++;

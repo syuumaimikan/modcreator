@@ -45,6 +45,8 @@ public final class AssetGen {
     public void modAssets(boolean forgeRenderType) {
         for (Item it : ctx.all(Item.class)) itemModel(it, it.name);
         for (Block b : ctx.all(Block.class)) block(b, forgeRenderType);
+        armor(true);
+        gameplay(true);
         sounds();
         lang();
         shaders();
@@ -97,6 +99,10 @@ public final class AssetGen {
     }
 
     private void block(Block b, boolean forgeRenderType) {
+        if (b.isCrop()) {
+            crop(b, forgeRenderType);
+            return;
+        }
         String fallback = "minecraft:block/stone";
         JsonObject model;
         String self = ctx.ns + ":block/" + b.name;
@@ -152,6 +158,25 @@ public final class AssetGen {
         return a == null ? b : a;
     }
 
+    /** Crop models (one per stage texture), the age blockstate and a flat seed item model. */
+    private void crop(Block b, boolean forgeRenderType) {
+        int n = Math.min(8, b.stageTextures.size());
+        JsonObject variants = new JsonObject();
+        for (int i = 0; i < Math.max(1, n); i++) {
+            String tex = n == 0 ? null : texture(b.stageTextures.get(i), "block");
+            JsonObject model = J.obj("parent", "minecraft:block/crop", "textures", J.obj("crop", or(tex, "minecraft:block/wheat_stage" + Math.min(7, i))));
+            if (forgeRenderType) model.addProperty("render_type", "minecraft:cutout");
+            ctx.files.json(asset(ctx.ns, "models/block/" + b.name + "_stage" + i + ".json"), model);
+        }
+        for (int age = 0; age <= 7; age++) {
+            variants.add("age=" + age, J.obj("model", ctx.ns + ":block/" + b.name + "_stage" + Block.stageOf(age, Math.max(1, n))));
+        }
+        ctx.files.json(asset(ctx.ns, "blockstates/" + b.name + ".json"), J.obj("variants", variants));
+        String seed = or(texture(b.texture, "item"), "minecraft:item/wheat_seeds");
+        ctx.files.json(asset(ctx.ns, "models/item/" + b.name + ".json"), J.obj("parent", "minecraft:item/generated", "textures", J.obj("layer0", seed)));
+        itemDefinition(b.name);
+    }
+
     public void sounds() {
         JsonObject all = new JsonObject();
         for (Sound s : ctx.all(Sound.class)) {
@@ -200,8 +225,54 @@ public final class AssetGen {
             JsonObject model = J.obj("parent", parent, "textures", J.obj("layer0", "minecraft:item/" + Ids.path(base)), "overrides", overrides);
             ctx.files.json(asset(Ids.ns(base), "models/item/" + Ids.path(base) + ".json"), model);
         }
+        armor(false);
+        gameplay(false);
         sounds();
         lang();
         shaders();
+    }
+
+    /** Status effect icons (mods) and painting textures. */
+    public void gameplay(boolean mod) {
+        if (mod) {
+            for (StatusEffect e : ctx.all(StatusEffect.class)) {
+                TextureAsset t = ctx.p.texture(e.icon);
+                if (t != null) ctx.files.bytes(asset(ctx.ns, "textures/mob_effect/" + e.name + ".png"), t.bytes());
+            }
+        }
+        if (!mod && !ctx.singular()) return;
+        for (Painting p : ctx.all(Painting.class)) {
+            TextureAsset t = ctx.p.texture(p.texture);
+            if (t != null) ctx.files.bytes(asset(ctx.ns, "textures/painting/" + p.name + ".png"), t.bytes());
+        }
+    }
+
+    /**
+     * Worn armor textures. 1.21.2+: an equipment asset with humanoid layers (also used by data packs through the
+     * equippable component). Before: models/armor layer files, in the minecraft namespace before 1.20.5.
+     */
+    public void armor(boolean mod) {
+        for (ArmorMaterial m : ctx.all(ArmorMaterial.class)) {
+            TextureAsset l1 = ctx.p.texture(m.layer1), l2 = ctx.p.texture(m.layer2);
+            if (ctx.v.itemDefinitions()) {
+                JsonObject layers = new JsonObject();
+                String tex = ctx.ns + ":" + m.name;
+                if (l1 != null) {
+                    ctx.files.bytes(asset(ctx.ns, "textures/entity/equipment/humanoid/" + m.name + ".png"), l1.bytes());
+                    layers.add("humanoid", J.arr(J.obj("texture", tex)));
+                }
+                if (l2 != null) {
+                    ctx.files.bytes(asset(ctx.ns, "textures/entity/equipment/humanoid_leggings/" + m.name + ".png"), l2.bytes());
+                    layers.add("humanoid_leggings", J.arr(J.obj("texture", tex)));
+                }
+                ctx.files.json(asset(ctx.ns, "equipment/" + m.name + ".json"), J.obj("layers", layers));
+            } else if (mod) {
+                boolean modern = ctx.components();
+                String ns = modern ? ctx.ns : "minecraft";
+                String base = modern ? m.name : ctx.ns + "_" + m.name;
+                if (l1 != null) ctx.files.bytes(asset(ns, "textures/models/armor/" + base + "_layer_1.png"), l1.bytes());
+                if (l2 != null) ctx.files.bytes(asset(ns, "textures/models/armor/" + base + "_layer_2.png"), l2.bytes());
+            }
+        }
     }
 }

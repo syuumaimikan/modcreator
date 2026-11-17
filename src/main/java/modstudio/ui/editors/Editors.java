@@ -13,6 +13,12 @@ public final class Editors {
         EditorBase<?> ed = switch (e) {
             case Item it -> new ItemEditor(c, it);
             case Block b -> new BlockEditor(c, b);
+            case ArmorMaterial am -> new ArmorEditor(c, am);
+            case StatusEffect se -> new GameplayEditors.StatusEffectEditor(c, se);
+            case Enchantment en -> new GameplayEditors.EnchantmentEditor(c, en);
+            case DamageType dt -> new GameplayEditors.DamageTypeEditor(c, dt);
+            case Painting pa -> new GameplayEditors.PaintingEditor(c, pa);
+            case Song so -> new GameplayEditors.SongEditor(c, so);
             case Elements.Model m -> new ModelEditor(c, m);
             case Systems.Shader sh -> new ShaderEditor(c, sh);
             case CreativeTab t -> new SimpleEditors.TabEditor(c, t);
@@ -62,6 +68,11 @@ public final class Editors {
                 m.textures.put("0", "minecraft:block/stone");
             }
             case Sound s -> s.subtitle = title;
+            case StatusEffect se -> se.displayName = title;
+            case Enchantment en -> en.displayName = title;
+            case DamageType dt -> dt.deathMessage = "%1$s was struck by " + title.toLowerCase(java.util.Locale.ROOT);
+            case Painting pa -> pa.title = title;
+            case Song so -> so.description = title;
             case Systems.Structure st -> {
                 // a small stone hut: floor, walls with a doorway, roof
                 st.palette = new java.util.ArrayList<>(java.util.List.of("minecraft:cobblestone", "minecraft:oak_planks", "minecraft:glass", "minecraft:air"));

@@ -13,7 +13,7 @@ public final class Elements {
     public static final class Item extends Element {
         public String displayName = "";
         public String texture = "";
-        public String kind = "basic"; // basic, food, sword, pickaxe, axe, shovel, hoe
+        public String kind = "basic"; // basic, food, sword, pickaxe, axe, shovel, hoe, helmet, chestplate, leggings, boots
         public String creativeTab = "minecraft:ingredients";
         public int maxStack = 64;
         public String rarity = "common";
@@ -34,15 +34,63 @@ public final class Elements {
         public int customModelData = 0;
         /** Name of a project model; empty uses the flat texture. */
         public String model = "";
+        /** Armor material element used by helmet, chestplate, leggings and boots. */
+        public String armorMaterial = "";
+        /** Jukebox song element: the item plays it in a jukebox (1.21+). */
+        public String song = "";
 
         @Override public ElementType type() { return ElementType.ITEM; }
         @Override public String subtitle() { return displayName; }
         public boolean isTool() { return List.of("sword", "pickaxe", "axe", "shovel", "hoe").contains(kind); }
+        public boolean isArmor() { return ARMOR_KINDS.contains(kind); }
+        /** Tools and armor have durability and never stack. */
+        public boolean damageable() { return isTool() || isArmor(); }
+        public static final List<String> ARMOR_KINDS = List.of("helmet", "chestplate", "leggings", "boots");
+    }
+
+    /** Shared stats and worn textures of an armor set; the pieces are items of kind helmet..boots. */
+    public static final class ArmorMaterial extends Element {
+        /** Durability multiplier: helmet 11, chestplate 16, leggings 15, boots 13 times this value (iron 15, diamond 33). */
+        public int durability = 15;
+        public int helmet = 2, chestplate = 6, leggings = 5, boots = 2;
+        public double toughness = 0;
+        public double knockbackResistance = 0;
+        public int enchantability = 9;
+        /** leather, chain, iron, gold, diamond, netherite, turtle, generic */
+        public String equipSound = "iron";
+        /** Item or #tag that repairs the pieces in an anvil. */
+        public String repairItem = "";
+        /** 64x32 worn texture for helmet, chestplate and boots (layer 1) and for leggings (layer 2). */
+        public String layer1 = "";
+        public String layer2 = "";
+
+        @Override public ElementType type() { return ElementType.ARMOR_MATERIAL; }
+        @Override public String subtitle() { return helmet + " / " + chestplate + " / " + leggings + " / " + boots; }
+
+        public int defense(String kind) {
+            return switch (kind) {
+                case "helmet" -> helmet;
+                case "chestplate" -> chestplate;
+                case "leggings" -> leggings;
+                default -> boots;
+            };
+        }
+
+        /** Vanilla durability of a piece for this multiplier. */
+        public int durabilityOf(String kind) {
+            int unit = switch (kind) {
+                case "helmet" -> 11;
+                case "chestplate" -> 16;
+                case "leggings" -> 15;
+                default -> 13;
+            };
+            return unit * Math.max(1, durability);
+        }
     }
 
     public static final class Block extends Element {
         public String displayName = "";
-        public String shape = "cube"; // cube, cube_bottom_top, pillar, cross, model
+        public String shape = "cube"; // cube, cube_bottom_top, pillar, cross, model, crop
         /** Name of a project model used when shape is "model". */
         public String model = "";
         /** Collision and outline from the model cuboids instead of a full cube. */
@@ -51,7 +99,22 @@ public final class Elements {
         public boolean rotatable;
 
         /** Needs the cutout render layer and no occlusion (see-through pixels or a non-full shape). */
-        public boolean cutout() { return transparent || shape.equals("cross") || shape.equals("model"); }
+        public boolean cutout() { return transparent || shape.equals("cross") || shape.equals("model") || isCrop(); }
+        /** A farmland crop: the block item is the seed, it grows through ages 0 to 7 and drops the produce when ripe. */
+        public boolean isCrop() { return shape.equals("crop"); }
+        /** Growth stage textures from sprout to ripe (1 to 8); the 8 ages are spread over them. */
+        public List<String> stageTextures = new ArrayList<>();
+        /** Item dropped by a ripe crop; empty drops more seeds. */
+        public String cropProduce = "";
+        public int cropProduceMin = 1;
+        public int cropProduceMax = 3;
+        /** Ripe crops also drop 0 to 3 extra seeds (fortune adds more). */
+        public boolean cropSeedBonus = true;
+
+        /** Stage texture index used at an age (0..7) when the crop has the given number of stages. */
+        public static int stageOf(int age, int stages) {
+            return stages <= 0 ? 0 : Math.min(stages - 1, age * stages / 8);
+        }
         public String texture = "";
         public String textureTop = "";
         public String textureBottom = "";
@@ -98,6 +161,112 @@ public final class Elements {
                     return texture;
             }
         }
+    }
+
+    // ------------------------------------------------------------------ effects, enchantments and registry data
+
+    /** A custom status effect (mob effect) with attribute changes, a tick procedure and an optional potion. */
+    public static final class StatusEffect extends Element {
+        public String displayName = "";
+        public String color = "#E0115F";
+        /** beneficial, harmful, neutral */
+        public String category = "beneficial";
+        /** 18 x 18 (or 16 x 16) icon shown in the inventory and the HUD. */
+        public String icon = "";
+        public List<EffectModifier> modifiers = new ArrayList<>();
+        public List<Step> onTick = new ArrayList<>();
+        public int tickInterval = 20;
+        public boolean potion = true;
+        public String potionName = "";
+        public int potionSeconds = 180;
+        public int potionAmplifier = 0;
+
+        @Override public ElementType type() { return ElementType.STATUS_EFFECT; }
+        @Override public String subtitle() { return displayName; }
+    }
+
+    /** Attribute change while an effect is active; amounts grow with the level like vanilla effects. */
+    public static final class EffectModifier {
+        public String attribute = "movement_speed";
+        public double amount = 0.2;
+        /** add_value, add_multiplied_base, add_multiplied_total */
+        public String operation = "add_multiplied_total";
+    }
+
+    /** A data driven enchantment (Minecraft 1.21 and later). */
+    public static final class Enchantment extends Element {
+        public String displayName = "";
+        /** Item tag or item the enchantment can be applied to. */
+        public String supportedItems = "#minecraft:enchantable/weapon";
+        /** Items it appears on in the enchanting table; empty uses the supported items. */
+        public String primaryItems = "";
+        /** any, mainhand, offhand, hand, head, chest, legs, feet, armor, body */
+        public String slot = "mainhand";
+        public int maxLevel = 3;
+        public int weight = 5;
+        public int anvilCost = 2;
+        public int minCostBase = 5, minCostPerLevel = 8;
+        public int maxCostBase = 25, maxCostPerLevel = 8;
+        /** Only from loot and trading, not the enchanting table. */
+        public boolean treasure;
+        public boolean curse;
+        /** Enchantment tag or id that cannot be combined with this one. */
+        public String exclusiveWith = "";
+        public double damagePerLevel = 0;
+        public double protectionPerLevel = 0;
+        public String attribute = "";
+        public double attributePerLevel = 0;
+        public String attributeOperation = "add_value";
+        /** Runs as the hit entity after an attack with the enchanted item. */
+        public List<Step> onHit = new ArrayList<>();
+        /** Runs every tick as the entity wearing or holding the enchanted item. */
+        public List<Step> onTick = new ArrayList<>();
+
+        @Override public ElementType type() { return ElementType.ENCHANTMENT; }
+        @Override public String subtitle() { return displayName; }
+    }
+
+    /** A damage type with its own death message, usable by the damage step and in damage type tags. */
+    public static final class DamageType extends Element {
+        /** English death message: %1$s is the victim. */
+        public String deathMessage = "";
+        /** Death message when another entity caused the damage: %2$s is the attacker. */
+        public String deathMessageAttacker = "";
+        public double exhaustion = 0.1;
+        /** never, when_caused_by_living_non_player, always */
+        public String scaling = "when_caused_by_living_non_player";
+        /** hurt, thorns, drowning, burning, poking, freezing */
+        public String effects = "hurt";
+        public boolean bypassesArmor, bypassesShield, fire, projectile, explosion, noKnockback, magic;
+
+        @Override public ElementType type() { return ElementType.DAMAGE_TYPE; }
+        @Override public String subtitle() { return effects; }
+    }
+
+    /** A painting variant: a texture placed on walls by the painting item. */
+    public static final class Painting extends Element {
+        public String title = "";
+        public String author = "";
+        public String texture = "";
+        /** Size in blocks (1 to 16); the texture is 16 pixels per block. */
+        public int width = 1, height = 1;
+        /** Can be picked when a player places a painting (minecraft:placeable tag). */
+        public boolean placeable = true;
+
+        @Override public ElementType type() { return ElementType.PAINTING; }
+        @Override public String subtitle() { return width + " x " + height; }
+    }
+
+    /** A jukebox song (1.21+): items that point at it become music discs. */
+    public static final class Song extends Element {
+        public String description = "";
+        /** Project sound name or a sound event id. */
+        public String sound = "";
+        public double lengthSeconds = 120;
+        public int comparatorOutput = 1;
+
+        @Override public ElementType type() { return ElementType.SONG; }
+        @Override public String subtitle() { return description; }
     }
 
     public static final class CreativeTab extends Element {

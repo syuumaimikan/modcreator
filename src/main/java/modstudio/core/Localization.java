@@ -26,6 +26,30 @@ public final class Localization {
                     if (!m.displayName.isBlank() || p.meta.languages.stream().anyMatch(l -> !m.loc("name", l).isBlank()))
                         r.add(new Entry("entity." + ns + "." + m.name, m, "name", or(m.displayName, m.name)));
                 }
+                case Elements.StatusEffect se -> {
+                    String n = or(se.displayName, se.name);
+                    r.add(new Entry("effect." + ns + "." + se.name, se, "name", n));
+                    if (se.potion) {
+                        String pk = ns + "." + se.name;
+                        String pn = se.potionName.isBlank() ? "Potion of " + n : se.potionName;
+                        r.add(new Entry("item.minecraft.potion.effect." + pk, se, "potion", pn));
+                        r.add(new Entry("item.minecraft.splash_potion.effect." + pk, se, "potion", "Splash " + pn));
+                        r.add(new Entry("item.minecraft.lingering_potion.effect." + pk, se, "potion", "Lingering " + pn));
+                        r.add(new Entry("item.minecraft.tipped_arrow.effect." + pk, se, "potion", "Arrow of " + n));
+                    }
+                }
+                case Elements.Enchantment en -> r.add(new Entry("enchantment." + ns + "." + en.name, en, "name", or(en.displayName, en.name)));
+                case Elements.DamageType d -> {
+                    String death = d.deathMessage.isBlank() ? "%1$s died" : d.deathMessage;
+                    r.add(new Entry("death.attack." + ns + "." + d.name, d, "death", death));
+                    r.add(new Entry("death.attack." + ns + "." + d.name + ".player", d, "death_attacker",
+                            d.deathMessageAttacker.isBlank() ? death + " whilst fighting %2$s" : d.deathMessageAttacker));
+                }
+                case Elements.Painting pa -> {
+                    r.add(new Entry("painting." + ns + "." + pa.name + ".title", pa, "title", or(pa.title, pa.name)));
+                    r.add(new Entry("painting." + ns + "." + pa.name + ".author", pa, "author", pa.author));
+                }
+                case Elements.Song so -> r.add(new Entry("jukebox_song." + ns + "." + so.name, so, "description", or(so.description, so.name)));
                 case Elements.Advancement a -> {
                     String base = "advancements." + ns + "." + a.name.replace('/', '.');
                     r.add(new Entry(base + ".title", a, "title", or(a.title, a.name)));

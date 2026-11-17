@@ -11,7 +11,7 @@ public final class Logic {
     private Logic() {}
 
     /** Parameter value kinds; the editor picks a control per kind. */
-    public enum PType { TEXT, LONGTEXT, INT, DECIMAL, BOOL, SELECTOR, ITEM, BLOCK, ENTITY, EFFECT, SOUND, PARTICLE, FUNCTION, CHOICE, COORD, DIMENSION, REF }
+    public enum PType { TEXT, LONGTEXT, INT, DECIMAL, BOOL, SELECTOR, ITEM, BLOCK, ENTITY, EFFECT, SOUND, PARTICLE, FUNCTION, CHOICE, COORD, DIMENSION, REF, ENCHANTMENT, DAMAGE_TYPE }
 
     public record Param(String key, PType type, String def, List<String> choices) {
         public static Param of(String key, PType type, String def) {
@@ -63,7 +63,7 @@ public final class Logic {
         step("clear", "items", target, Param.of("item", PType.ITEM, "minecraft:dirt"), Param.of("count", PType.INT, "1"));
         step("effect", "entity", target, Param.of("effect", PType.EFFECT, "minecraft:speed"), Param.of("seconds", PType.INT, "10"), Param.of("amplifier", PType.INT, "0"), Param.of("hide", PType.BOOL, "false"));
         step("teleport", "entity", target, Param.of("x", PType.COORD, "~"), Param.of("y", PType.COORD, "~10"), Param.of("z", PType.COORD, "~"));
-        step("damage", "entity", target, Param.of("amount", PType.DECIMAL, "2"), Param.of("damageType", PType.TEXT, "minecraft:generic"));
+        step("damage", "entity", target, Param.of("amount", PType.DECIMAL, "2"), Param.of("damageType", PType.DAMAGE_TYPE, "minecraft:generic"));
         step("xp", "entity", target, Param.of("amount", PType.INT, "5"), Param.choice("unit", "levels", "levels", "points"));
         step("kill", "entity", target);
         step("tag", "entity", target, Param.choice("op", "add", "add", "remove"), Param.of("tag", PType.TEXT, "my_tag"));
@@ -86,7 +86,7 @@ public final class Logic {
         step("broadcast", "chat", Param.of("text", PType.TEXT, "Hello everyone!"), Param.choice("color", "yellow", COLORS), Param.of("bold", PType.BOOL, "false"));
         step("replace_item", "items", target, Param.choice("slot", "weapon.mainhand", SLOTS), Param.of("item", PType.ITEM, "minecraft:diamond_sword"), Param.of("count", PType.INT, "1"));
         step("drop_item", "items", Param.of("item", PType.ITEM, "minecraft:diamond"), Param.of("count", PType.INT, "1"), Param.of("x", PType.COORD, "~"), Param.of("y", PType.COORD, "~1"), Param.of("z", PType.COORD, "~"));
-        step("enchant", "items", target, Param.of("enchantment", PType.TEXT, "minecraft:sharpness"), Param.of("level", PType.INT, "1"));
+        step("enchant", "items", target, Param.of("enchantment", PType.ENCHANTMENT, "minecraft:sharpness"), Param.of("level", PType.INT, "1"));
         step("heal", "entity", target, Param.of("amount", PType.INT, "1"));
         step("feed", "entity", target, Param.of("amount", PType.INT, "1"));
         step("clear_effects", "entity", target);
@@ -124,6 +124,7 @@ public final class Logic {
         step("move_blocks", "world", Param.of("x1", PType.COORD, "~-1"), Param.of("y1", PType.COORD, "~"), Param.of("z1", PType.COORD, "~-1"),
                 Param.of("x2", PType.COORD, "~1"), Param.of("y2", PType.COORD, "~2"), Param.of("z2", PType.COORD, "~1"),
                 Param.of("dx", PType.INT, "0"), Param.of("dy", PType.INT, "1"), Param.of("dz", PType.INT, "0"));
+        step("shoot", "entity", Param.of("entity", PType.ENTITY, "minecraft:arrow"), Param.of("speed", PType.DECIMAL, "1.5"));
         step("beam", "world", Param.of("target", PType.SELECTOR, "@e[type=!minecraft:player,limit=1,sort=nearest,distance=..32]"),
                 Param.of("particle", PType.PARTICLE, "minecraft:end_rod"), Param.of("length", PType.INT, "32"));
 

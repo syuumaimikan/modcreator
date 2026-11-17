@@ -71,4 +71,8 @@ public final class Src {
         String s = Double.toString(d);
         return s + "F";
     }
+
+    public static String d(double d) {
+        return Double.toString(d) + "D";
+    }
 }

@@ -171,8 +171,9 @@ public final class TextureEditor {
         Button gen = Ui.button(I18n.t("texture.generate"), "mdi2a-auto-fix", () -> {
             push();
             int[] g = TextureTemplates.generate(template.getValue(), argb(color.getValue()));
+            int[] gs = TextureTemplates.size(template.getValue());
             int fh = fh();
-            int[] f = (w == 16 && fh == 16) ? g : Images.resize(g, 16, 16, w, fh);
+            int[] f = (w == gs[0] && fh == gs[1]) ? g : Images.resize(g, gs[0], gs[1], w, fh);
             System.arraycopy(f, 0, px, y0() * w, f.length);
             redraw();
         });
