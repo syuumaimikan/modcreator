@@ -11,12 +11,20 @@ import modstudio.core.McVersion;
 import modstudio.core.Systems;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
 
 /**
  * Compiles procedure steps into Java Edition mcfunction files. The same output runs on Forge, NeoForge, Fabric,
  * Paper (through the embedded data pack) and plain data packs, so behaviour is identical across platforms.
  */
 public final class ProcCompiler {
+    private static final Map<String, BiConsumer<Step, List<String>>> CUSTOM_STEPS = new ConcurrentHashMap<>();
+
+    /** Registers a custom mcfunction emitter for plugin-defined procedure steps. */
+    public static void registerCustomStep(String kind, BiConsumer<Step, List<String>> compiler) {
+        if (kind != null && !kind.isBlank() && compiler != null) CUSTOM_STEPS.put(kind, compiler);
+    }
     private final GenContext ctx;
     private final String ns;
     private final boolean customItems;
@@ -129,9 +137,9 @@ public final class ProcCompiler {
     public static boolean platformMatches(modstudio.core.Target t, String platform) {
         return switch (platform == null ? "" : platform) {
             case "mod" -> t.isMod();
-            case "plugin", "paper" -> t == modstudio.core.Target.PAPER;
+            case "plugin", "paper" -> t.isPlugin();
             case "datapack" -> t == modstudio.core.Target.DATAPACK;
-            case "java_code" -> t.isMod() || t == modstudio.core.Target.PAPER;
+            case "java_code" -> t.isMod() || t.isPlugin();
             case "bedrock" -> t == modstudio.core.Target.BEDROCK;
             default -> t.id.equals(platform);
         };
@@ -342,7 +350,7 @@ public final class ProcCompiler {
                     r.add("# unknown menu " + m);
                 } else if (ctx.target.isMod()) {
                     r.add("execute as " + sel(s) + " run " + bridgeCommand() + " menu " + m);
-                } else if (ctx.target == modstudio.core.Target.PAPER) {
+                } else if (ctx.target.isPlugin()) {
                     r.add("tag " + sel(s) + " add " + ns + ".q.menu." + m);
                 } else {
                     r.add("execute as " + sel(s) + " at @s run function " + ns + ":menus/" + m + "/open");
@@ -386,7 +394,7 @@ public final class ProcCompiler {
             case "cutscene_stop" -> r.add("execute as " + sel(s) + " if entity @s[tag=" + ns + ".cs_on] run function " + ns + ":cutscene/_stop");
             case "close_menu" -> {
                 if (ctx.target.isMod()) r.add("execute as " + sel(s) + " run " + bridgeCommand() + " close");
-                else if (ctx.target == modstudio.core.Target.PAPER) r.add("tag " + sel(s) + " add " + ns + ".q.close");
+                else if (ctx.target.isPlugin()) r.add("tag " + sel(s) + " add " + ns + ".q.close");
                 else r.add("# chat menus need no closing");
             }
             case "hud_show", "hud_hide" -> {
@@ -447,7 +455,7 @@ public final class ProcCompiler {
                     r.add("# unknown request " + q);
                 } else if (ctx.target.isMod()) {
                     r.add(bridgeCommand() + " http " + q);
-                } else if (ctx.target == modstudio.core.Target.PAPER) {
+                } else if (ctx.target.isPlugin()) {
                     objectives.add(ns + ".q");
                     r.add("tag @s add " + ns + ".q.http." + q);
                     r.add("execute unless entity @s run scoreboard players set #http." + q + " " + ns + ".q 1");
@@ -456,6 +464,20 @@ public final class ProcCompiler {
                     r.add("# web requests need a mod or plugin host; the failure branch runs instead");
                     r.add("scoreboard players set #" + q + " " + ns + ".http -1");
                     r.add("function " + ns + ":api/" + q + "/failure");
+                }
+            }
+            case "java_code", "java_call" -> {
+                String jid = ctx.javaSteps().id(s);
+                if (jid == null) {
+                    r.add("# unresolved java step");
+                } else if (ctx.target.isMod()) {
+                    r.add(bridgeCommand() + " java " + jid);
+                } else if (ctx.target.isPlugin()) {
+                    objectives.add(ns + ".q");
+                    r.add("tag @s add " + ns + ".q.java." + jid);
+                    r.add("execute unless entity @s run scoreboard players set #java." + jid + " " + ns + ".q 1");
+                } else {
+                    r.add("# java code steps require a mod or Paper/Folia host");
                 }
             }
             case "machine_place" -> {
@@ -729,7 +751,11 @@ public final class ProcCompiler {
                 if (!path.isEmpty()) r.add("data modify storage " + ns + ":data " + path + " set value " + snbtValue(s.get("value")));
             }
             case "stop" -> r.add(ctx.v.atLeast(McVersion.V1_20_4) ? "return 0" : "# stop needs Minecraft 1.20.2 or later");
-            default -> extra.commands(s, r);
+            default -> {
+                BiConsumer<Step, List<String>> custom = CUSTOM_STEPS.get(s.kind);
+                if (custom != null) custom.accept(s, r);
+                else extra.commands(s, r);
+            }
         }
         return r;
     }

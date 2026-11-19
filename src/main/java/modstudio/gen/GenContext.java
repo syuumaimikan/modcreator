@@ -57,7 +57,72 @@ public final class GenContext {
         return v.registryKeys();
     }
 
+    /** 1.21.9+: BlockBehaviour.Properties.noCollision() (typo fixed) and NeoForge FMLEnvironment.getDist(). */
+    public boolean noCollisionSpelling() {
+        return v.atLeast(McVersion.V1_21_9);
+    }
+
+    public String noCollision() {
+        return noCollisionSpelling() ? "noCollision()" : "noCollission()";
+    }
+
+    /** 1.21.11+: ResourceLocation renamed to Identifier and integer permissions replaced by PermissionSet. */
+    public boolean identifiers() {
+        return v.atLeast(McVersion.V1_21_11);
+    }
+
+    public boolean permissionSet() {
+        return v.atLeast(McVersion.V1_21_11);
+    }
+
+    public String withAllPermissions() {
+        return permissionSet() ? "withPermission(PermissionSet.ALL_PERMISSIONS)" : "withPermission(4)";
+    }
+
+    public String hasPermissionExpr(String targetVar, int level, boolean playerMethod) {
+        int clamped = Math.max(0, Math.min(4, level));
+        if (!permissionSet()) {
+            return targetVar + (playerMethod ? ".hasPermissions(" : ".hasPermission(") + clamped + ")";
+        }
+        return switch (clamped) {
+            case 0 -> "true";
+            case 1 -> targetVar + ".permissions().hasPermission(Permissions.COMMANDS_MODERATOR)";
+            case 2 -> targetVar + ".permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER)";
+            case 3 -> targetVar + ".permissions().hasPermission(Permissions.COMMANDS_ADMIN)";
+            default -> targetVar + ".permissions().hasPermission(Permissions.COMMANDS_OWNER)";
+        };
+    }
+
+    /** 26.1+ unobfuscated Mojang mappings running on Java 25. */
+    public boolean unobf() {
+        return v.unobfuscated();
+    }
+
+    public String rlType() {
+        return identifiers() ? "Identifier" : "ResourceLocation";
+    }
+
+    public String rlImport() {
+        return identifiers() ? "net.minecraft.resources.Identifier" : "net.minecraft.resources.ResourceLocation";
+    }
+
+    public String rlFrom(String nsExpr, String pathExpr) {
+        if (identifiers()) return "Identifier.fromNamespaceAndPath(" + nsExpr + ", " + pathExpr + ")";
+        return rlNew(singular(), nsExpr, pathExpr);
+    }
+
+    public String rlParseExpr(String expr) {
+        if (identifiers()) return "Identifier.parse(" + expr + ")";
+        return rlParse(singular(), expr);
+    }
+
     private List<Elements.Procedure> extraProcedures;
+    private JavaSteps cachedJavaSteps;
+
+    public JavaSteps javaSteps() {
+        if (cachedJavaSteps == null) cachedJavaSteps = JavaSteps.collect(this);
+        return cachedJavaSteps;
+    }
 
     /**
      * Elements of a type. Procedures include the ones generation adds itself: the right-click hooks of the tools

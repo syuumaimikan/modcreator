@@ -13,7 +13,8 @@ public final class Elements {
     public static final class Item extends Element {
         public String displayName = "";
         public String texture = "";
-        public String kind = "basic"; // basic, food, sword, pickaxe, axe, shovel, hoe, helmet, chestplate, leggings, boots
+        /** basic, food, sword, pickaxe, axe, shovel, hoe, helmet, chestplate, leggings, boots, bow, crossbow, shield, trident, throwable, elytra */
+        public String kind = "basic";
         public String creativeTab = "minecraft:ingredients";
         public int maxStack = 64;
         public String rarity = "common";
@@ -44,18 +45,61 @@ public final class Elements {
         public int customModelData = 0;
         /** Name of a project model; empty uses the flat texture. */
         public String model = "";
+        /** Optional 3D worn model (for armor/trinkets); overrides material slot model when set. */
+        public String wornModel = "";
         /** Armor material element used by helmet, chestplate, leggings and boots. */
         public String armorMaterial = "";
         /** Jukebox song element: the item plays it in a jukebox (1.21+). */
         public String song = "";
+        /** Durability for bow, crossbow, shield, trident and elytra. */
+        public int durability = 250;
+        /** Custom durability override for any item/tool (-1 uses category default). */
+        public int maxDamage = -1;
+        /** Custom enchantability (-1 uses category/material default). */
+        public int enchantability = -1;
+        /** Anvil repair item ID or #tag. */
+        public String repairItem = "";
+        /** Item ID left in the crafting grid after crafting (e.g. minecraft:bucket). */
+        public String craftRemainder = "";
+        /** Right-click cooldown in seconds (0 = none). */
+        public double useCooldown = 0.0;
+        /** Extra knockback applied on melee hits. */
+        public double attackKnockback = 0.0;
+        /** Use animation: eat, drink, block, bow, spear, none. */
+        public String consumeAnimation = "eat";
+        /** Custom use duration in ticks (0 = category default). */
+        public int useDurationTicks = 0;
+        /** Optional status effect ID granted when eaten/consumed. */
+        public String foodEffect = "";
+        public int foodEffectSeconds = 10;
+        public int foodEffectAmplifier = 0;
+        public double foodEffectChance = 1.0;
+        /** Optional item returned after consumption (e.g. minecraft:bowl, minecraft:glass_bottle). */
+        public String useReturnItem = "";
+        public double projectileDamage = 6.0;
+        public double projectileSpeed = 3.0;
+        public List<ItemAttribute> attributes = new ArrayList<>();
+        public List<Step> onUse = new ArrayList<>();
+        public List<Step> onHitEntity = new ArrayList<>();
+        public List<Step> onTickInHand = new ArrayList<>();
+
+        public static final class ItemAttribute {
+            public String attribute = "attack_damage";
+            public double amount = 2.0;
+            public String operation = "add_value";
+            public String slot = "mainhand";
+        }
 
         @Override public ElementType type() { return ElementType.ITEM; }
         @Override public String subtitle() { return displayName; }
         public boolean isTool() { return List.of("sword", "pickaxe", "axe", "shovel", "hoe").contains(kind); }
         public boolean isArmor() { return ARMOR_KINDS.contains(kind); }
-        /** Tools and armor have durability and never stack. */
-        public boolean damageable() { return isTool() || isArmor(); }
+        public boolean isRanged() { return List.of("bow", "crossbow", "trident", "throwable").contains(kind); }
+        /** Tools, armor and special equipment have durability and never stack. */
+        public boolean damageable() { return isTool() || isArmor() || List.of("bow", "crossbow", "shield", "trident", "elytra").contains(kind); }
         public static final List<String> ARMOR_KINDS = List.of("helmet", "chestplate", "leggings", "boots");
+        public static final List<String> ALL_KINDS = List.of("basic", "food", "sword", "pickaxe", "axe", "shovel", "hoe",
+                "helmet", "chestplate", "leggings", "boots", "bow", "crossbow", "shield", "trident", "throwable", "elytra");
     }
 
     /** Shared stats and worn textures of an armor set; the pieces are items of kind helmet..boots. */
@@ -73,6 +117,30 @@ public final class Elements {
         /** 64x32 worn texture for helmet, chestplate and boots (layer 1) and for leggings (layer 2). */
         public String layer1 = "";
         public String layer2 = "";
+        /** Optional custom 3D worn models per armor slot (names of Model elements). */
+        public String helmetModel = "";
+        public String chestplateModel = "";
+        public String leggingsModel = "";
+        public String bootsModel = "";
+        /** Optional custom texture used by the 3D worn armor model (overrides model texture / layer1). */
+        public String armorTexture = "";
+        /** Optional status effect granted while wearing a full set of this armor material. */
+        public String setBonusEffect = "";
+        public int setBonusAmplifier = 0;
+
+        public boolean has3dModels() {
+            return !helmetModel.isBlank() || !chestplateModel.isBlank() || !leggingsModel.isBlank() || !bootsModel.isBlank();
+        }
+
+        public String modelForSlot(String slot) {
+            return switch (slot) {
+                case "helmet" -> helmetModel;
+                case "chestplate" -> chestplateModel;
+                case "leggings" -> leggingsModel;
+                case "boots" -> bootsModel;
+                default -> "";
+            };
+        }
 
         @Override public ElementType type() { return ElementType.ARMOR_MATERIAL; }
         @Override public String subtitle() { return helmet + " / " + chestplate + " / " + leggings + " / " + boots; }
@@ -98,9 +166,28 @@ public final class Elements {
         }
     }
 
+    /** Shared durability, speed, damage bonus, mining level and repair material for custom tools/swords. */
+    public static final class ToolMaterial extends Element {
+        public String displayName = "";
+        public int durability = 500;
+        public double speed = 7.0;
+        public double attackDamageBonus = 2.5;
+        public int enchantability = 14;
+        /** 0: wood/gold, 1: stone, 2: iron, 3: diamond, 4: netherite */
+        public int miningLevel = 2;
+        /** Item or #tag that repairs tools of this material in an anvil. */
+        public String repairItem = "";
+
+        @Override public ElementType type() { return ElementType.TOOL_MATERIAL; }
+        @Override public String subtitle() {
+            return "Lv" + miningLevel + "  |  " + durability + " uses  |  " + String.format(java.util.Locale.ROOT, "%.1f", speed);
+        }
+    }
+
     public static final class Block extends Element {
         public String displayName = "";
-        public String shape = "cube"; // cube, cube_bottom_top, pillar, cross, model, crop
+        /** cube, cube_bottom_top, pillar, cross, model, crop, slab, stairs, fence, wall, door, trapdoor, button, pressure_plate, carpet */
+        public String shape = "cube";
         /** Name of a project model used when shape is "model". */
         public String model = "";
         /** Collision and outline from the model cuboids instead of a full cube. */
@@ -109,7 +196,7 @@ public final class Elements {
         public boolean rotatable;
 
         /** Needs the cutout render layer and no occlusion (see-through pixels or a non-full shape). */
-        public boolean cutout() { return transparent || shape.equals("cross") || shape.equals("model") || isCrop(); }
+        public boolean cutout() { return transparent || shape.equals("cross") || shape.equals("model") || isCrop() || shape.equals("door") || shape.equals("trapdoor"); }
         /** A farmland crop: the block item is the seed, it grows through ages 0 to 7 and drops the produce when ripe. */
         public boolean isCrop() { return shape.equals("crop"); }
         /** Growth stage textures from sprout to ripe (1 to 8); the 8 ages are spread over them. */
@@ -152,7 +239,38 @@ public final class Elements {
         public int oreSize = 8;
         public int oreCount = 10;
         public int oreMinY = -64;
-        public int oreMaxY = 64;
+        public int oreMaxY = 32;
+        public boolean orePreventSurface = true;
+        public int oreSurfaceDepth = 5;
+        public double oreDiscardAir = 0.5;
+        /** trapezoid or uniform height distribution. */
+        public String oreDistribution = "trapezoid";
+        /** Optional custom replace block or #tag; blank uses dimension default stone/deepslate/nether/end. */
+        public String oreReplaceTarget = "";
+        /** Optional comma-separated biome IDs or #tags; blank uses dimension tag. */
+        public String oreBiomes = "";
+        /** False for pass-through blocks (web/ghost/intangible); true by default. */
+        public boolean hasCollision = true;
+        public boolean falling;
+        public int flammability = 0;
+        public int fireSpread = 0;
+        /** Note block instrument: harp, basedrum, snare, hat, bass, flute, bell, guitar, chime, xylophone, iron_xylophone, cow_bell, didgeridoo, bit, banjo, pling. */
+        public String instrument = "harp";
+        /** Piston push reaction: normal, destroy, block, ignore. */
+        public String pushReaction = "normal";
+        public int xpMin = 0;
+        public int xpMax = 0;
+        /** Emitted redstone power (0..15). */
+        public int redstoneSignal = 0;
+        public boolean canConnectRedstone;
+        public boolean waterloggable;
+        public List<Step> onUse = new ArrayList<>();
+        public List<Step> onStep = new ArrayList<>();
+        public List<Step> onRandomTick = new ArrayList<>();
+        public List<Step> onNeighborChanged = new ArrayList<>();
+
+        public static final List<String> SHAPES = List.of("cube", "cube_bottom_top", "pillar", "cross", "model", "crop",
+                "slab", "stairs", "fence", "wall", "door", "trapdoor", "button", "pressure_plate", "carpet");
 
         @Override public ElementType type() { return ElementType.BLOCK; }
         @Override public String subtitle() { return displayName; }
@@ -167,10 +285,37 @@ public final class Elements {
                 case "pillar":
                     if (f.equals("top") || f.equals("bottom")) return textureTop;
                     return textureSide;
+                case "door":
+                    if (f.equals("top")) return textureTop.isBlank() ? texture : textureTop;
+                    return texture;
                 default:
                     return texture;
             }
         }
+    }
+
+    /** A custom fluid block, flowing fluid, and optional bucket item (mods only). */
+    public static final class Fluid extends Element {
+        public String displayName = "";
+        public String stillTexture = "";
+        public String flowingTexture = "";
+        public String tintColor = "#3F76E4";
+        public String fogColor = "#050533";
+        public int luminance = 0;
+        public int viscosity = 1000;
+        public int density = 1000;
+        public int tickRate = 5;
+        public int slopeFindDistance = 4;
+        public int levelDecrease = 1;
+        public boolean canMultiply = true;
+        public double damagePerTick = 0;
+        public boolean isLavaLike;
+        public boolean generateBucket = true;
+        public String creativeTab = "minecraft:tools_and_utilities";
+        public List<Step> onEntityInside = new ArrayList<>();
+
+        @Override public ElementType type() { return ElementType.FLUID; }
+        @Override public String subtitle() { return displayName; }
     }
 
     // ------------------------------------------------------------------ effects, enchantments and registry data
@@ -338,6 +483,9 @@ public final class Elements {
         public String base = "";
         public String addition = "";
         public String group = "";
+        /** Custom result SNBT/JSON components (1.20.5+), e.g. {"minecraft:custom_name":"\"Special\""} */
+        public String resultComponents = "";
+        public boolean keepRemainder = false;
 
         @Override public ElementType type() { return ElementType.RECIPE; }
         @Override public String subtitle() { return result; }
@@ -355,6 +503,12 @@ public final class Elements {
         public int countMax = 1;
         public boolean fortune;
         public boolean enchant;
+        public boolean explosionDecay;
+        public int lootingBonus = 0;
+        public int enchantLevelsMin = 0;
+        public int enchantLevelsMax = 0;
+        public String customName = "";
+        public String lore = "";
     }
 
     public static final class LootPool {
@@ -365,6 +519,9 @@ public final class Elements {
         public boolean killedByPlayer;
         /** Name of a project predicate (or a namespaced id) the pool also needs. */
         public String predicate = "";
+        public String blockStateBlock = "";
+        public String blockStateProp = "";
+        public String blockStateVal = "";
         public List<LootEntry> entries = new ArrayList<>();
     }
 
@@ -519,10 +676,46 @@ public final class Elements {
     public static final class CodeFile extends Element {
         public String target = "fabric";
         public String path = "src/main/java/{package}/custom/MyClass.java";
+        /** Language: auto, java, kotlin, scala, groovy, typescript, javascript, python, lua, glsl, json, toml, yaml, mcfunction, xml, properties, text */
+        public String language = "auto";
+        /** none, common_init, client_init, event_bus, register_commands, server_tick */
+        public String hook = "none";
+        public String hookMethod = "init";
         public String content = "";
 
+        public String resolvedLanguage() {
+            String l = language == null ? "" : language.trim().toLowerCase(java.util.Locale.ROOT);
+            if (!l.isEmpty() && !l.equals("auto")) return l;
+            String p = path == null ? "" : path.trim().toLowerCase(java.util.Locale.ROOT);
+            if (p.endsWith(".kt") || p.endsWith(".kts")) return "kotlin";
+            if (p.endsWith(".scala") || p.endsWith(".sc")) return "scala";
+            if (p.endsWith(".groovy") || p.endsWith(".gradle")) return "groovy";
+            if (p.endsWith(".ts") || p.endsWith(".tsx")) return "typescript";
+            if (p.endsWith(".js") || p.endsWith(".mjs") || p.endsWith(".cjs")) return "javascript";
+            if (p.endsWith(".py") || p.endsWith(".pyw")) return "python";
+            if (p.endsWith(".lua")) return "lua";
+            if (p.endsWith(".glsl") || p.endsWith(".vsh") || p.endsWith(".fsh")) return "glsl";
+            if (p.endsWith(".json") || p.endsWith(".mcmeta") || p.endsWith(".json5")) return "json";
+            if (p.endsWith(".toml")) return "toml";
+            if (p.endsWith(".yml") || p.endsWith(".yaml")) return "yaml";
+            if (p.endsWith(".mcfunction")) return "mcfunction";
+            if (p.endsWith(".xml") || p.endsWith(".fxml")) return "xml";
+            if (p.endsWith(".properties") || p.endsWith(".lang")) return "properties";
+            if (p.endsWith(".txt") || p.endsWith(".md")) return "text";
+            return "java";
+        }
+
+        public boolean isJvmLanguage() {
+            String l = resolvedLanguage();
+            return l.equals("java") || l.equals("kotlin") || l.equals("scala") || l.equals("groovy");
+        }
+
         @Override public ElementType type() { return ElementType.CODE_FILE; }
-        @Override public String subtitle() { return path; }
+        @Override public String subtitle() {
+            String l = resolvedLanguage();
+            String base = ("none".equals(hook) || hook == null || hook.isBlank()) ? path : path + "  [" + hook + "]";
+            return l.equals("java") ? base : "[" + l + "] " + base;
+        }
     }
 
     // ------------------------------------------------------------------ 3D models
@@ -605,6 +798,8 @@ public final class Elements {
         public double[] origin = {8, 8, 8};
         public boolean rescale;
         public boolean shade = true;
+        /** Cube box inflation (used by 3D armor layers and detailed entity geometry). */
+        public double inflate = 0.0;
         public Map<String, Face> faces = new LinkedHashMap<>();
 
         public Cube() {
@@ -613,6 +808,11 @@ public final class Elements {
 
         public Face face(String dir) {
             return faces.computeIfAbsent(dir, k -> new Face());
+        }
+
+        /** Non-mutating lookup of a cube face. */
+        public Face faceOrNull(String dir) {
+            return dir == null ? null : faces.get(dir);
         }
 
         public static final List<String> FACES = List.of("north", "east", "south", "west", "up", "down");

@@ -181,6 +181,13 @@ public final class PlayPage extends BorderPane implements WorkspaceView.Page {
         Timeline flush = new Timeline(new KeyFrame(Duration.millis(120), e -> flushLog()));
         flush.setCycleCount(Timeline.INDEFINITE);
         flush.play();
+        sceneProperty().addListener((obs, oldScene, newScene) -> {
+            if (newScene == null) {
+                flush.stop();
+            } else if (flush.getStatus() != javafx.animation.Animation.Status.RUNNING) {
+                flush.play();
+            }
+        });
         updateButtons();
     }
 
@@ -214,7 +221,7 @@ public final class PlayPage extends BorderPane implements WorkspaceView.Page {
         }
         Target tg = b == null ? null : b.target();
         boolean mod = tg != null && tg.isMod();
-        boolean plugin = tg == Target.PAPER;
+        boolean plugin = tg != null && tg.isPlugin();
         boolean pack = tg == Target.DATAPACK || tg == Target.RESOURCEPACK;
         boolean bedrock = tg == Target.BEDROCK;
         boolean asServer = plugin || (mod && server.isSelected());
@@ -305,7 +312,7 @@ public final class PlayPage extends BorderPane implements WorkspaceView.Page {
                     log(t("play.hot_datapack", datapack));
                 } else if (toServer) {
                     int n = LiveData.write(ctx, LiveData.serverWorld(run));
-                    send(b.target() == Target.PAPER ? "minecraft:reload" : "reload");
+                    send(b.target().isPlugin() ? "minecraft:reload" : "reload");
                     log(t("play.hot_reloaded", n));
                 } else {
                     Path world = LiveData.newestSave(run);
@@ -333,9 +340,9 @@ public final class PlayPage extends BorderPane implements WorkspaceView.Page {
 
     /** Copies the local secrets into the run folder where the generated mod or plugin reads them. */
     private void copySecrets(Target tg, Path out) {
-        if (!tg.isMod() && tg != Target.PAPER) return;
+        if (!tg.isMod() && !tg.isPlugin()) return;
         if (modstudio.core.Secrets.referenced(p).isEmpty()) return;
-        Path file = tg == Target.PAPER
+        Path file = tg.isPlugin()
                 ? out.resolve("run").resolve("plugins").resolve(modstudio.gen.PaperGen.pluginName(p)).resolve("secrets.properties")
                 : out.resolve("run").resolve("config").resolve(p.meta.modId + "-secrets.properties");
         try {
@@ -350,7 +357,7 @@ public final class PlayPage extends BorderPane implements WorkspaceView.Page {
         Build b = build.getValue();
         if (b == null || running) return;
         Target tg = b.target();
-        boolean asServer = tg == Target.PAPER || (tg.isMod() && server.isSelected());
+        boolean asServer = tg.isPlugin() || (tg.isMod() && server.isSelected());
         if (asServer && !eula.isSelected()) {
             Ui.info(view.window(), t("play.eula_needed"), t("play.eula_needed_text"));
             return;

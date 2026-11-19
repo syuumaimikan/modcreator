@@ -71,6 +71,7 @@ public final class Thumbnails {
             case Elements.Enchantment en -> item("minecraft:enchanted_book", size);
             case Elements.Song so -> item("minecraft:music_disc_cat", size);
             case Elements.ArmorMaterial am -> item("minecraft:iron_chestplate", size);
+            case Elements.ToolMaterial tm -> item("minecraft:diamond_pickaxe", size);
             case Elements.LootTable lt -> {
                 for (Elements.LootPool pool : lt.pools) for (Elements.LootEntry en : pool.entries) {
                     if (!en.name.isBlank() && !en.name.startsWith("#")) yield item(en.name, size);

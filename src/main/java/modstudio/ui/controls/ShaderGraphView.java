@@ -44,7 +44,7 @@ import java.util.Map;
  * value typed next to them. Delete removes the selected node.
  */
 public final class ShaderGraphView extends BorderPane {
-    private static final double W = 184, HEAD = 28, ROW = 28, R = 6;
+    private static final double W = 204, HEAD = 28, ROW = 28, R = 6;
 
     private final List<ShaderNode> nodes;
     private final Runnable onChange;
@@ -73,7 +73,7 @@ public final class ShaderGraphView extends BorderPane {
         scroll.getStyleClass().add("flow-scroll");
         scroll.addEventFilter(ScrollEvent.SCROLL, e -> {
             if (!e.isControlDown()) return;
-            setZoom(zoom * (e.getDeltaY() > 0 ? 1.1 : 1 / 1.1));
+            if (e.getDeltaY() != 0) setZoom(zoom * (e.getDeltaY() > 0 ? 1.1 : 1 / 1.1));
             e.consume();
         });
         canvas.setFocusTraversable(true);
@@ -326,6 +326,7 @@ public final class ShaderGraphView extends BorderPane {
             select(n);
             e.consume();
         });
+        box.setOnMouseDragged(javafx.event.Event::consume);
         if (d == null) return box;
 
         for (int k = 0; k < d.ins().size(); k++) {
@@ -446,7 +447,7 @@ public final class ShaderGraphView extends BorderPane {
         if (p.type() == VT.V4 && v.startsWith("#")) {
             ColorPicker cp = new ColorPicker(safeColor(v));
             cp.getStyleClass().add("button");
-            cp.setPrefWidth(84);
+            cp.setPrefWidth(104);
             cp.setMaxHeight(ROW - 6);
             cp.valueProperty().addListener((o, a, b) -> {
                 n.values.put(p.key(), hex(b));

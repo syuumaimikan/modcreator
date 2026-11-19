@@ -29,6 +29,7 @@ public final class CommandTree implements CommandExecutor, TabCompleter {
 
     private static final String MODID = "{{modid}}";
     private static final boolean MACROS = {{macros}};
+    private static final boolean FOLIA = {{folia}};
     private static final List<String> SELECTORS = List.of("@a", "@p", "@r", "@s", "@e");
 
     private final String base;
@@ -201,12 +202,16 @@ public final class CommandTree implements CommandExecutor, TabCompleter {
             if (e.getKey().type().equals("int")) scores.add("scoreboard players set $" + e.getKey().name() + " " + MODID + ".args " + e.getValue());
         }
         nbt.append('}');
-        CommandSender console = Bukkit.getConsoleSender();
-        Bukkit.dispatchCommand(console, "data modify storage " + MODID + ":args a set value " + nbt);
-        for (String s : scores) Bukkit.dispatchCommand(console, s);
-        String fn = "function " + MODID + ":" + function + (MACROS ? " with storage " + MODID + ":args a" : "");
-        if (sender instanceof Entity entity) Bukkit.dispatchCommand(console, "execute as " + entity.getUniqueId() + " at @s run " + fn);
-        else Bukkit.dispatchCommand(console, fn);
+        Runnable dispatch = () -> {
+            CommandSender console = Bukkit.getConsoleSender();
+            Bukkit.dispatchCommand(console, "data modify storage " + MODID + ":args a set value " + nbt);
+            for (String s : scores) Bukkit.dispatchCommand(console, s);
+            String fn = "function " + MODID + ":" + function + (MACROS ? " with storage " + MODID + ":args a" : "");
+            if (sender instanceof Entity entity) Bukkit.dispatchCommand(console, "execute as " + entity.getUniqueId() + " at @s run " + fn);
+            else Bukkit.dispatchCommand(console, fn);
+        };
+        if (FOLIA) Bukkit.getGlobalRegionScheduler().execute(org.bukkit.plugin.java.JavaPlugin.getProvidingPlugin(CommandTree.class), dispatch);
+        else dispatch.run();
     }
 
     @Override

@@ -8,6 +8,7 @@ import modstudio.core.CommandSpec;
 import modstudio.core.Elements;
 import modstudio.core.Elements.Step;
 import modstudio.core.Ids;
+import modstudio.core.Localization;
 import modstudio.core.Logic;
 import modstudio.core.McVersion;
 import modstudio.core.Project;
@@ -44,9 +45,17 @@ public final class InterfaceGen {
         return !p.all(ApiRequest.class).isEmpty() || p.all(Elements.Procedure.class).stream().anyMatch(x -> x.trigger.equals("cron"));
     }
 
-    /** True when the Java side has to answer function calls (menus, web requests, schedules). */
+    public static boolean needsJava(Project p) {
+        boolean[] found = {false};
+        modstudio.core.StepWalker.walk(p, (owner, s) -> {
+            if ("java_code".equals(s.kind) || "java_call".equals(s.kind)) found[0] = true;
+        });
+        return found[0];
+    }
+
+    /** True when the Java side has to answer function calls (menus, web requests, schedules, inline Java). */
     public static boolean needsBridge(Project p) {
-        return !p.all(Menu.class).isEmpty() || needsWeb(p);
+        return !p.all(Menu.class).isEmpty() || needsWeb(p) || needsJava(p);
     }
 
     /** Function path of each command branch, null where the branch path does not parse. */
@@ -82,7 +91,7 @@ public final class InterfaceGen {
     }
 
     private boolean plainPack() {
-        return !ctx.target.isMod() && ctx.target != Target.PAPER;
+        return !ctx.target.isMod() && !ctx.target.isPlugin();
     }
 
     // ------------------------------------------------------------------ text
@@ -197,7 +206,7 @@ public final class InterfaceGen {
     public static boolean javaPermission(Target t, MenuSlot sl) {
         String perm = sl.permission.trim();
         if (perm.isEmpty()) return false;
-        return t == Target.PAPER || perm.matches("\\d");
+        return t.isPlugin() || perm.matches("\\d");
     }
 
     private void menus() {
@@ -345,6 +354,55 @@ public final class InterfaceGen {
         return r;
     }
 
+    /** Translatable rich text component for HUD titles and lines, with `&` colors and ordered `{token}` args. */
+    private static JsonElement translatedComponent(String key, String template, Function<String, JsonElement> resolver) {
+        List<String> tokens = Localization.hudTokens(template);
+        if (resolver == null && !tokens.isEmpty()) {
+            JsonArray arr = rich(template, null);
+            return arr.size() == 2 ? arr.get(1) : J.obj("text", "", "extra", arr);
+        }
+        String fallback = Localization.formatHudText(template, template);
+        JsonObject o = new JsonObject();
+        o.addProperty("translate", key);
+        o.addProperty("fallback", fallback);
+        if (!tokens.isEmpty()) {
+            JsonArray with = new JsonArray();
+            for (String tok : tokens) {
+                JsonElement ph = resolver.apply(tok);
+                if (ph == null) with.add("{" + tok + "}");
+                else if (ph.isJsonArray()) with.add(J.obj("text", "", "extra", ph));
+                else with.add(ph);
+            }
+            o.add("with", with);
+        }
+        return o;
+    }
+
+    private static JsonArray translatedRich(String key, String template, Function<String, JsonElement> resolver) {
+        JsonArray out = new JsonArray();
+        out.add("");
+        out.add(translatedComponent(key, template, resolver));
+        return out;
+    }
+
+    /** Multi-line bar text built from individual translatable line keys so per-line translations apply cleanly. */
+    private JsonArray barRich(Hud h, String title, Function<String, JsonElement> resolver) {
+        List<Integer> idxs = new ArrayList<>();
+        for (int i = 0; i < h.lines.size(); i++) {
+            String l = h.lines.get(i);
+            if (l != null && !l.isBlank()) idxs.add(i);
+        }
+        if (idxs.isEmpty()) return translatedRich("hud." + ns + "." + h.name + ".title", title, resolver);
+        JsonArray out = new JsonArray();
+        out.add("");
+        for (int k = 0; k < idxs.size(); k++) {
+            if (k > 0) out.add("  ");
+            int li = idxs.get(k);
+            out.add(translatedComponent("hud." + ns + "." + h.name + ".line." + li, h.lines.get(li), resolver));
+        }
+        return out;
+    }
+
     /** Placeholder components resolved by the game (boss bars, action bars). */
     private Function<String, JsonElement> resolved(Hud h, boolean perPlayer) {
         String t = ns + ".timer", n = h.name;
@@ -412,16 +470,19 @@ public final class InterfaceGen {
                 boolean modern = ctx.v.atLeast(McVersion.V1_20_4);
                 List<String> lines = lines(h);
                 load.add("scoreboard objectives add " + obj + " dummy");
-                load.add("scoreboard objectives modify " + obj + " displayname " + json(rich(title, null)));
+                load.add("scoreboard objectives modify " + obj + " displayname " + json(translatedRich("hud." + ns + "." + n + ".title", title, null)));
                 if (modern) load.add("scoreboard objectives modify " + obj + " numberformat blank");
                 if (modern) {
                     List<MacroRead> reads = new ArrayList<>();
                     List<String> macroLines = new ArrayList<>();
                     Function<String, JsonElement> m = macro(h, reads);
-                    macroLines.add(withMacro("scoreboard objectives modify " + obj + " displayname " + json(rich(title, m))));
+                    macroLines.add(withMacro("scoreboard objectives modify " + obj + " displayname " + json(translatedRich("hud." + ns + "." + n + ".title", title, m))));
                     for (int i = 0; i < lines.size(); i++) {
+                        String line = lines.get(i);
+                        boolean empty = line == null || line.isBlank();
+                        JsonArray lineJson = empty ? rich(" ", m) : translatedRich("hud." + ns + "." + n + ".line." + i, line, m);
                         load.add("scoreboard players set #l" + i + " " + obj + " " + (lines.size() - i));
-                        macroLines.add(withMacro("scoreboard players display name #l" + i + " " + obj + " " + json(rich(lines.get(i).isEmpty() ? " " : lines.get(i), m))));
+                        macroLines.add(withMacro("scoreboard players display name #l" + i + " " + obj + " " + json(lineJson)));
                     }
                     for (MacroRead r : reads) {
                         pc.objectives.add(r.objective());
@@ -438,10 +499,12 @@ public final class InterfaceGen {
                     for (int i = 0; i < lines.size(); i++) {
                         String holder = "§" + CODES.charAt(i) + "§r";
                         String team = ns + ".h" + index + "_" + i;
+                        String line = lines.get(i);
+                        JsonArray lineJson = (line == null || line.isBlank()) ? rich(" ", null) : translatedRich("hud." + ns + "." + n + ".line." + i, line, resolvedStatic(h));
                         load.add("scoreboard players set " + holder + " " + obj + " " + (lines.size() - i));
                         load.add("team add " + team);
                         load.add("team join " + team + " " + holder);
-                        load.add("team modify " + team + " prefix " + json(rich(lines.get(i), resolvedStatic(h))));
+                        load.add("team modify " + team + " prefix " + json(lineJson));
                     }
                 }
                 show.add("scoreboard objectives setdisplay sidebar " + obj);
@@ -453,11 +516,11 @@ public final class InterfaceGen {
             case "bossbar" -> {
                 String color = List.of("blue", "green", "pink", "purple", "red", "white", "yellow").contains(h.color) ? h.color : "white";
                 String style = List.of("progress", "notched_6", "notched_10", "notched_12", "notched_20").contains(h.style) ? h.style : "progress";
-                load.add("bossbar add " + bar + " " + json(rich(title, null)));
+                load.add("bossbar add " + bar + " " + json(translatedRich("hud." + ns + "." + n + ".title", title, null)));
                 load.add("bossbar set " + bar + " color " + color);
                 load.add("bossbar set " + bar + " style " + style);
                 load.add("bossbar set " + bar + " max " + Math.max(1, h.seconds));
-                refreshFn.add("bossbar set " + bar + " name " + json(rich(barText(h), resolved(h, false))));
+                refreshFn.add("bossbar set " + bar + " name " + json(barRich(h, title, resolved(h, false))));
                 if (h.timer) refreshFn.add("execute store result bossbar " + bar + " value run scoreboard players get #" + n + ".s " + t);
                 refreshFn.add("execute unless entity " + audience + " run bossbar set " + bar + " players");
                 refreshFn.add("bossbar set " + bar + " players " + audience);
@@ -467,7 +530,7 @@ public final class InterfaceGen {
                 hide.add("function " + fn + "refresh");
             }
             default -> {
-                refreshFn.add("execute as " + audience + " at @s run title @s actionbar " + json(rich(barText(h), resolved(h, true))));
+                refreshFn.add("execute as " + audience + " at @s run title @s actionbar " + json(barRich(h, title, resolved(h, true))));
                 show.add("scoreboard players set #" + n + ".v " + v + " 1");
                 show.add("function " + fn + "refresh");
             }
@@ -546,7 +609,7 @@ public final class InterfaceGen {
         List<ApiRequest> reqs = ctx.all(ApiRequest.class);
         if (reqs.isEmpty()) return;
         pc.objectives.add(ns + ".http");
-        if (ctx.target == Target.PAPER) pc.objectives.add(ns + ".q");
+        if (ctx.target.isPlugin()) pc.objectives.add(ns + ".q");
         for (ApiRequest r : reqs) {
             for (Extract x : r.extract) if (x.toScore && x.key.trim().matches("[A-Za-z0-9_.+-]+")) pc.objectives.add(x.key.trim());
             String b = "api/" + r.name + "/";

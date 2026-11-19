@@ -66,9 +66,9 @@ final class HooksGen {
         s.imp("net.minecraft.world.level.storage.loot.LootPool", "java.util.ArrayList", "java.util.HashMap", "java.util.List", "java.util.Map");
         if (ctx.components()) {
             s.imp("net.minecraft.world.level.storage.loot.entries.NestedLootTable", "net.minecraft.core.registries.Registries",
-                    "net.minecraft.resources.ResourceKey", "net.minecraft.resources.ResourceLocation");
+                    "net.minecraft.resources.ResourceKey", ctx.rlImport());
         } else {
-            s.imp("net.minecraft.world.level.storage.loot.entries.LootTableReference", "net.minecraft.resources.ResourceLocation");
+            s.imp("net.minecraft.world.level.storage.loot.entries.LootTableReference", ctx.rlImport());
         }
         s.l("/** Project loot tables added to existing ones: existing table id -> project tables rolled with it. */");
         s.l("public final class ModLoot {");
@@ -92,9 +92,9 @@ final class HooksGen {
         s.l("public static LootPool.Builder pool(String table) {");
         if (ctx.components()) {
             s.l("return LootPool.lootPool().add(NestedLootTable.lootTableReference(ResourceKey.create(Registries.LOOT_TABLE, "
-                    + GenContext.rlParse(ctx.singular(), "table") + ")));");
+                    + ctx.rlParseExpr("table") + ")));");
         } else {
-            s.l("return LootPool.lootPool().add(LootTableReference.lootTableReference(" + GenContext.rlParse(false, "table") + "));");
+            s.l("return LootPool.lootPool().add(LootTableReference.lootTableReference(" + ctx.rlParseExpr("table") + "));");
         }
         s.l("}");
         s.l("}");
@@ -120,7 +120,10 @@ final class HooksGen {
             s.l("});");
         }
         if (hasBrewing()) {
-            if (ctx.components()) {
+            if (ctx.unobf()) {
+                s.imp("net.fabricmc.fabric.api.registry.FabricPotionBrewingBuilder");
+                s.l("FabricPotionBrewingBuilder.BUILD.register(ModBrewing::register);");
+            } else if (ctx.components()) {
                 s.imp("net.fabricmc.fabric.api.registry.FabricBrewingRecipeRegistryBuilder");
                 s.l("FabricBrewingRecipeRegistryBuilder.BUILD.register(ModBrewing::register);");
             } else {
@@ -152,7 +155,8 @@ final class HooksGen {
         if (hasClient()) {
             if (neo()) s.imp("net.neoforged.fml.loading.FMLEnvironment", "net.neoforged.api.distmarker.Dist");
             else s.imp("net.minecraftforge.fml.loading.FMLEnvironment", "net.minecraftforge.api.distmarker.Dist");
-            s.l("if (FMLEnvironment.dist == Dist.CLIENT) ModClient.init(modBus);");
+            String distExpr = (neo() && ctx.v.atLeast(McVersion.V1_21_9)) ? "FMLEnvironment.getDist()" : "FMLEnvironment.dist";
+            s.l("if (" + distExpr + " == Dist.CLIENT) ModClient.init(modBus);");
         }
     }
 
@@ -269,9 +273,13 @@ final class HooksGen {
         return ctx.v.atLeast(McVersion.V1_20_4) && !ctx.all(Cutscene.class).isEmpty();
     }
 
+    boolean hasFluidExtensions() {
+        return neo() && ctx.singular() && !ctx.all(Elements.Fluid.class).isEmpty();
+    }
+
     /** Whether the mod has client-only code (ModClient). */
     boolean hasClient() {
-        return hasKeys() || hasCutscenes() || !tooltipColorItems().isEmpty() || !screenButtons().isEmpty() || ScreenGen.has(ctx);
+        return hasKeys() || hasCutscenes() || !tooltipColorItems().isEmpty() || !screenButtons().isEmpty() || ScreenGen.has(ctx) || hasFluidExtensions();
     }
 
     /** Buttons that UI themes add to the title and pause screens. */
@@ -354,6 +362,10 @@ final class HooksGen {
                     s.l("NeoForge.EVENT_BUS.addListener(ModClient::onScreenInit);");
                 }
                 if (ScreenGen.has(ctx)) s.l(ScreenGen.initCall(loader));
+                if (hasFluidExtensions()) {
+                    s.imp("net.neoforged.neoforge.client.extensions.common.RegisterClientExtensionsEvent");
+                    s.l("modBus.addListener(ModClient::registerFluidExtensions);");
+                }
                 s.l("}");
                 s.blank();
                 if (ctx.components()) {
@@ -420,6 +432,31 @@ final class HooksGen {
         }
         if (!scenes.isEmpty()) cutsceneCamera(s);
         if (!screenButtons().isEmpty()) screenButtonCode(s);
+        if (hasFluidExtensions()) {
+            s.imp(ctx.rlImport(),
+                    "net.neoforged.neoforge.client.extensions.common.IClientFluidTypeExtensions",
+                    "net.neoforged.neoforge.client.extensions.common.RegisterClientExtensionsEvent");
+            s.blank().l("private static void registerFluidExtensions(RegisterClientExtensionsEvent event) {");
+            for (Elements.Fluid fl : ctx.all(Elements.Fluid.class)) {
+                String c = Ids.toConst(fl.name);
+                int rgb = JavaCommon.rgbInt(fl.tintColor, 0x3F76E4);
+                String stillTex = ctx.rlParseExpr(Src.str(jc.fluidTextureId(fl, false)));
+                String flowTex = ctx.rlParseExpr(Src.str(jc.fluidTextureId(fl, true)));
+                s.l("event.registerFluidType(new IClientFluidTypeExtensions() {");
+                s.l("    @Override public " + ctx.rlType() + " getStillTexture() { return " + stillTex + "; }");
+                s.l("    @Override public " + ctx.rlType() + " getFlowingTexture() { return " + flowTex + "; }");
+                s.l("    @Override public int getTintColor() { return 0xFF" + String.format("%06X", rgb) + "; }");
+                if (fl.fogColor != null && !fl.fogColor.isBlank() && !ctx.v.atLeast(McVersion.V1_21_8)) {
+                    int fog = JavaCommon.rgbInt(fl.fogColor, rgb);
+                    s.imp("net.minecraft.client.Camera", "net.minecraft.client.multiplayer.ClientLevel", "org.joml.Vector3f");
+                    s.l("    @Override public Vector3f modifyFogColor(Camera camera, float partialTick, ClientLevel level, int renderDistance, float darkenWorldAmount, Vector3f fluidFogColor) {");
+                    s.l("        return new Vector3f(" + Src.f(((fog >> 16) & 0xFF) / 255.0f) + ", " + Src.f(((fog >> 8) & 0xFF) / 255.0f) + ", " + Src.f((fog & 0xFF) / 255.0f) + ");");
+                    s.l("    }");
+                }
+                s.l("}, ModFluids." + c + "_TYPE.get());");
+            }
+            s.l("}");
+        }
         if (!tooltipColorItems().isEmpty()) {
             s.imp("net.minecraft.world.item.ItemStack");
             s.blank();

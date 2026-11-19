@@ -26,6 +26,7 @@ import modstudio.ui.Workspace;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Consumer;
 import java.util.function.IntConsumer;
 
 /**
@@ -48,11 +49,20 @@ public final class ModelView3D extends Pane {
     private int selected = -1;
     private boolean showGrid = true;
     private IntConsumer onSelect = i -> {};
+    private Consumer<Boolean> onTransform = b -> {};
+    private boolean draggingCube;
     /** Bone matrices in model space (animation preview); null shows the model at rest. */
     private Map<String, double[]> pose;
     private final Map<String, Affine> boneTransforms = new HashMap<>();
     private String selectedBone = "";
     private double lastX, lastY, pressX, pressY;
+    private double snapStep = 0.25;
+    private String overrideTexture = "";
+    private boolean forceOverrideTexture;
+    private double modelScale = 1.0;
+    private double hitboxW, hitboxH;
+    private boolean showHitbox = true;
+    private final javafx.scene.transform.Scale contentScale = new javafx.scene.transform.Scale(1, 1, 1, 0, 8, 0);
 
     public ModelView3D(Workspace ws, double w, double h, boolean interactive) {
         this.ws = ws;
@@ -60,6 +70,7 @@ public final class ModelView3D extends Pane {
         setMinSize(120, 100);
         getStyleClass().add("model-view");
         world.getChildren().addAll(content, overlay);
+        content.getTransforms().add(contentScale);
         AmbientLight light = new AmbientLight(Color.WHITE);
         Group root = new Group(world, light);
         sub = new SubScene(root, w, h, true, SceneAntialiasing.BALANCED);
@@ -79,15 +90,64 @@ public final class ModelView3D extends Pane {
         onSelect = c == null ? i -> {} : c;
     }
 
+    public void setOnTransform(Consumer<Boolean> c) {
+        onTransform = c == null ? b -> {} : c;
+    }
+
     public void setShowGrid(boolean b) {
         showGrid = b;
         rebuild();
     }
 
+    public void setOverrideTexture(String textureIdOrRes, boolean force) {
+        String norm = textureIdOrRes == null ? "" : textureIdOrRes.trim();
+        if (norm.equals(overrideTexture) && force == forceOverrideTexture) return;
+        overrideTexture = norm;
+        forceOverrideTexture = force;
+        materials.clear();
+        rebuild();
+    }
+
+    public void setModelScale(double scale) {
+        double s = Math.max(0.1, Math.min(8.0, scale));
+        if (Math.abs(s - modelScale) < 1e-4) return;
+        modelScale = s;
+        contentScale.setX(s);
+        contentScale.setY(s);
+        contentScale.setZ(s);
+        computeHomeBounds();
+        rebuildOverlay();
+    }
+
+    public void setHitbox(double widthBlocks, double heightBlocks) {
+        hitboxW = Math.max(0, widthBlocks);
+        hitboxH = Math.max(0, heightBlocks);
+        computeHomeBounds();
+        rebuildOverlay();
+    }
+
+    public void setShowHitbox(boolean b) {
+        showHitbox = b;
+        rebuildOverlay();
+    }
+
+    public void setSnapStep(double step) {
+        snapStep = Math.max(0.05, step);
+    }
+
+    private double snap(double v) {
+        double s = Math.round(v / snapStep) * snapStep;
+        return Math.round(s * 1000.0) / 1000.0;
+    }
+
     public void setModel(Model m) {
-        boolean fresh = m != model;
+        setModel(m, m != model);
+    }
+
+    public void setModel(Model m, boolean fitCamera) {
         this.model = m;
-        if (fresh) fit();
+        if (fitCamera) fit();
+        else computeHomeBounds();
         rebuild();
     }
 
@@ -95,27 +155,48 @@ public final class ModelView3D extends Pane {
     private double homeX, homeY, homeZ, homeDist = -58;
 
     private void fit() {
-        homeX = homeY = homeZ = 0;
-        homeDist = -58;
-        if (model == null || model.cubes.isEmpty()) return;
-        double[] lo = {Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE}, hi = {-Double.MAX_VALUE, -Double.MAX_VALUE, -Double.MAX_VALUE};
-        for (Cube c : model.cubes) {
-            for (int i = 0; i < 3; i++) {
-                lo[i] = Math.min(lo[i], Math.min(c.from[i], c.to[i]));
-                hi[i] = Math.max(hi[i], Math.max(c.from[i], c.to[i]));
-            }
-        }
-        double size = Math.max(hi[0] - lo[0], Math.max(hi[1] - lo[1], hi[2] - lo[2]));
-        if (size <= 16 && lo[0] >= 0 && lo[1] >= 0 && lo[2] >= 0 && hi[0] <= 16 && hi[1] <= 16 && hi[2] <= 16) return;
-        double[] c = fx((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2);
-        homeX = c[0];
-        homeY = c[1];
-        homeZ = c[2];
-        homeDist = -Math.max(58, size * 3.4);
+        computeHomeBounds();
         pan.setX(homeX);
         pan.setY(homeY);
         pan.setZ(homeZ);
         dist.setZ(homeDist);
+    }
+
+    private void computeHomeBounds() {
+        homeX = homeY = homeZ = 0;
+        homeDist = -58;
+        if (model == null || model.cubes.isEmpty()) return;
+        double lo0 = Double.MAX_VALUE, lo1 = Double.MAX_VALUE, lo2 = Double.MAX_VALUE;
+        double hi0 = -Double.MAX_VALUE, hi1 = -Double.MAX_VALUE, hi2 = -Double.MAX_VALUE;
+        for (Cube c : model.cubes) {
+            double c0min = Math.min(c.from[0], c.to[0]) - c.inflate;
+            double c1min = Math.min(c.from[1], c.to[1]) - c.inflate;
+            double c2min = Math.min(c.from[2], c.to[2]) - c.inflate;
+            double c0max = Math.max(c.from[0], c.to[0]) + c.inflate;
+            double c1max = Math.max(c.from[1], c.to[1]) + c.inflate;
+            double c2max = Math.max(c.from[2], c.to[2]) + c.inflate;
+            lo0 = Math.min(lo0, 8 + (c0min - 8) * modelScale);
+            hi0 = Math.max(hi0, 8 + (c0max - 8) * modelScale);
+            lo1 = Math.min(lo1, c1min * modelScale);
+            hi1 = Math.max(hi1, c1max * modelScale);
+            lo2 = Math.min(lo2, 8 + (c2min - 8) * modelScale);
+            hi2 = Math.max(hi2, 8 + (c2max - 8) * modelScale);
+        }
+        if (hitboxW > 0 && hitboxH > 0) {
+            lo0 = Math.min(lo0, 8 - hitboxW * 8);
+            hi0 = Math.max(hi0, 8 + hitboxW * 8);
+            lo1 = Math.min(lo1, 0);
+            hi1 = Math.max(hi1, hitboxH * 16);
+            lo2 = Math.min(lo2, 8 - hitboxW * 8);
+            hi2 = Math.max(hi2, 8 + hitboxW * 8);
+        }
+        double size = Math.max(hi0 - lo0, Math.max(hi1 - lo1, hi2 - lo2));
+        if (size <= 16 && lo0 >= 0 && lo1 >= 0 && lo2 >= 0 && hi0 <= 16 && hi1 <= 16 && hi2 <= 16) return;
+        double[] c = fx((lo0 + hi0) / 2, (lo1 + hi1) / 2, (lo2 + hi2) / 2);
+        homeX = c[0];
+        homeY = c[1];
+        homeZ = c[2];
+        homeDist = -Math.max(58, size * 3.4);
     }
 
     public void setSelected(int i) {
@@ -175,15 +256,47 @@ public final class ModelView3D extends Pane {
         dist.setZ(homeDist);
     }
 
+    /** Incremental Y-axis orbit used by auto-rotate previews. */
+    public void rotateBy(double degrees) {
+        yaw.setAngle(yaw.getAngle() + degrees);
+    }
+
     private void installMouse() {
         sub.setOnMousePressed(e -> {
             lastX = pressX = e.getSceneX();
             lastY = pressY = e.getSceneY();
+            draggingCube = false;
         });
         sub.setOnMouseDragged(e -> {
             double dx = e.getSceneX() - lastX, dy = e.getSceneY() - lastY;
             lastX = e.getSceneX();
             lastY = e.getSceneY();
+            if (e.getButton() == MouseButton.PRIMARY && selected >= 0 && model != null && selected < model.cubes.size()
+                    && (e.isAltDown() || e.isShiftDown())) {
+                Cube c = model.cubes.get(selected);
+                double scale = Math.max(0.02, -dist.getZ() / 600.0);
+                double yr = Math.toRadians(yaw.getAngle());
+                double dsx = Math.cos(yr) * dx * scale;
+                double dsz = -Math.sin(yr) * dx * scale;
+                double dsy = dy * scale;
+                double dmx = dsx, dmy = -dsy, dmz = -dsz;
+                if (e.isShiftDown()) {
+                    c.to[0] = Math.max(c.from[0] + 0.1, Models.clamp(c.to[0] + dmx, -16, 32));
+                    c.to[1] = Math.max(c.from[1] + 0.1, Models.clamp(c.to[1] + dmy, -16, 32));
+                    c.to[2] = Math.max(c.from[2] + 0.1, Models.clamp(c.to[2] + dmz, -16, 32));
+                } else {
+                    for (int k = 0; k < 3; k++) {
+                        double dm = k == 0 ? dmx : k == 1 ? dmy : dmz;
+                        c.from[k] = Models.clamp(c.from[k] + dm, -16, 32);
+                        c.to[k] = Models.clamp(c.to[k] + dm, -16, 32);
+                        c.origin[k] = Models.clamp(c.origin[k] + dm, -16, 32);
+                    }
+                }
+                draggingCube = true;
+                rebuild();
+                onTransform.accept(false);
+                return;
+            }
             if (e.getButton() == MouseButton.PRIMARY) {
                 yaw.setAngle(yaw.getAngle() + dx * 0.5);
                 pitch.setAngle(Math.max(-89.9, Math.min(89.9, pitch.getAngle() - dy * 0.5)));
@@ -195,7 +308,27 @@ public final class ModelView3D extends Pane {
                 pan.setY(pan.getY() - dy * k);
             }
         });
-        sub.setOnScroll(e -> dist.setZ(Math.max(-400, Math.min(-8, dist.getZ() + e.getDeltaY() * 0.08))));
+        sub.setOnMouseReleased(e -> {
+            if (draggingCube && selected >= 0 && model != null && selected < model.cubes.size()) {
+                Cube c = model.cubes.get(selected);
+                double minSz = Math.max(0.1, snapStep);
+                for (int k = 0; k < 3; k++) {
+                    c.from[k] = snap(c.from[k]);
+                    c.to[k] = Math.max(c.from[k] + minSz, snap(c.to[k]));
+                    c.origin[k] = snap(c.origin[k]);
+                }
+                draggingCube = false;
+                rebuild();
+                onTransform.accept(true);
+            }
+        });
+        this.addEventFilter(javafx.scene.input.ScrollEvent.SCROLL, e -> {
+            double dy = e.getDeltaY() != 0 ? e.getDeltaY() : e.getDeltaX();
+            if (dy != 0) dist.setZ(Math.max(-400, Math.min(-8, dist.getZ() + dy * 0.08)));
+            e.consume();
+        });
+        this.addEventFilter(javafx.scene.input.ScrollEvent.SCROLL_STARTED, javafx.event.Event::consume);
+        this.addEventFilter(javafx.scene.input.ScrollEvent.SCROLL_FINISHED, javafx.event.Event::consume);
         sub.setOnMouseClicked(e -> {
             if (Math.abs(e.getSceneX() - pressX) > 3 || Math.abs(e.getSceneY() - pressY) > 3) return;
             PickResult pr = e.getPickResult();
@@ -243,8 +376,9 @@ public final class ModelView3D extends Pane {
 
     private Group cubeNode(Cube c) {
         Group g = new Group();
-        double x1 = Math.min(c.from[0], c.to[0]), y1 = Math.min(c.from[1], c.to[1]), z1 = Math.min(c.from[2], c.to[2]);
-        double x2 = Math.max(c.from[0], c.to[0]), y2 = Math.max(c.from[1], c.to[1]), z2 = Math.max(c.from[2], c.to[2]);
+        double inf = c.inflate;
+        double x1 = Math.min(c.from[0], c.to[0]) - inf, y1 = Math.min(c.from[1], c.to[1]) - inf, z1 = Math.min(c.from[2], c.to[2]) - inf;
+        double x2 = Math.max(c.from[0], c.to[0]) + inf, y2 = Math.max(c.from[1], c.to[1]) + inf, z2 = Math.max(c.from[2], c.to[2]) + inf;
         // A degenerate cube (one axis of size 0) is a flat plane; give it a hair of thickness so both sides render.
         for (String dir : Cube.FACES) {
             Face f = c.face(dir);
@@ -316,8 +450,10 @@ public final class ModelView3D extends Pane {
     /** Upscaled (nearest neighbour) image of the texture bound to a model texture variable. */
     private Image image(String textureKey) {
         if (model == null) return null;
-        String value = model.textures.get(textureKey == null || textureKey.isBlank() ? "0" : textureKey);
+        String value = (forceOverrideTexture && overrideTexture != null && !overrideTexture.isBlank())
+                ? overrideTexture : model.textures.get(textureKey == null || textureKey.isBlank() ? "0" : textureKey);
         if (value == null || value.isBlank()) value = model.textures.values().stream().filter(v -> v != null && !v.isBlank()).findFirst().orElse(null);
+        if ((value == null || value.isBlank()) && overrideTexture != null && !overrideTexture.isBlank()) value = overrideTexture;
         if (value == null) return null;
         TextureAsset t = ws.project.texture(value);
         if (t == null) return BlockScene3D.image(ws, value, 256);
@@ -348,11 +484,20 @@ public final class ModelView3D extends Pane {
             PhongMaterial north = new PhongMaterial(Color.web("#cf222e"));
             overlay.getChildren().add(line(fx(7, 0, -1.5), fx(9, 0, -1.5), 0.25, north));
         }
+        if (showHitbox && hitboxW > 0 && hitboxH > 0) {
+            PhongMaterial hbMat = new PhongMaterial(Color.web("#3fb950"));
+            double hw = hitboxW * 8.0, hh = hitboxH * 16.0;
+            double x1 = 8 - hw, x2 = 8 + hw, y1 = 0, y2 = hh, z1 = 8 - hw, z2 = 8 + hw;
+            double[][] hp = {{x1, y1, z1}, {x2, y1, z1}, {x2, y1, z2}, {x1, y1, z2}, {x1, y2, z1}, {x2, y2, z1}, {x2, y2, z2}, {x1, y2, z2}};
+            int[][] edges = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6}, {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+            for (int[] e : edges) overlay.getChildren().add(line(fx(hp[e[0]][0], hp[e[0]][1], hp[e[0]][2]), fx(hp[e[1]][0], hp[e[1]][1], hp[e[1]][2]), 0.12, hbMat));
+        }
         if (model != null && selected >= 0 && selected < model.cubes.size()) {
             Cube c = model.cubes.get(selected);
             PhongMaterial sel = new PhongMaterial(Color.web("#2f81f7"));
-            double x1 = Math.min(c.from[0], c.to[0]) - 0.05, y1 = Math.min(c.from[1], c.to[1]) - 0.05, z1 = Math.min(c.from[2], c.to[2]) - 0.05;
-            double x2 = Math.max(c.from[0], c.to[0]) + 0.05, y2 = Math.max(c.from[1], c.to[1]) + 0.05, z2 = Math.max(c.from[2], c.to[2]) + 0.05;
+            double inf = c.inflate + 0.05;
+            double x1 = Math.min(c.from[0], c.to[0]) - inf, y1 = Math.min(c.from[1], c.to[1]) - inf, z1 = Math.min(c.from[2], c.to[2]) - inf;
+            double x2 = Math.max(c.from[0], c.to[0]) + inf, y2 = Math.max(c.from[1], c.to[1]) + inf, z2 = Math.max(c.from[2], c.to[2]) + inf;
             double[][] p = {{x1, y1, z1}, {x2, y1, z1}, {x2, y1, z2}, {x1, y1, z2}, {x1, y2, z1}, {x2, y2, z1}, {x2, y2, z2}, {x1, y2, z2}};
             int[][] edges = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6}, {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
             Group box = new Group();

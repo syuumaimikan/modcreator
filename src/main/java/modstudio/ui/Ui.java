@@ -97,7 +97,9 @@ public final class Ui {
         return switch (t) {
             case ITEM -> "mdi2d-diamond-stone";
             case BLOCK -> "mdi2c-cube-outline";
+            case FLUID -> "mdi2w-water";
             case ARMOR_MATERIAL -> "mdi2s-shield-half-full";
+            case TOOL_MATERIAL -> "mdi2p-pickaxe";
             case STATUS_EFFECT -> "mdi2f-flask-outline";
             case POTION -> "mdi2b-bottle-tonic-plus-outline";
             case ENCHANTMENT -> "mdi2b-book-open-variant";
@@ -136,6 +138,16 @@ public final class Ui {
             case SCREEN -> "mdi2m-monitor-screenshot";
             case TRADER -> "mdi2s-storefront-outline";
             case KEYBIND -> "mdi2k-keyboard-outline";
+            case CONTAINER -> "mdi2a-archive-outline";
+            case ENTITY -> "mdi2p-paw";
+            case MOD_CONFIG -> "mdi2t-tune";
+            case MIXIN -> "mdi2l-layers-triple-outline";
+            case PORTAL -> "mdi2d-door-open";
+            case WORLD_FEATURE -> "mdi2t-terrain";
+            case PROFESSION -> "mdi2b-briefcase-outline";
+            case ARMOR_TRIM -> "mdi2s-shield-star-outline";
+            case BANNER_PATTERN -> "mdi2f-flag-outline";
+            case RECIPE_TYPE -> "mdi2f-flask-round-bottom";
         };
     }
 

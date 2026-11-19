@@ -23,7 +23,7 @@ public class App extends Application {
     }
 
     public static HostServices hosts() {
-        return instance.getHostServices();
+        return instance == null ? null : instance.getHostServices();
     }
 
     @Override

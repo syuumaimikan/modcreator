@@ -146,23 +146,7 @@ abstract class EditorBase<T extends Element> {
     static void rename(Project p, Element e, String n) {
         String old = e.name;
         e.name = n;
-        String ns = p.meta.modId;
-        switch (e.type()) {
-            case ITEM, BLOCK, FUNCTION, LOOT_TABLE, ADVANCEMENT, SOUND, STATUS_EFFECT, POTION, ENCHANTMENT, DAMAGE_TYPE, PREDICATE, ITEM_MODIFIER ->
-                    Refactor.renameId(p, ns + ":" + old, ns + ":" + n);
-            case TAG -> {
-                String tns = modstudio.ui.controls.Catalog.tagNs((Elements.Tag) e, ns);
-                Refactor.renameId(p, tns + ":" + old, tns + ":" + n);
-            }
-            case PROCEDURE -> Refactor.renameId(p, ns + ":procedures/" + old, ns + ":procedures/" + n);
-            case CREATIVE_TAB -> Refactor.renameId(p, "tab:" + old, "tab:" + n);
-            case MODEL -> {
-                for (Elements.Block b : p.all(Elements.Block.class)) if (old.equals(b.model)) b.model = n;
-                for (Elements.Item it : p.all(Elements.Item.class)) if (old.equals(it.model)) it.model = n;
-            }
-            default -> {
-            }
-        }
+        Refactor.renameElement(p, e, old, n);
     }
 
     // ------------------------------------------------------------------ localisation

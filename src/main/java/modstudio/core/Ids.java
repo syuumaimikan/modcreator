@@ -26,7 +26,21 @@ public final class Ids {
         return r;
     }
 
+    /** Converts a relative path to slash-separated registry-safe segments ("Story/Root" -> "story/root"). */
+    public static String toPath(String s) {
+        if (s == null) return "";
+        StringBuilder sb = new StringBuilder();
+        for (String seg : s.replace('\\', '/').split("/")) {
+            String clean = toId(seg);
+            if (clean.isEmpty()) continue;
+            if (!sb.isEmpty()) sb.append('/');
+            sb.append(clean);
+        }
+        return sb.toString();
+    }
+
     public static String toPascal(String id) {
+        if (id == null) return "Element";
         StringBuilder sb = new StringBuilder();
         for (String part : id.split("[^A-Za-z0-9]+")) {
             if (part.isEmpty()) continue;
@@ -39,12 +53,14 @@ public final class Ids {
     }
 
     public static String toConst(String id) {
+        if (id == null) return "_";
         String r = id.toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9_]", "_");
         if (r.isEmpty() || Character.isDigit(r.charAt(0))) r = "_" + r;
         return r;
     }
 
     public static String titleCase(String id) {
+        if (id == null || id.isBlank()) return "";
         StringBuilder sb = new StringBuilder();
         for (String part : id.split("[_\\s/]+")) {
             if (part.isEmpty()) continue;
@@ -55,12 +71,14 @@ public final class Ids {
     }
 
     public static String ns(String id) {
+        if (id == null) return "minecraft";
         String s = id.startsWith("#") ? id.substring(1) : id;
         int i = s.indexOf(':');
         return i < 0 ? "minecraft" : s.substring(0, i);
     }
 
     public static String path(String id) {
+        if (id == null) return "";
         String s = id.startsWith("#") ? id.substring(1) : id;
         int i = s.indexOf(':');
         return i < 0 ? s : s.substring(i + 1);

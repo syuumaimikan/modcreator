@@ -9,22 +9,43 @@ import java.util.Set;
 
 /**
  * What kind of project this is (a mod, a data pack, a resource pack, a server plugin or a Bedrock add-on), judged
- * from its export targets, and which element types make sense for it. The workspace uses this so a data pack project
- * does not look like a mod project.
+ * from its export targets, and which element types make sense for it. The workspace uses this so a data pack,
+ * resource pack or plugin project has its own focused workflow rather than looking like a mod project.
  */
 public final class ProjectScope {
     private ProjectScope() {}
 
     public enum Kind { MOD, PLUGIN, DATAPACK, RESOURCEPACK, BEDROCK, MIXED }
 
-    /** Element types whose files a resource pack carries (textures, models, sounds, fonts, shaders, translations). */
-    private static final Set<ElementType> RESOURCE_PACK = EnumSet.of(ElementType.ITEM, ElementType.ARMOR_MATERIAL, ElementType.STATUS_EFFECT,
-            ElementType.PAINTING, ElementType.SONG, ElementType.MODEL, ElementType.SHADER, ElementType.SOUND, ElementType.MENU, ElementType.THEME,
-            ElementType.ICON_FONT);
+    /** Native Resource Pack asset types shown for standalone Resource Pack projects. */
+    private static final Set<ElementType> RESOURCE_PACK_NATIVE = EnumSet.of(
+            ElementType.MODEL, ElementType.SHADER, ElementType.SOUND, ElementType.THEME, ElementType.ICON_FONT);
+
+    /** Data Pack types that additionally need a companion Resource Pack (CMD items, custom models/assets). */
+    private static final Set<ElementType> RESOURCE_PACK_PAIRED = EnumSet.of(
+            ElementType.ITEM, ElementType.ARMOR_MATERIAL, ElementType.STATUS_EFFECT, ElementType.POTION,
+            ElementType.PAINTING, ElementType.SONG, ElementType.MODEL, ElementType.SHADER, ElementType.SOUND,
+            ElementType.MENU, ElementType.THEME, ElementType.ICON_FONT, ElementType.ARMOR_TRIM, ElementType.BANNER_PATTERN);
+
+    /** Core Data Pack elements native to data-driven Java Edition datapacks (no resource pack/mod required). */
+    private static final Set<ElementType> DATAPACK_NATIVE = EnumSet.of(
+            ElementType.RECIPE, ElementType.LOOT_TABLE, ElementType.ADVANCEMENT, ElementType.TAG,
+            ElementType.FUNCTION, ElementType.PREDICATE, ElementType.ITEM_MODIFIER,
+            ElementType.ENCHANTMENT, ElementType.DAMAGE_TYPE, ElementType.PAINTING, ElementType.SONG,
+            ElementType.ARMOR_TRIM, ElementType.BANNER_PATTERN, ElementType.WORLD_FEATURE,
+            ElementType.BIOME, ElementType.DIMENSION, ElementType.STRUCTURE,
+            ElementType.TRADER, ElementType.DIALOG, ElementType.CUTSCENE,
+            ElementType.PROCEDURE, ElementType.COMMAND, ElementType.EFFECT,
+            ElementType.HUD, ElementType.MENU);
+
+    /** Heavy runtime/plugin/client shims that only appear for Mod or Plugin projects. */
+    private static final Set<ElementType> PLUGIN_OR_MOD_SHIMS = EnumSet.of(
+            ElementType.API_REQUEST, ElementType.RESOURCE, ElementType.MACHINE, ElementType.MULTIBLOCK,
+            ElementType.MOB, ElementType.KEYBIND);
 
     private static Map<ElementType, Set<Target>> support;
 
-    /** Targets that can export an element of the type in some form (natively or through a fallback). */
+    /** Targets that natively or cleanly support an element of the type. */
     public static synchronized Set<Target> targets(ElementType type) {
         if (support == null) {
             Map<ElementType, Set<Target>> m = new EnumMap<>(ElementType.class);
@@ -46,7 +67,11 @@ public final class ProjectScope {
             }
             for (ElementType t : ElementType.values()) {
                 Set<Target> s = m.computeIfAbsent(t, k -> EnumSet.noneOf(Target.class));
-                if (RESOURCE_PACK.contains(t)) s.add(Target.RESOURCEPACK);
+                if (RESOURCE_PACK_NATIVE.contains(t)) s.add(Target.RESOURCEPACK);
+                else s.remove(Target.RESOURCEPACK);
+                if (!DATAPACK_NATIVE.contains(t) || PLUGIN_OR_MOD_SHIMS.contains(t)) {
+                    s.remove(Target.DATAPACK);
+                }
                 if (t == ElementType.CODE_FILE) {
                     s.clear();
                     for (Target x : Target.values()) if (x.usesGradle()) s.add(x);
@@ -57,11 +82,17 @@ public final class ProjectScope {
         return support.get(type);
     }
 
-    /** Whether the type belongs in this project: one of its targets exports it, or the project already has one. */
+    /** Whether the type belongs in this project's sidebar/dashboard. Existing elements of any type remain editable. */
     public static boolean available(Project p, ElementType type) {
         if (!p.ofType(type).isEmpty()) return true;
+        List<Target> ts = p.targets();
+        if (ts.isEmpty()) return true;
+        Kind k = kind(ts);
+        if (k == Kind.DATAPACK && ts.contains(Target.DATAPACK) && ts.contains(Target.RESOURCEPACK)) {
+            if (RESOURCE_PACK_PAIRED.contains(type) && !PLUGIN_OR_MOD_SHIMS.contains(type)) return true;
+        }
         Set<Target> s = targets(type);
-        for (Target t : p.targets()) if (s.contains(t)) return true;
+        for (Target t : ts) if (s.contains(t)) return true;
         return false;
     }
 
@@ -91,7 +122,7 @@ public final class ProjectScope {
         return kind(p.targets());
     }
 
-    /** Whether some target compiles Java code (mods and plugins), so a Java package is needed. */
+    /** Whether some target compiles Java code (mods and plugins), so a Java package and Gradle build are needed. */
     public static boolean hasCode(List<Target> targets) {
         for (Target t : targets) if (t.usesGradle()) return true;
         return false;

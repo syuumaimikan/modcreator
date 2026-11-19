@@ -21,7 +21,11 @@ public final class PaperGen {
     }
 
     private boolean paperApi() {
-        return !ctx.version("api").equalsIgnoreCase("spigot");
+        return ctx.target == Target.FOLIA || !ctx.version("api").equalsIgnoreCase("spigot");
+    }
+
+    private boolean folia() {
+        return ctx.target == Target.FOLIA;
     }
 
     public void generate() {
@@ -29,13 +33,14 @@ public final class PaperGen {
         pluginYml();
         mainClass();
         procedures();
+        JavaSteps.writePaperHandlers(ctx, main);
         customItems();
         recipes();
         listener();
         adminCommand();
         String dp = res + "datapack/";
         new DataGen(ctx, dp, false, true).generate(false);
-        ctx.files.json(dp + "pack.mcmeta", J.obj("pack", J.obj("pack_format", ctx.v.dataFormat, "description", ctx.p.meta.name + " (plugin data)")));
+        ctx.files.json(dp + "pack.mcmeta", J.packMeta(ctx.v, false, ctx.p.meta.name + " (plugin data)"));
         StringBuilder index = new StringBuilder();
         for (String path : ctx.files.paths()) {
             if (path.startsWith(dp)) index.append(path.substring(dp.length())).append('\n');
@@ -58,22 +63,28 @@ public final class PaperGen {
         ctx.files.text("gradle/wrapper/gradle-wrapper.properties", Scaffold.wrapperProperties(ctx.version("gradle")));
         // run-paper downloads a Paper server for the play test ("runServer").
         String runPlugin = paper ? "    id 'xyz.jpenilla.run-paper' version '2.3.1'\n" : "";
+        String jvmPlugins = Scaffold.jvmPlugins(ctx);
         String runTask = paper ? "\ntasks.named('runServer') {\n    minecraftVersion('" + ctx.v.id + "')\n}\n" : "";
+        String customRepos = Scaffold.mavenRepos(ctx, "    ");
+        String jvmDeps = Scaffold.jvmDeps(ctx, false, true);
+        String jvmFooter = Scaffold.jvmFooter(ctx);
+        String customDeps = Scaffold.gradleDeps(ctx, "    ", false, true);
+        String customGradle = Scaffold.customGradle(ctx);
         ctx.files.text("build.gradle", """
                 plugins {
                     id 'java'
-                %s}
+                %s%s}
 
                 group = '%s'
                 version = '%s'
 
                 repositories {
                     mavenCentral()
-                %s}
+                %s%s}
 
                 dependencies {
                     compileOnly '%s'
-                }
+                %s%s}
 
                 base {
                     archivesName = '%s'
@@ -83,7 +94,7 @@ public final class PaperGen {
                     options.encoding = 'UTF-8'
                     options.release = %d
                 }
-                """.formatted(runPlugin, ctx.pkg, ctx.p.meta.version, repo, dep, ctx.ns, ctx.v.java) + runTask);
+                """.formatted(runPlugin, jvmPlugins, ctx.pkg, ctx.p.meta.version, repo, customRepos, dep, jvmDeps, customDeps, ctx.ns, ctx.v.java) + runTask + jvmFooter + customGradle);
         ctx.files.text(".gitignore", Scaffold.GITIGNORE);
     }
 
@@ -108,6 +119,7 @@ public final class PaperGen {
         y.append("version: ").append(yaml(m.version)).append('\n');
         y.append("main: ").append(ctx.pkg).append('.').append(main).append('\n');
         y.append("api-version: ").append(yaml(ctx.v.apiVersion)).append('\n');
+        if (folia()) y.append("folia-supported: true\n");
         if (!m.description.isBlank()) y.append("description: ").append(yaml(m.description)).append('\n');
         if (!m.authors.isBlank()) {
             y.append("authors: [");
@@ -116,6 +128,20 @@ public final class PaperGen {
             y.append(String.join(", ", a)).append("]\n");
         }
         if (!m.website.isBlank()) y.append("website: ").append(yaml(m.website)).append('\n');
+        List<String> reqDeps = new ArrayList<>(), softDeps = new ArrayList<>();
+        for (var dep : m.dependencies) {
+            if (dep.modId == null || dep.modId.isBlank()) continue;
+            (dep.required ? reqDeps : softDeps).add(yaml(dep.modId.trim()));
+        }
+        if (!reqDeps.isEmpty()) y.append("depend: [").append(String.join(", ", reqDeps)).append("]\n");
+        if (!softDeps.isEmpty()) y.append("softdepend: [").append(String.join(", ", softDeps)).append("]\n");
+        if (paperApi()) {
+            List<String> libs = new ArrayList<>();
+            if (Scaffold.hasJvmLang(ctx, "kotlin")) libs.add("'org.jetbrains.kotlin:kotlin-stdlib:2.1.20'");
+            if (Scaffold.hasJvmLang(ctx, "groovy")) libs.add("'org.apache.groovy:groovy:4.0.24'");
+            if (Scaffold.hasJvmLang(ctx, "scala")) libs.add("'org.scala-lang:scala3-library_3:3.5.2'");
+            if (!libs.isEmpty()) y.append("libraries:\n  - ").append(String.join("\n  - ", libs)).append('\n');
+        }
         y.append("commands:\n");
         y.append("  ").append(ctx.ns).append(":\n");
         y.append("    description: ").append(yaml("Give and list " + m.name + " items")).append('\n');
@@ -152,6 +178,7 @@ public final class PaperGen {
         s.l("CustomItems.init();");
         s.l("ModRecipes.register(this);");
         s.l("getServer().getPluginManager().registerEvents(new ModListener(), this);");
+        s.l("ModListener.startTickTasks(this);");
         s.l("PluginCommand admin = getCommand(MODID);");
         s.l("if (admin != null) {");
         s.l("AdminCommand handler = new AdminCommand();");
@@ -172,8 +199,20 @@ public final class PaperGen {
             s.l("tree" + Ids.toId(c.name).replace("_", "") + ".setTabCompleter(handler);");
             s.l("}");
         }
-        s.l("getServer().getScheduler().runTask(this, this::installDatapack);");
+        if (folia()) s.l("getServer().getGlobalRegionScheduler().run(this, task -> installDatapack());");
+        else s.l("getServer().getScheduler().runTask(this, this::installDatapack);");
         if (bridge.paperNeeded()) s.l("Bridge.start(this);");
+        for (var h : JavaSteps.hooks(ctx, "common_init")) s.l(h.fqcn() + "." + h.method() + "();");
+        for (var h : JavaSteps.hooks(ctx, "event_bus")) {
+            if (h.paperListener()) s.l("getServer().getPluginManager().registerEvents("
+                    + (h.fqcn().endsWith(".INSTANCE") ? h.fqcn() : "new " + h.fqcn() + "()") + ", this);");
+            else s.l(h.fqcn() + "." + h.method() + "();");
+        }
+        for (var h : JavaSteps.hooks(ctx, "register_commands")) s.l(h.fqcn() + "." + h.method() + "(this);");
+        for (var h : JavaSteps.hooks(ctx, "server_tick")) {
+            if (folia()) s.l("getServer().getGlobalRegionScheduler().runAtFixedRate(this, task -> " + h.fqcn() + "." + h.method() + "(this), 1L, 1L);");
+            else s.l("getServer().getScheduler().runTaskTimer(this, () -> " + h.fqcn() + "." + h.method() + "(this), 1L, 1L);");
+        }
         s.l("}");
         s.blank();
         if (bridge.paperNeeded()) {
@@ -237,11 +276,19 @@ public final class PaperGen {
         s.l("private Procedures() {").l("}");
         s.blank();
         s.l("public static void run(Entity entity, String function) {");
-        s.l("Bukkit.dispatchCommand(Bukkit.getConsoleSender(), \"execute as \" + entity.getUniqueId() + \" at @s run function \" + " + main + ".MODID + \":\" + function);");
+        if (folia()) {
+            s.l("Bukkit.getGlobalRegionScheduler().execute(" + main + ".get(), () -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), \"execute as \" + entity.getUniqueId() + \" at @s run function \" + " + main + ".MODID + \":\" + function));");
+        } else {
+            s.l("Bukkit.dispatchCommand(Bukkit.getConsoleSender(), \"execute as \" + entity.getUniqueId() + \" at @s run function \" + " + main + ".MODID + \":\" + function);");
+        }
         s.l("}");
         s.blank();
         s.l("public static void runServer(String function) {");
-        s.l("Bukkit.dispatchCommand(Bukkit.getConsoleSender(), \"function \" + " + main + ".MODID + \":\" + function);");
+        if (folia()) {
+            s.l("Bukkit.getGlobalRegionScheduler().execute(" + main + ".get(), () -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), \"function \" + " + main + ".MODID + \":\" + function));");
+        } else {
+            s.l("Bukkit.dispatchCommand(Bukkit.getConsoleSender(), \"function \" + " + main + ".MODID + \":\" + function);");
+        }
         s.l("}");
         s.l("}");
         ctx.files.text(ctx.javaDir() + "Procedures.java", s.toString());
@@ -270,8 +317,11 @@ public final class PaperGen {
             if (!tip.isBlank()) for (String l : tip.split("\\R")) lore.add(Src.str((l.contains("&") ? "" : "§7") + GenContext.legacy(l)));
             String name = it.displayName.isBlank() ? Ids.titleCase(it.name) : it.displayName;
             int stack = it.damageable() ? 1 : Math.max(1, Math.min(99, it.maxStack));
-            if (it.isArmor() && ctx.p.byName(ElementType.ARMOR_MATERIAL, it.armorMaterial) != null || it.customTooltip && ctx.v.atLeast(McVersion.V1_21_4)) {
-                // armor attributes, durability and the worn look are item components: parse the same stack as /give
+            boolean fullComponentItem = (it.isArmor() && ctx.p.byName(ElementType.ARMOR_MATERIAL, it.armorMaterial) != null)
+                    || (modern && (it.isTool() || it.kind.equals("food") || it.useCooldown > 0
+                    || (it.attributes != null && !it.attributes.isEmpty()) || it.customTooltip));
+            if (fullComponentItem) {
+                // armor attributes, durability, food, tools & custom components: parse the same stack as /give
                 s.imp("org.bukkit.Bukkit");
                 s.l("ITEMS.put(" + Src.str(it.name) + ", () -> Bukkit.getItemFactory().createItemStack(" + Src.str(ItemSpec.give(ctx, it)) + "));");
                 continue;
@@ -379,7 +429,7 @@ public final class PaperGen {
                     };
                     s.imp("org.bukkit.inventory." + cls);
                     s.l("try {");
-                    s.l("add(new " + cls + "(" + key + ", stack(" + Src.str(Ids.full(r.result)) + ", 1), choice(" + Src.str(Ids.full(r.input))
+                    s.l("add(new " + cls + "(" + key + ", " + result + ", choice(" + Src.str(Ids.full(r.input))
                             + "), " + Src.f(r.experience) + ", " + r.cookTime + "));");
                     s.l("} catch (RuntimeException e) {");
                     s.l("plugin.getLogger().warning(\"Recipe " + r.name + " skipped: \" + e.getMessage());");
@@ -396,7 +446,7 @@ public final class PaperGen {
                 case "smithing" -> {
                     s.imp("org.bukkit.inventory.SmithingTransformRecipe");
                     s.l("try {");
-                    s.l("add(new SmithingTransformRecipe(" + key + ", stack(" + Src.str(Ids.full(r.result)) + ", 1), choice(" + Src.str(Ids.full(r.template))
+                    s.l("add(new SmithingTransformRecipe(" + key + ", " + result + ", choice(" + Src.str(Ids.full(r.template))
                             + "), choice(" + Src.str(Ids.full(r.base)) + "), choice(" + Src.str(Ids.full(r.addition)) + ")));");
                     s.l("} catch (RuntimeException e) {");
                     s.l("plugin.getLogger().warning(\"Recipe " + r.name + " skipped: \" + e.getMessage());");
@@ -404,12 +454,19 @@ public final class PaperGen {
                 }
                 case "brewing" -> {
                     String in = Ids.full(r.input.trim()), out = Ids.full(r.result.trim());
-                    if (!in.startsWith("minecraft:") || !out.startsWith("minecraft:") || r.addition.isBlank()) continue;
+                    if (!paperApi() || r.addition.isBlank()) continue;
+                    String inP = HooksGen.projectPotion(ctx, in), outP = HooksGen.projectPotion(ctx, out);
+                    if ((!in.startsWith("minecraft:") && inP == null) || (!out.startsWith("minecraft:") && outP == null)) {
+                        ctx.note("brewing recipe " + r.name + " skipped: unknown potion");
+                        continue;
+                    }
                     s.imp("io.papermc.paper.potion.PotionMix");
                     s.l("try {");
                     s.l("for (String bottle : new String[] {\"potion\", \"splash_potion\", \"lingering_potion\"}) {");
-                    s.l("Bukkit.getPotionBrewer().addPotionMix(new PotionMix(new NamespacedKey(plugin, " + Src.str(r.name + "_") + " + bottle), potion(bottle, "
-                            + Src.str(out) + "), new RecipeChoice.ExactChoice(potion(bottle, " + Src.str(in) + ")), choice(" + Src.str(Ids.full(r.addition.trim())) + ")));");
+                    String outExpr = potionExpr(out, outP);
+                    String inExpr = potionExpr(in, inP);
+                    s.l("Bukkit.getPotionBrewer().addPotionMix(new PotionMix(new NamespacedKey(plugin, " + Src.str(r.name + "_") + " + bottle), "
+                            + outExpr + ", new RecipeChoice.ExactChoice(" + inExpr + "), choice(" + Src.str(Ids.full(r.addition.trim())) + ")));");
                     s.l("}");
                     s.l("} catch (RuntimeException e) {");
                     s.l("plugin.getLogger().warning(\"Recipe " + r.name + " skipped: \" + e.getMessage());");
@@ -425,6 +482,33 @@ public final class PaperGen {
         s.l("static ItemStack potion(String bottle, String potion) {");
         if (ctx.components()) s.l("return Bukkit.getItemFactory().createItemStack(\"minecraft:\" + bottle + \"[potion_contents={potion:\\\"\" + potion + \"\\\"}]\");");
         else s.l("return Bukkit.getItemFactory().createItemStack(\"minecraft:\" + bottle + \"{Potion:\\\"\" + potion + \"\\\"}\");");
+        s.l("}");
+        s.blank();
+        s.l("static ItemStack customPotion(String bottle, String id) {");
+        s.l("return switch (id) {");
+        GameplayGen gg = new GameplayGen(ctx, null, "", false, List.of(), (_r, _n, _p, _v) -> {});
+        java.util.Set<String> emitted = new java.util.HashSet<>();
+        for (Elements.Potion po : ctx.all(Elements.Potion.class)) {
+            emitted.add(po.name);
+            s.l("case " + Src.str(po.name) + " -> Bukkit.getItemFactory().createItemStack(");
+            s.l("        \"minecraft:\" + bottle + " + Src.str(gg.potionStack(po, "potion").substring("minecraft:potion".length())) + ");");
+        }
+        for (Elements.StatusEffect se : ctx.all(Elements.StatusEffect.class)) {
+            if (!se.potion || !emitted.add(se.name)) continue;
+            Elements.Potion po = new Elements.Potion();
+            po.name = se.name;
+            po.displayName = se.potionName.isBlank() ? "Potion of " + (se.displayName.isBlank() ? Ids.titleCase(se.name) : se.displayName) : se.potionName;
+            po.color = se.color;
+            Elements.PotionEffect pe = new Elements.PotionEffect();
+            pe.effect = ctx.id(se.name);
+            pe.seconds = se.potionSeconds;
+            pe.amplifier = se.potionAmplifier;
+            po.effects.add(pe);
+            s.l("case " + Src.str(po.name) + " -> Bukkit.getItemFactory().createItemStack(");
+            s.l("        \"minecraft:\" + bottle + " + Src.str(gg.potionStack(po, "potion").substring("minecraft:potion".length())) + ");");
+        }
+        s.l("default -> potion(bottle, \"minecraft:water\");");
+        s.l("};");
         s.l("}");
         s.blank();
         s.l("private static void add(Recipe recipe) {");
@@ -462,13 +546,18 @@ public final class PaperGen {
         ctx.files.text(ctx.javaDir() + "ModRecipes.java", s.toString());
     }
 
+    private static String potionExpr(String fullId, String projName) {
+        return projName != null ? "customPotion(bottle, " + Src.str(projName) + ")" : "potion(bottle, " + Src.str(fullId) + ")";
+    }
+
     private void listener() {
         Src s = new Src(ctx.pkg);
-        s.imp("org.bukkit.event.EventHandler", "org.bukkit.event.Listener");
+        s.imp("org.bukkit.event.EventHandler", "org.bukkit.event.Listener", "org.bukkit.plugin.java.JavaPlugin");
         s.l("public final class ModListener implements Listener {");
         List<Procedure> rc = new ArrayList<>();
         for (Procedure p : ctx.all(Procedure.class)) if (p.trigger.equals("item_right_click") && !p.triggerValue.isBlank()) rc.add(p);
-        if (!rc.isEmpty()) {
+        List<Item> onUseItems = ctx.all(Item.class).stream().filter(it -> !it.onUse.isEmpty()).toList();
+        if (!rc.isEmpty() || !onUseItems.isEmpty()) {
             s.imp("org.bukkit.Bukkit", "org.bukkit.Material", "org.bukkit.NamespacedKey", "org.bukkit.Tag",
                     "org.bukkit.event.block.Action", "org.bukkit.event.player.PlayerInteractEvent",
                     "org.bukkit.inventory.EquipmentSlot", "org.bukkit.inventory.ItemStack");
@@ -480,6 +569,9 @@ public final class PaperGen {
             s.l("if (stack == null) return;");
             s.l("String custom = CustomItems.idOf(stack);");
             s.l("String vanilla = stack.getType().getKey().toString();");
+            for (Item it : onUseItems) {
+                s.l("if (" + Src.str(it.name) + ".equals(custom)) Procedures.run(event.getPlayer(), " + Src.str("items/" + it.name + "/on_use") + ");");
+            }
             for (Procedure p : rc) {
                 String id = Ids.full(p.triggerValue);
                 String cond;
@@ -489,13 +581,95 @@ public final class PaperGen {
                 s.l("if (" + cond + ") Procedures.run(event.getPlayer(), " + Src.str("procedures/" + p.name) + ");");
             }
             s.l("}");
-            s.blank();
-            s.l("private static boolean isTagged(String tag, Material material) {");
-            s.l("Tag<Material> t = Bukkit.getTag(Tag.REGISTRY_ITEMS, NamespacedKey.fromString(tag), Material.class);");
-            s.l("return t != null && t.isTagged(material);");
+            if (!rc.isEmpty()) {
+                s.blank();
+                s.l("private static boolean isTagged(String tag, Material material) {");
+                s.l("Tag<Material> t = Bukkit.getTag(Tag.REGISTRY_ITEMS, NamespacedKey.fromString(tag), Material.class);");
+                s.l("return t != null && t.isTagged(material);");
+                s.l("}");
+            }
+        }
+        List<Item> onHitItems = ctx.all(Item.class).stream().filter(it -> !it.onHitEntity.isEmpty()).toList();
+        if (!onHitItems.isEmpty()) {
+            s.imp("org.bukkit.entity.Player", "org.bukkit.event.entity.EntityDamageByEntityEvent", "org.bukkit.inventory.ItemStack");
+            s.blank().l("@EventHandler(ignoreCancelled = true)");
+            s.l("public void onHitEntity(EntityDamageByEntityEvent event) {");
+            s.l("if (!(event.getDamager() instanceof Player attacker)) return;");
+            s.l("ItemStack stack = attacker.getInventory().getItemInMainHand();");
+            s.l("String custom = CustomItems.idOf(stack);");
+            if (onHitItems.size() > 0) {
+                for (Item it : onHitItems) {
+                    s.l("if (" + Src.str(it.name) + ".equals(custom)) Procedures.run(attacker, " + Src.str("items/" + it.name + "/on_hit") + ");");
+                }
+            }
+            s.l("}");
+        }
+        List<Recipe> keepRecs = ctx.all(Recipe.class).stream()
+                .filter(r -> r.keepRemainder && (r.recipeType.equals("shaped") || r.recipeType.equals("shapeless"))).toList();
+        if (!keepRecs.isEmpty()) {
+            s.imp("org.bukkit.Bukkit", "org.bukkit.Keyed", "org.bukkit.entity.Player",
+                    "org.bukkit.event.inventory.CraftItemEvent", "org.bukkit.inventory.CraftingInventory",
+                    "org.bukkit.inventory.ItemStack", "java.util.Set");
+            List<String> names = keepRecs.stream().map(r -> Src.str(r.name)).toList();
+            s.blank().l("private static final Set<String> KEEP_REMAINDER = Set.of(" + String.join(", ", names) + ");");
+            s.blank().l("@EventHandler(ignoreCancelled = true)");
+            s.l("public void onCraftKeepRemainder(CraftItemEvent event) {");
+            s.l("if (!(event.getRecipe() instanceof Keyed keyed) || !KEEP_REMAINDER.contains(keyed.getKey().getKey())) return;");
+            s.l("CraftingInventory inv = event.getInventory(); ItemStack[] snap = inv.getMatrix();");
+            s.l("ItemStack[] restore = new ItemStack[snap.length];");
+            s.l("for (int i = 0; i < snap.length; i++) if (snap[i] != null && !snap[i].getType().isAir()) { restore[i] = snap[i].clone(); restore[i].setAmount(1); }");
+            s.l("JavaPlugin plugin = JavaPlugin.getProvidingPlugin(ModListener.class);");
+            s.l("Runnable task = () -> { for (int i = 0; i < restore.length; i++) if (restore[i] != null) inv.setItem(i + 1, restore[i]); };");
+            if (folia()) s.l("if (event.getWhoClicked() instanceof Player pl) pl.getScheduler().run(plugin, t -> task.run(), null);");
+            else s.l("Bukkit.getScheduler().runTask(plugin, task);");
             s.l("}");
         }
         lootInjection(s);
+        List<Item> tickItems = ctx.all(Item.class).stream().filter(it -> !it.onTickInHand.isEmpty()).toList();
+        List<Elements.ArmorMaterial> bonusMats = ctx.all(Elements.ArmorMaterial.class).stream().filter(m -> !m.setBonusEffect.isBlank()).toList();
+        s.blank().l("public static void startTickTasks(JavaPlugin plugin) {");
+        if (!tickItems.isEmpty() || !bonusMats.isEmpty()) {
+            s.imp("org.bukkit.Bukkit", "org.bukkit.entity.Player");
+            if (folia()) s.l("Bukkit.getGlobalRegionScheduler().runAtFixedRate(plugin, t -> { for (Player pl : Bukkit.getOnlinePlayers()) pl.getScheduler().run(plugin, pt -> tickPlayer(pl), null); }, 10L, 10L);");
+            else s.l("Bukkit.getScheduler().runTaskTimer(plugin, () -> { for (Player pl : Bukkit.getOnlinePlayers()) tickPlayer(pl); }, 10L, 10L);");
+        }
+        s.l("}");
+        if (!tickItems.isEmpty() || !bonusMats.isEmpty()) {
+            s.blank().l("private static void tickPlayer(Player pl) {");
+            if (!tickItems.isEmpty()) {
+                s.l("String mainId = CustomItems.idOf(pl.getInventory().getItemInMainHand());");
+                s.l("String offId = CustomItems.idOf(pl.getInventory().getItemInOffHand());");
+                for (Item it : tickItems) {
+                    s.l("if (" + Src.str(it.name) + ".equals(mainId) || " + Src.str(it.name) + ".equals(offId)) Procedures.run(pl, " + Src.str("items/" + it.name + "/on_tick") + ");");
+                }
+            }
+            if (!bonusMats.isEmpty()) {
+                s.imp("org.bukkit.NamespacedKey", "org.bukkit.Registry", "org.bukkit.potion.PotionEffect", "org.bukkit.potion.PotionEffectType");
+                for (Elements.ArmorMaterial am : bonusMats) {
+                    List<String> slotConds = new ArrayList<>();
+                    for (var slot : List.of("helmet", "chestplate", "leggings", "boots")) {
+                        List<String> ids = ctx.all(Item.class).stream()
+                                .filter(it -> it.kind.equals(slot) && am.name.equals(it.armorMaterial))
+                                .map(it -> Src.str(it.name)).toList();
+                        if (ids.isEmpty()) continue;
+                        String getter = switch (slot) {
+                            case "helmet" -> "getHelmet()";
+                            case "chestplate" -> "getChestplate()";
+                            case "leggings" -> "getLeggings()";
+                            default -> "getBoots()";
+                        };
+                        slotConds.add("java.util.Set.of(" + String.join(", ", ids) + ").contains(CustomItems.idOf(pl.getInventory()." + getter + "))");
+                    }
+                    if (slotConds.isEmpty()) continue;
+                    String effId = Ids.full(am.setBonusEffect.trim());
+                    s.l("if (" + String.join(" && ", slotConds) + ") {");
+                    s.l("PotionEffectType pet = Registry.EFFECT.get(NamespacedKey.fromString(" + Src.str(effId) + "));");
+                    s.l("if (pet != null) pl.addPotionEffect(new PotionEffect(pet, 60, " + Math.max(0, Math.min(255, am.setBonusAmplifier)) + ", true, false));");
+                    s.l("}");
+                }
+            }
+            s.l("}");
+        }
         s.l("}");
         ctx.files.text(ctx.javaDir() + "ModListener.java", s.toString());
     }
@@ -553,7 +727,9 @@ public final class PaperGen {
         s.l("if (ids.isEmpty()) return;");
         s.l("Location at = event.getBlock().getLocation().add(0.5, 0.5, 0.5);");
         s.l("for (String id : ids) {");
-        s.l("Bukkit.dispatchCommand(Bukkit.getConsoleSender(), \"execute in \" + at.getWorld().getKey() + \" run loot spawn \" + at.getX() + \" \" + at.getY() + \" \" + at.getZ() + \" loot \" + id);");
+        s.l("String cmd = \"execute in \" + at.getWorld().getKey() + \" run loot spawn \" + at.getX() + \" \" + at.getY() + \" \" + at.getZ() + \" loot \" + id;");
+        if (folia()) s.l("Bukkit.getGlobalRegionScheduler().execute(" + main + ".get(), () -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd));");
+        else s.l("Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd);");
         s.l("}");
         s.l("}");
     }

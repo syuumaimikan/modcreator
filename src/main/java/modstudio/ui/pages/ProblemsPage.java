@@ -4,6 +4,7 @@ import javafx.collections.ListChangeListener;
 import javafx.collections.transformation.FilteredList;
 import javafx.geometry.Insets;
 import javafx.scene.control.*;
+import javafx.scene.input.KeyCode;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
@@ -14,10 +15,13 @@ import modstudio.ui.Ui;
 import modstudio.ui.WorkspaceView;
 import org.kordamp.ikonli.javafx.FontIcon;
 
-/** All validation results; double-click opens the element. */
+import java.util.Locale;
+
+/** All validation results; double-click or press Enter to open the element. */
 public final class ProblemsPage extends BorderPane implements WorkspaceView.Page {
     private final WorkspaceView view;
     private final FilteredList<Validator.Problem> filtered;
+    private final TextField search = new TextField();
     private final ToggleButton errors = new ToggleButton();
     private final ToggleButton warnings = new ToggleButton();
     private final ToggleButton infos = new ToggleButton();
@@ -25,6 +29,9 @@ public final class ProblemsPage extends BorderPane implements WorkspaceView.Page
     public ProblemsPage(WorkspaceView view) {
         this.view = view;
         filtered = new FilteredList<>(view.ws.problems());
+        search.setPromptText(t("action.search"));
+        search.setPrefWidth(220);
+        search.textProperty().addListener((o, a, b) -> filter());
         for (ToggleButton b : new ToggleButton[]{errors, warnings, infos}) {
             b.setSelected(true);
             b.selectedProperty().addListener((o, a, c) -> filter());
@@ -37,7 +44,7 @@ public final class ProblemsPage extends BorderPane implements WorkspaceView.Page
 
         Button revalidate = Ui.button(t("problems.revalidate"), "mdi2r-refresh", view.ws::validate);
         VBox head = new VBox(4, Ui.label(t("page.problems"), "title-2"), Ui.muted(t("problems.subtitle")));
-        HBox bar = Ui.hbox(8, head, Ui.spacer(), errors, warnings, infos, revalidate);
+        HBox bar = Ui.hbox(8, head, Ui.spacer(), search, errors, warnings, infos, revalidate);
         bar.setPadding(new Insets(20, 24, 12, 24));
         setTop(bar);
 
@@ -64,14 +71,19 @@ public final class ProblemsPage extends BorderPane implements WorkspaceView.Page
             }
         });
         list.setOnMouseClicked(e -> {
-            if (e.getClickCount() != 2) return;
-            Validator.Problem pr = list.getSelectionModel().getSelectedItem();
-            if (pr == null) return;
-            if (pr.elementUid() != null) view.openElement(pr.elementUid());
-            else view.show("overview");
+            if (e.getClickCount() == 2) openProblem(list.getSelectionModel().getSelectedItem());
+        });
+        list.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) openProblem(list.getSelectionModel().getSelectedItem());
         });
         BorderPane.setMargin(list, new Insets(0, 24, 20, 24));
         setCenter(list);
+    }
+
+    private void openProblem(Validator.Problem pr) {
+        if (pr == null) return;
+        if (pr.elementUid() != null) view.openElement(pr.elementUid());
+        else view.show("overview");
     }
 
     private static String t(String k, Object... a) {
@@ -93,10 +105,19 @@ public final class ProblemsPage extends BorderPane implements WorkspaceView.Page
     }
 
     private void filter() {
-        filtered.setPredicate(p -> switch (p.severity()) {
-            case ERROR -> errors.isSelected();
-            case WARNING -> warnings.isSelected();
-            case INFO -> infos.isSelected();
+        String q = search.getText() == null ? "" : search.getText().trim().toLowerCase(Locale.ROOT);
+        filtered.setPredicate(p -> {
+            boolean sev = switch (p.severity()) {
+                case ERROR -> errors.isSelected();
+                case WARNING -> warnings.isSelected();
+                case INFO -> infos.isSelected();
+            };
+            if (!sev) return false;
+            if (q.isEmpty()) return true;
+            if (p.message() != null && p.message().toLowerCase(Locale.ROOT).contains(q)) return true;
+            Element e = p.elementUid() == null ? null : view.ws.project.byUid(p.elementUid());
+            return e != null && (e.name.toLowerCase(Locale.ROOT).contains(q)
+                    || t("type." + e.type().id).toLowerCase(Locale.ROOT).contains(q));
         });
     }
 

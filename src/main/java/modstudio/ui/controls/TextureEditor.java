@@ -29,9 +29,23 @@ import modstudio.ui.Ui;
 import java.nio.file.Files;
 import java.util.*;
 
-/** Pixel editor for project textures. */
+/** Pixel editor for project textures with layers, box selection, copy/paste and animated frame strips. */
 public final class TextureEditor {
-    private enum Tool { PENCIL, ERASER, FILL, PICKER, LINE, RECT }
+    private enum Tool { PENCIL, ERASER, FILL, PICKER, LINE, RECT, SELECT }
+
+    private static final class Layer {
+        String name;
+        boolean visible = true;
+        int[] px;
+
+        Layer(String name, int[] px) {
+            this.name = name;
+            this.px = px;
+        }
+    }
+
+    private record LayerSnap(String name, boolean visible, int[] px) {}
+    private record UndoSnap(int w, int h, int fcount, int frame, int activeLayer, List<LayerSnap> layers) {}
 
     private static final int[] PALETTE = {
             0xFF000000, 0xFF3F3F3F, 0xFF7F7F7F, 0xFFBFBFBF, 0xFFFFFFFF, 0xFF6B3E1E, 0xFF9C6B3A, 0xFFD8B27A,
@@ -40,9 +54,12 @@ public final class TextureEditor {
     private final Stage stage = new Stage();
     private final TextureAsset asset;
     private int w, h;
-    private int[] px;
-    private final Deque<int[]> undo = new ArrayDeque<>();
-    private final Deque<int[]> redo = new ArrayDeque<>();
+    private final List<Layer> layers = new ArrayList<>();
+    private int activeLayer = 0;
+    private final ListView<Layer> layerList = new ListView<>();
+    private boolean syncingLayers;
+    private final Deque<UndoSnap> undo = new ArrayDeque<>();
+    private final Deque<UndoSnap> redo = new ArrayDeque<>();
     private Tool tool = Tool.PENCIL;
     private final ColorPicker color = new ColorPicker(Color.web("#D8263F"));
     private final Canvas canvas = new Canvas(512, 512);
@@ -58,6 +75,12 @@ public final class TextureEditor {
     private int startX, startY, lastX, lastY;
     private boolean dragging;
     private int[] shapeBase;
+    private int selX, selY, selW, selH;
+    private int[] selFloat;
+    private int selOrigX, selOrigY;
+    private boolean movingSel;
+    private int[] clipboard;
+    private int clipW, clipH;
     private boolean saved;
     private boolean grid = true;
     // Animation: frames are square and stacked from top to bottom, like the game expects them.
@@ -75,14 +98,15 @@ public final class TextureEditor {
 
     private TextureEditor(Window owner, TextureAsset asset, String templateHint, java.util.function.Function<String, String> nameCheck) {
         this.asset = asset;
-        this.px = asset.pixels();
+        int[] initial = asset.pixels();
         this.w = asset.width;
         this.h = asset.height;
-        if (px.length != w * h) {
+        if (initial.length != w * h) {
             w = 16;
             h = 16;
-            px = new int[256];
+            initial = new int[256];
         }
+        layers.add(new Layer(I18n.t("texture.layer_base"), initial));
         fcount = asset.frames();
         frameTime = asset.frameTime;
         interp = asset.interpolate;
@@ -112,16 +136,20 @@ public final class TextureEditor {
         addTool(tools, tg, Tool.PICKER, "mdi2e-eyedropper", "I");
         addTool(tools, tg, Tool.LINE, "mdi2v-vector-line", "L");
         addTool(tools, tg, Tool.RECT, "mdi2r-rectangle-outline", "R");
+        addTool(tools, tg, Tool.SELECT, "mdi2s-selection-drag", "M");
         toolButtons.get(Tool.PENCIL).setSelected(true);
 
         Button undoB = Ui.iconButton("mdi2u-undo", I18n.t("texture.undo") + " (Ctrl+Z)", this::undo);
         Button redoB = Ui.iconButton("mdi2r-redo", I18n.t("texture.redo") + " (Ctrl+Y)", this::redo);
+        Button cutB = Ui.iconButton("mdi2c-content-cut", I18n.t("texture.cut") + " (Ctrl+X)", () -> copySelection(true));
+        Button copyB = Ui.iconButton("mdi2c-content-copy", I18n.t("texture.copy") + " (Ctrl+C)", () -> copySelection(false));
+        Button pasteB = Ui.iconButton("mdi2c-content-paste", I18n.t("texture.paste") + " (Ctrl+V)", this::pasteSelection);
         Button flipH = Ui.iconButton("mdi2f-flip-horizontal", I18n.t("texture.flip_h"), () -> transform(0));
         Button flipV = Ui.iconButton("mdi2f-flip-vertical", I18n.t("texture.flip_v"), () -> transform(1));
         Button rot = Ui.iconButton("mdi2r-rotate-right", I18n.t("texture.rotate"), () -> transform(2));
         Button clear = Ui.iconButton("mdi2d-delete-outline", I18n.t("texture.clear"), () -> {
             push();
-            Arrays.fill(px, y0() * w, (y0() + fh()) * w, 0);
+            Arrays.fill(px(), y0() * w, (y0() + fh()) * w, 0);
             redraw();
         });
         ToggleButton gridB = new ToggleButton();
@@ -133,7 +161,7 @@ public final class TextureEditor {
             grid = b;
             redraw();
         });
-        FlowPane edits = new FlowPane(2, 2, undoB, redoB, flipH, flipV, rot, gridB, clear);
+        FlowPane edits = new FlowPane(2, 2, undoB, redoB, cutB, copyB, pasteB, flipH, flipV, rot, gridB, clear);
         edits.setPrefWrapLength(120);
         tools.getChildren().addAll(new Separator(), edits);
         tools.setPrefWidth(130);
@@ -174,7 +202,7 @@ public final class TextureEditor {
             int[] gs = TextureTemplates.size(template.getValue());
             int fh = fh();
             int[] f = (w == gs[0] && fh == gs[1]) ? g : Images.resize(g, gs[0], gs[1], w, fh);
-            System.arraycopy(f, 0, px, y0() * w, f.length);
+            System.arraycopy(f, 0, px(), y0() * w, f.length);
             redraw();
         });
         gen.setMaxWidth(Double.MAX_VALUE);
@@ -184,15 +212,19 @@ public final class TextureEditor {
         size.valueProperty().addListener((o, a, b) -> {
             if (b == null || (b == w && b == fh())) return;
             push();
-            px = Images.resize(px, w, h, b, b * fcount);
+            for (Layer l : layers) l.px = Images.resize(l.px, w, h, b, b * fcount);
             w = b;
             h = b * fcount;
+            clearSelection();
             redraw();
         });
 
         preview1.setSmooth(false);
         preview2.setSmooth(false);
         HBox previews = Ui.hbox(12, framed(preview1), framed(preview2));
+
+        // Layers panel
+        VBox layersPane = buildLayersPane();
 
         // Animation
         framesSpin.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(1, 64, fcount));
@@ -236,11 +268,13 @@ public final class TextureEditor {
         importB.setMaxWidth(Double.MAX_VALUE);
         exportB.setMaxWidth(Double.MAX_VALUE);
 
-        VBox right = new VBox(8,
+        VBox right = new VBox(6,
                 Ui.label(I18n.t("texture.color"), "form-label"), color,
                 Ui.label(I18n.t("texture.palette"), "form-label"), palette,
                 Ui.label(I18n.t("texture.shades"), "form-label"), shades,
                 Ui.label(I18n.t("texture.recent"), "form-label"), recent,
+                new Separator(),
+                Ui.label(I18n.t("texture.layers"), "form-label"), layersPane,
                 new Separator(),
                 Ui.label(I18n.t("texture.template"), "form-label"), template, gen,
                 new Separator(),
@@ -249,9 +283,9 @@ public final class TextureEditor {
                 new Separator(),
                 Ui.label(I18n.t("texture.animation"), "form-label"), anim,
                 new Separator(), importB, exportB);
-        right.setPrefWidth(220);
+        right.setPrefWidth(226);
         ScrollPane rightScroll = Ui.scroll(right);
-        rightScroll.setPrefWidth(244);
+        rightScroll.setPrefWidth(256);
         rightScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
 
         HBox top = Ui.hbox(10, Ui.label(I18n.t("texture.name"), "form-label"), name, nameErr, Ui.spacer(), status);
@@ -261,7 +295,7 @@ public final class TextureEditor {
             asset.name = name.getText().trim();
             asset.width = w;
             asset.height = h;
-            asset.png = Images.encode(px, w, h);
+            asset.png = Images.encode(flattened(), w, h);
             asset.frameTime = fcount > 1 ? Math.max(1, frameTime == 0 ? 2 : frameTime) : 0;
             asset.interpolate = fcount > 1 && interp;
             saved = true;
@@ -283,10 +317,19 @@ public final class TextureEditor {
         root.setPadding(new Insets(14));
         root.getStyleClass().add("texture-editor");
 
-        Scene scene = new Scene(root, 960, 680);
+        Scene scene = new Scene(root, 1020, 790);
         Ui.style(scene);
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.Z, KeyCombination.SHORTCUT_DOWN), this::undo);
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.Y, KeyCombination.SHORTCUT_DOWN), this::redo);
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.C, KeyCombination.SHORTCUT_DOWN), () -> {
+            if (!name.isFocused()) copySelection(false);
+        });
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.X, KeyCombination.SHORTCUT_DOWN), () -> {
+            if (!name.isFocused()) copySelection(true);
+        });
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.V, KeyCombination.SHORTCUT_DOWN), () -> {
+            if (!name.isFocused()) pasteSelection();
+        });
         scene.setOnKeyPressed(e -> {
             if (name.isFocused()) return;
             switch (e.getCode()) {
@@ -296,13 +339,20 @@ public final class TextureEditor {
                 case I -> selectTool(Tool.PICKER);
                 case L -> selectTool(Tool.LINE);
                 case R -> selectTool(Tool.RECT);
+                case M -> selectTool(Tool.SELECT);
                 case COMMA -> goFrame(-1);
                 case PERIOD -> goFrame(1);
+                case ESCAPE -> {
+                    clearSelection();
+                    redraw();
+                }
+                case DELETE, BACK_SPACE -> deleteSelection();
                 default -> {
                 }
             }
         });
         stage.setScene(scene);
+        syncLayerList();
         updateShades();
         redraw();
     }
@@ -317,6 +367,127 @@ public final class TextureEditor {
     /** Creates the editor without showing it (used for screenshots). */
     public static Scene sceneFor(Window owner, TextureAsset asset) {
         return new TextureEditor(owner, asset, "gem", n -> null).stage.getScene();
+    }
+
+    // ------------------------------------------------------------------ layers
+
+    private VBox buildLayersPane() {
+        layerList.setPrefHeight(84);
+        layerList.setCellFactory(lv -> new ListCell<>() {
+            @Override protected void updateItem(Layer item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                    setGraphic(null);
+                    return;
+                }
+                CheckBox vis = new CheckBox();
+                vis.setSelected(item.visible);
+                vis.setOnAction(ev -> {
+                    push();
+                    item.visible = vis.isSelected();
+                    redraw();
+                });
+                Label lbl = new Label(item.name);
+                HBox row = Ui.hbox(6, vis, lbl);
+                row.setAlignment(Pos.CENTER_LEFT);
+                setGraphic(row);
+            }
+        });
+        layerList.getSelectionModel().selectedIndexProperty().addListener((o, a, b) -> {
+            if (!syncingLayers && b != null && b.intValue() >= 0) {
+                activeLayer = b.intValue();
+            }
+        });
+        Button add = Ui.iconButton("mdi2p-plus", I18n.t("texture.layer_add"), this::addLayer);
+        Button del = Ui.iconButton("mdi2d-delete-outline", I18n.t("texture.layer_delete"), this::deleteLayer);
+        Button merge = Ui.iconButton("mdi2m-merge", I18n.t("texture.layer_merge"), this::mergeDown);
+        Button up = Ui.iconButton("mdi2c-chevron-up", I18n.t("action.move_up"), () -> moveLayer(-1));
+        Button down = Ui.iconButton("mdi2c-chevron-down", I18n.t("action.move_down"), () -> moveLayer(1));
+        HBox bar = Ui.hbox(2, add, del, merge, Ui.spacer(), up, down);
+        return new VBox(4, layerList, bar);
+    }
+
+    private void syncLayerList() {
+        syncingLayers = true;
+        layerList.getItems().setAll(layers);
+        activeLayer = Math.max(0, Math.min(activeLayer, layers.size() - 1));
+        layerList.getSelectionModel().select(activeLayer);
+        layerList.refresh();
+        syncingLayers = false;
+    }
+
+    private void addLayer() {
+        push();
+        layers.add(activeLayer + 1, new Layer(I18n.t("texture.layer_n", layers.size() + 1), new int[w * h]));
+        activeLayer++;
+        syncLayerList();
+        redraw();
+    }
+
+    private void deleteLayer() {
+        if (layers.size() <= 1) return;
+        push();
+        layers.remove(activeLayer);
+        activeLayer = Math.min(activeLayer, layers.size() - 1);
+        syncLayerList();
+        redraw();
+    }
+
+    private void mergeDown() {
+        if (activeLayer <= 0) return;
+        push();
+        Layer top = layers.remove(activeLayer);
+        Layer bottom = layers.get(activeLayer - 1);
+        if (top.visible) {
+            for (int i = 0; i < bottom.px.length && i < top.px.length; i++) {
+                bottom.px[i] = blendOver(bottom.px[i], top.px[i]);
+            }
+        }
+        activeLayer--;
+        syncLayerList();
+        redraw();
+    }
+
+    private void moveLayer(int dir) {
+        int next = activeLayer + dir;
+        if (next < 0 || next >= layers.size()) return;
+        push();
+        Collections.swap(layers, activeLayer, next);
+        activeLayer = next;
+        syncLayerList();
+        redraw();
+    }
+
+    private int[] px() {
+        return layers.get(activeLayer).px;
+    }
+
+    private void setPx(int[] p) {
+        layers.get(activeLayer).px = p;
+    }
+
+    private int[] flattened() {
+        int[] out = new int[w * h];
+        for (Layer l : layers) {
+            if (!l.visible || l.px.length != out.length) continue;
+            for (int i = 0; i < out.length; i++) out[i] = blendOver(out[i], l.px[i]);
+        }
+        return out;
+    }
+
+    private static int blendOver(int bg, int fg) {
+        int fa = (fg >>> 24) & 255;
+        if (fa == 0) return bg;
+        if (fa == 255 || (bg >>> 24) == 0) return fg;
+        int ba = (bg >>> 24) & 255;
+        int inv = 255 - fa;
+        int oa = fa + (ba * inv + 127) / 255;
+        if (oa == 0) return 0;
+        int r = (((fg >> 16) & 255) * fa + ((bg >> 16) & 255) * ba * inv / 255) / oa;
+        int g = (((fg >> 8) & 255) * fa + ((bg >> 8) & 255) * ba * inv / 255) / oa;
+        int b = ((fg & 255) * fa + (bg & 255) * ba * inv / 255) / oa;
+        return (Math.min(255, oa) << 24) | (Math.min(255, r) << 16) | (Math.min(255, g) << 8) | Math.min(255, b);
     }
 
     // ------------------------------------------------------------------ UI parts
@@ -373,16 +544,12 @@ public final class TextureEditor {
         for (int c : recentColors) recent.getChildren().add(swatch(c));
     }
 
-    // ------------------------------------------------------------------ painting
+    // ------------------------------------------------------------------ painting & selection
 
-    // The pixels are one strip of square frames stacked from top to bottom; the canvas shows the current frame.
-
-    /** Height of one frame. */
     private int fh() {
         return fcount > 1 ? w : h;
     }
 
-    /** First row of the current frame in the strip. */
     private int y0() {
         return frame * fh();
     }
@@ -411,6 +578,16 @@ public final class TextureEditor {
         return x >= 0 && x < w && y >= y0() && y < y0() + fh() && y < h;
     }
 
+    private boolean hasSelection() {
+        return selW > 0 && selH > 0;
+    }
+
+    private void clearSelection() {
+        selW = selH = 0;
+        selFloat = null;
+        movingSel = false;
+    }
+
     private int paintColor(MouseEvent e) {
         if (tool == Tool.ERASER || e.getButton() == MouseButton.SECONDARY) return 0;
         return argb(color.getValue());
@@ -419,10 +596,47 @@ public final class TextureEditor {
     private void pressed(MouseEvent e) {
         int x = cx(e), y = cy(e);
         if (!inside(x, y)) return;
+        int ly = y - y0();
         if (tool == Tool.PICKER) {
-            int c = px[y * w + x];
+            int c = flattened()[y * w + x];
+            if ((c >>> 24) == 0) c = px()[y * w + x];
             if ((c >>> 24) != 0) color.setValue(fx(c));
             selectTool(Tool.PENCIL);
+            return;
+        }
+        if (tool == Tool.SELECT) {
+            if (e.getButton() == MouseButton.SECONDARY) {
+                clearSelection();
+                redraw();
+                return;
+            }
+            if (hasSelection() && x >= selX && x < selX + selW && ly >= selY && ly < selY + selH) {
+                push();
+                selFloat = new int[selW * selH];
+                int[] p = px();
+                for (int dy = 0; dy < selH; dy++) {
+                    for (int dx = 0; dx < selW; dx++) {
+                        int gx = selX + dx, gy = y0() + selY + dy;
+                        if (inside(gx, gy)) {
+                            selFloat[dy * selW + dx] = p[gy * w + gx];
+                            p[gy * w + gx] = 0;
+                        }
+                    }
+                }
+                movingSel = true;
+                selOrigX = selX;
+                selOrigY = selY;
+            } else {
+                movingSel = false;
+                selX = x;
+                selY = ly;
+                selW = 1;
+                selH = 1;
+            }
+            startX = lastX = x;
+            startY = lastY = y;
+            dragging = true;
+            redraw();
             return;
         }
         push();
@@ -430,7 +644,7 @@ public final class TextureEditor {
         switch (tool) {
             case PENCIL, ERASER -> set(x, y, c);
             case FILL -> fill(x, y, c);
-            case LINE, RECT -> shapeBase = px.clone();
+            case LINE, RECT -> shapeBase = px().clone();
             default -> {
             }
         }
@@ -444,17 +658,34 @@ public final class TextureEditor {
     private void dragged(MouseEvent e) {
         if (!dragging) return;
         int x = Math.max(0, Math.min(w - 1, cx(e))), y = Math.max(y0(), Math.min(y0() + fh() - 1, cy(e)));
+        int ly = y - y0();
         hoverX = x;
         hoverY = y;
+        if (tool == Tool.SELECT) {
+            if (movingSel) {
+                selX = selOrigX + (x - startX);
+                selY = selOrigY + (ly - (startY - y0()));
+            } else {
+                int sx0 = Math.min(startX, x), sy0 = Math.min(startY - y0(), ly);
+                selX = sx0;
+                selY = sy0;
+                selW = Math.abs(x - startX) + 1;
+                selH = Math.abs(ly - (startY - y0())) + 1;
+            }
+            lastX = x;
+            lastY = y;
+            redraw();
+            return;
+        }
         int c = paintColor(e);
         switch (tool) {
             case PENCIL, ERASER -> line(lastX, lastY, x, y, c);
             case LINE -> {
-                px = shapeBase.clone();
+                setPx(shapeBase.clone());
                 line(startX, startY, x, y, c);
             }
             case RECT -> {
-                px = shapeBase.clone();
+                setPx(shapeBase.clone());
                 rect(startX, startY, x, y, c);
             }
             default -> {
@@ -466,13 +697,85 @@ public final class TextureEditor {
     }
 
     private void released(MouseEvent e) {
+        if (movingSel && selFloat != null) {
+            int[] p = px();
+            for (int dy = 0; dy < selH; dy++) {
+                for (int dx = 0; dx < selW; dx++) {
+                    int v = selFloat[dy * selW + dx];
+                    if ((v >>> 24) == 0) continue;
+                    int gx = selX + dx, gy = y0() + selY + dy;
+                    if (inside(gx, gy)) p[gy * w + gx] = blendOver(p[gy * w + gx], v);
+                }
+            }
+            selFloat = null;
+            movingSel = false;
+        }
         dragging = false;
         shapeBase = null;
         redraw();
     }
 
+    private void copySelection(boolean cut) {
+        int rx = hasSelection() ? selX : 0;
+        int ry = hasSelection() ? selY : 0;
+        int rw = hasSelection() ? selW : w;
+        int rh = hasSelection() ? selH : fh();
+        if (rw <= 0 || rh <= 0) return;
+        int[] buf = new int[rw * rh];
+        int[] p = px();
+        if (cut) push();
+        for (int dy = 0; dy < rh; dy++) {
+            for (int dx = 0; dx < rw; dx++) {
+                int gx = rx + dx, gy = y0() + ry + dy;
+                if (inside(gx, gy)) {
+                    buf[dy * rw + dx] = p[gy * w + gx];
+                    if (cut) p[gy * w + gx] = 0;
+                }
+            }
+        }
+        clipboard = buf;
+        clipW = rw;
+        clipH = rh;
+        if (cut) redraw();
+    }
+
+    private void pasteSelection() {
+        if (clipboard == null || clipW <= 0 || clipH <= 0) return;
+        push();
+        int px0 = hasSelection() ? Math.max(0, Math.min(w - 1, selX)) : 0;
+        int py0 = hasSelection() ? Math.max(0, Math.min(fh() - 1, selY)) : 0;
+        int[] p = px();
+        for (int dy = 0; dy < clipH; dy++) {
+            for (int dx = 0; dx < clipW; dx++) {
+                int v = clipboard[dy * clipW + dx];
+                if ((v >>> 24) == 0) continue;
+                int gx = px0 + dx, gy = y0() + py0 + dy;
+                if (inside(gx, gy)) p[gy * w + gx] = blendOver(p[gy * w + gx], v);
+            }
+        }
+        selX = px0;
+        selY = py0;
+        selW = Math.min(clipW, w - px0);
+        selH = Math.min(clipH, fh() - py0);
+        selectTool(Tool.SELECT);
+        redraw();
+    }
+
+    private void deleteSelection() {
+        if (!hasSelection()) return;
+        push();
+        int[] p = px();
+        for (int dy = 0; dy < selH; dy++) {
+            for (int dx = 0; dx < selW; dx++) {
+                int gx = selX + dx, gy = y0() + selY + dy;
+                if (inside(gx, gy)) p[gy * w + gx] = 0;
+            }
+        }
+        redraw();
+    }
+
     private void set(int x, int y, int c) {
-        if (inside(x, y)) px[y * w + x] = c;
+        if (inside(x, y)) px()[y * w + x] = c;
     }
 
     private void line(int x0, int y0, int x1, int y1, int c) {
@@ -502,15 +805,16 @@ public final class TextureEditor {
     }
 
     private void fill(int x, int y, int c) {
-        int target = px[y * w + x];
+        int[] p = px();
+        int target = p[y * w + x];
         if (target == c) return;
         Deque<int[]> stack = new ArrayDeque<>();
         stack.push(new int[]{x, y});
         while (!stack.isEmpty()) {
-            int[] p = stack.pop();
-            int a = p[0], b = p[1];
-            if (!inside(a, b) || px[b * w + a] != target) continue;
-            px[b * w + a] = c;
+            int[] pt = stack.pop();
+            int a = pt[0], b = pt[1];
+            if (!inside(a, b) || p[b * w + a] != target) continue;
+            p[b * w + a] = c;
             stack.push(new int[]{a + 1, b});
             stack.push(new int[]{a - 1, b});
             stack.push(new int[]{a, b + 1});
@@ -518,11 +822,31 @@ public final class TextureEditor {
         }
     }
 
-    /** Flips or rotates the current frame (or the whole texture when it is not animated). */
+    /** Flips or rotates the current frame (or all layers when rotating 90 deg on single-frame). */
     private void transform(int kind) {
         push();
         int fw = w, fh = fh(), base = y0() * w;
-        int[] f = Arrays.copyOfRange(px, base, base + fw * fh);
+        if (fcount == 1 && kind == 2) {
+            for (Layer l : layers) {
+                l.px = transformSlice(l.px, 0, fw, fh, kind);
+            }
+            w = fh;
+            h = fw;
+            clearSelection();
+        } else {
+            int[] p = px();
+            int[] r = transformSlice(p, base, fw, fh, kind);
+            if (fcount > 1) {
+                System.arraycopy(r, 0, p, base, r.length);
+            } else {
+                setPx(r);
+            }
+        }
+        redraw();
+    }
+
+    private static int[] transformSlice(int[] src, int base, int fw, int fh, int kind) {
+        int[] f = Arrays.copyOfRange(src, base, base + fw * fh);
         int[] r = new int[f.length];
         for (int y = 0; y < fh; y++) {
             for (int x = 0; x < fw; x++) {
@@ -534,16 +858,7 @@ public final class TextureEditor {
                 }
             }
         }
-        if (fcount > 1) {
-            System.arraycopy(r, 0, px, base, r.length);
-        } else {
-            px = r;
-            if (kind == 2) {
-                w = fh;
-                h = fw;
-            }
-        }
-        redraw();
+        return r;
     }
 
     private void push() {
@@ -552,22 +867,26 @@ public final class TextureEditor {
         redo.clear();
     }
 
-    private int[] snapshot() {
-        int[] s = new int[px.length + 4];
-        s[0] = w;
-        s[1] = h;
-        s[2] = fcount;
-        s[3] = frame;
-        System.arraycopy(px, 0, s, 4, px.length);
-        return s;
+    private UndoSnap snapshot() {
+        List<LayerSnap> ls = new ArrayList<>(layers.size());
+        for (Layer l : layers) ls.add(new LayerSnap(l.name, l.visible, l.px.clone()));
+        return new UndoSnap(w, h, fcount, frame, activeLayer, ls);
     }
 
-    private void restore(int[] s) {
-        w = s[0];
-        h = s[1];
-        fcount = s[2];
-        frame = s[3];
-        px = Arrays.copyOfRange(s, 4, s.length);
+    private void restore(UndoSnap s) {
+        w = s.w;
+        h = s.h;
+        fcount = s.fcount;
+        frame = s.frame;
+        activeLayer = s.activeLayer;
+        layers.clear();
+        for (LayerSnap ls : s.layers) {
+            Layer nl = new Layer(ls.name, ls.px.clone());
+            nl.visible = ls.visible;
+            layers.add(nl);
+        }
+        clearSelection();
+        syncLayerList();
     }
 
     private void undo() {
@@ -593,18 +912,21 @@ public final class TextureEditor {
         g.fillRect(0, 0, canvas.getWidth(), canvas.getHeight());
         boolean onionSkin = onion && fcount > 1;
         int prev = (frame + fcount - 1) % fcount;
-        // checkerboard for transparency
+        int[] flat = flattened();
         for (int y = 0; y < fh; y++) {
             for (int x = 0; x < w; x++) {
                 boolean light = ((x + y) & 1) == 0;
                 g.setFill(light ? Color.web("#d9d9d9") : Color.web("#bfbfbf"));
                 g.fillRect(ox + x * z, oy + y * z, z, z);
-                int c = px[(y0 + y) * w + x];
+                int c = flat[(y0 + y) * w + x];
+                if (movingSel && selFloat != null && x >= selX && x < selX + selW && y >= selY && y < selY + selH) {
+                    c = blendOver(c, selFloat[(y - selY) * selW + (x - selX)]);
+                }
                 if ((c >>> 24) != 0) {
                     g.setFill(fx(c));
                     g.fillRect(ox + x * z, oy + y * z, z, z);
                 } else if (onionSkin) {
-                    int o = px[(prev * fh + y) * w + x];
+                    int o = flat[(prev * fh + y) * w + x];
                     if ((o >>> 24) != 0) {
                         Color oc = fx(o);
                         g.setFill(Color.color(oc.getRed(), oc.getGreen(), oc.getBlue(), 0.3));
@@ -619,12 +941,19 @@ public final class TextureEditor {
             for (int x = 0; x <= w; x++) g.strokeLine(ox + x * z + 0.5, oy, ox + x * z + 0.5, oy + fh * z);
             for (int y = 0; y <= fh; y++) g.strokeLine(ox, oy + y * z + 0.5, ox + w * z, oy + y * z + 0.5);
         }
+        if (hasSelection()) {
+            g.setStroke(Color.web("#2f81f7"));
+            g.setLineWidth(2);
+            g.setLineDashes(5, 4);
+            g.strokeRect(ox + selX * z + 1, oy + selY * z + 1, selW * z - 2, selH * z - 2);
+            g.setLineDashes();
+        }
         if (inside(hoverX, hoverY)) {
             g.setStroke(Color.web("#2f81f7"));
             g.setLineWidth(2);
             g.strokeRect(ox + hoverX * z + 1, oy + (hoverY - y0) * z + 1, z - 2, z - 2);
         }
-        int[] cur = Arrays.copyOfRange(px, y0 * w, (y0 + fh) * w);
+        int[] cur = Arrays.copyOfRange(flat, y0 * w, (y0 + fh) * w);
         preview1.setImage(Ui.pixelImage(cur, w, fh, Math.max(w, fh)));
         preview2.setImage(Ui.pixelImage(cur, w, fh, Math.max(w, fh) * (w <= 16 ? 4 : 2)));
         updateFrameControls();
@@ -645,18 +974,18 @@ public final class TextureEditor {
         restartAnimation();
     }
 
-    /** Changes the number of frames: new frames copy the last one, removed frames are dropped from the end. */
     private void setFrameCount(int n) {
         if (n == fcount || n < 1) return;
         push();
-        if (fcount == 1 && h != w) {
-            px = Images.resize(px, w, h, w, w);
-            h = w;
+        boolean squashH = fcount == 1 && h != w;
+        for (Layer l : layers) {
+            int[] lp = l.px;
+            if (squashH) lp = Images.resize(lp, w, h, w, w);
+            int size = w * w;
+            int[] r = new int[size * n];
+            for (int i = 0; i < n; i++) System.arraycopy(lp, Math.min(i, fcount - 1) * size, r, i * size, size);
+            l.px = r;
         }
-        int size = w * w;
-        int[] r = new int[size * n];
-        for (int i = 0; i < n; i++) System.arraycopy(px, Math.min(i, fcount - 1) * size, r, i * size, size);
-        px = r;
         h = w * n;
         fcount = n;
         if (n > 1 && frameTime <= 0) frameTime = 2;
@@ -668,11 +997,14 @@ public final class TextureEditor {
         if (fcount == 1 && h != w) return;
         push();
         int size = w * w;
-        int[] r = new int[px.length + size];
-        System.arraycopy(px, 0, r, 0, (frame + 1) * size);
-        System.arraycopy(px, frame * size, r, (frame + 1) * size, size);
-        System.arraycopy(px, (frame + 1) * size, r, (frame + 2) * size, px.length - (frame + 1) * size);
-        px = r;
+        for (Layer l : layers) {
+            int[] lp = l.px;
+            int[] r = new int[lp.length + size];
+            System.arraycopy(lp, 0, r, 0, (frame + 1) * size);
+            System.arraycopy(lp, frame * size, r, (frame + 1) * size, size);
+            System.arraycopy(lp, (frame + 1) * size, r, (frame + 2) * size, lp.length - (frame + 1) * size);
+            l.px = r;
+        }
         fcount++;
         h = w * fcount;
         if (frameTime <= 0) frameTime = 2;
@@ -684,10 +1016,13 @@ public final class TextureEditor {
         if (fcount <= 1) return;
         push();
         int size = w * w;
-        int[] r = new int[px.length - size];
-        System.arraycopy(px, 0, r, 0, frame * size);
-        System.arraycopy(px, (frame + 1) * size, r, frame * size, px.length - (frame + 1) * size);
-        px = r;
+        for (Layer l : layers) {
+            int[] lp = l.px;
+            int[] r = new int[lp.length - size];
+            System.arraycopy(lp, 0, r, 0, frame * size);
+            System.arraycopy(lp, (frame + 1) * size, r, frame * size, lp.length - (frame + 1) * size);
+            l.px = r;
+        }
         fcount--;
         h = w * fcount;
         frame = Math.min(frame, fcount - 1);
@@ -699,17 +1034,17 @@ public final class TextureEditor {
         redraw();
     }
 
-    /** Plays the frames in the preview at the game speed (20 ticks per second). */
     private void restartAnimation() {
         if (animTimer != null) animTimer.stop();
         if (fcount <= 1) {
             animView.setImage(preview1.getImage());
             return;
         }
+        int[] flat = flattened();
         int size = w * w;
         List<javafx.scene.image.Image> imgs = new ArrayList<>();
         for (int i = 0; i < fcount; i++) {
-            imgs.add(Ui.pixelImage(Arrays.copyOfRange(px, i * size, (i + 1) * size), w, w, w * (w <= 16 ? 4 : 2)));
+            imgs.add(Ui.pixelImage(Arrays.copyOfRange(flat, i * size, (i + 1) * size), w, w, w * (w <= 16 ? 4 : 2)));
         }
         int[] i = {0};
         animView.setImage(imgs.get(0));
@@ -743,13 +1078,16 @@ public final class TextureEditor {
                 data = Images.resize(data, wh[0], wh[1], s, s);
                 wh[0] = wh[1] = s;
             }
-            px = data;
             w = wh[0];
             h = wh[1];
-            // A vertical strip of square frames is an animation, as in the game's own textures.
             fcount = h > w && h % w == 0 ? h / w : 1;
             frame = 0;
             if (fcount > 1 && frameTime <= 0) frameTime = 2;
+            layers.clear();
+            layers.add(new Layer(I18n.t("texture.layer_base"), data));
+            activeLayer = 0;
+            clearSelection();
+            syncLayerList();
             redraw();
         } catch (Exception ex) {
             Ui.error(stage, I18n.t("texture.import_failed"), ex);
@@ -763,7 +1101,7 @@ public final class TextureEditor {
         var f = fc.showSaveDialog(stage);
         if (f == null) return;
         try {
-            Files.write(f.toPath(), Images.png(px, w, h));
+            Files.write(f.toPath(), Images.png(flattened(), w, h));
         } catch (Exception ex) {
             Ui.error(stage, I18n.t("texture.export_failed"), ex);
         }

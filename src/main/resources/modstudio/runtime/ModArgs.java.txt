@@ -11,7 +11,7 @@ import com.mojang.brigadier.tree.ArgumentCommandNode;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
-
+{{perm_imports}}
 import java.util.ArrayList;
 import java.util.List;
 
@@ -26,9 +26,13 @@ public final class ModArgs {
     private static final String MODID = "{{modid}}";
     private static final boolean MACROS = {{macros}};
 
+    private static boolean hasPermission(CommandSourceStack source, int level) {
+        {{has_perm_body}}
+    }
+
     public static int run(CommandContext<CommandSourceStack> c, String function, int permission) {
         CommandSourceStack source = c.getSource();
-        if (!source.hasPermission(permission)) {
+        if (!hasPermission(source, permission)) {
             source.sendFailure(Component.literal("You do not have permission to use this command"));
             return 0;
         }
@@ -56,7 +60,7 @@ public final class ModArgs {
             nbt.append(name).append(':').append(value);
         }
         nbt.append('}');
-        CommandSourceStack s = source.withPermission(4).withSuppressedOutput();
+        CommandSourceStack s = source.{{with_all_perms}}.withSuppressedOutput();
         Commands commands = source.getServer().getCommands();
         commands.performPrefixedCommand(s, "data modify storage " + MODID + ":args a set value " + nbt);
         for (String x : scores) commands.performPrefixedCommand(s, x);

@@ -107,7 +107,7 @@ public final class LiveData {
             Files.write(target, e.getValue());
             n++;
         }
-        String meta = "{\"pack\":{\"pack_format\":" + ctx.v.dataFormat + ",\"description\":\"" + ctx.ns + " live reload (ModStudio)\"}}";
+        String meta = J.compact(J.packMeta(ctx.v, false, ctx.ns + " live reload (ModStudio)"));
         Files.writeString(dir.resolve("pack.mcmeta"), meta);
         return n;
     }

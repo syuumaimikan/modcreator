@@ -374,4 +374,80 @@ final class GameplayEditors {
             f.add(Ui.help(t("song.discs", discs)));
         }
     }
+
+    // ------------------------------------------------------------------ fluid
+
+    static final class FluidEditor extends EditorBase<Fluid> {
+        FluidEditor(Ctx c, Fluid e) {
+            super(c, e);
+        }
+
+        @Override
+        protected void fill() {
+            f.section(t("section.general"), t("help.fluid"));
+            nameRow();
+            f.text(t("field.display_name"), () -> e.displayName, v -> e.displayName = v);
+            localized("name", t("field.display_name"), () -> e.displayName);
+            f.row(t("field.fluid_still"), new TextureField(c.ws, c.window(), e.stillTexture, () -> e.name + "_still", "water", v -> {
+                e.stillTexture = v;
+                f.changed();
+            }));
+            f.row(t("field.fluid_flowing"), new TextureField(c.ws, c.window(), e.flowingTexture, () -> e.name + "_flow", "water", v -> {
+                e.flowingTexture = v;
+                f.changed();
+            }));
+            colorRow(f, t("field.fluid_tint"), () -> e.tintColor, v -> e.tintColor = v);
+            colorRow(f, t("field.fluid_fog"), () -> e.fogColor, v -> e.fogColor = v);
+
+            f.section(t("section.fluid_physics"));
+            f.integer(t("field.light"), 0, 15, () -> e.luminance, v -> e.luminance = v);
+            f.integer(t("field.fluid_tick_rate"), 1, 100, () -> e.tickRate, v -> e.tickRate = v);
+            f.integer(t("field.fluid_slope"), 1, 8, () -> e.slopeFindDistance, v -> e.slopeFindDistance = v);
+            f.integer(t("field.fluid_decrease"), 1, 8, () -> e.levelDecrease, v -> e.levelDecrease = v);
+            f.integer(t("field.fluid_viscosity"), 100, 10000, () -> e.viscosity, v -> e.viscosity = v);
+            f.integer(t("field.fluid_density"), -5000, 10000, () -> e.density, v -> e.density = v);
+            f.decimal(t("field.fluid_damage"), () -> e.damagePerTick, v -> e.damagePerTick = Math.max(0, v));
+            f.check(t("field.fluid_multiply"), () -> e.canMultiply, v -> e.canMultiply = v);
+            f.check(t("field.fluid_lava"), () -> e.isLavaLike, v -> e.isLavaLike = v);
+
+            f.section(t("section.fluid_bucket"));
+            f.check(t("field.fluid_bucket"), () -> e.generateBucket, v -> e.generateBucket = v);
+            f.choice(t("field.creative_tab"), ItemEditor.creativeTabs(c), id -> ItemEditor.tabName(c, id), () -> e.creativeTab, v -> e.creativeTab = v);
+            f.showIf(() -> e.generateBucket);
+
+            SystemEditors.logic(this, t("section.fluid_inside"), t("help.fluid_inside"), e.onEntityInside, () -> t("start.fluid_inside"));
+        }
+    }
+
+    // ------------------------------------------------------------------ tool material
+
+    static final class ToolMaterialEditor extends EditorBase<ToolMaterial> {
+        ToolMaterialEditor(Ctx c, ToolMaterial e) {
+            super(c, e);
+        }
+
+        @Override
+        protected void fill() {
+            f.section(t("section.general"), t("help.tool_material"));
+            nameRow();
+            f.text(t("field.display_name"), () -> e.displayName, v -> e.displayName = v);
+            f.id(t("field.repair_item"), IdField.Kind.ITEM_OR_TAG, () -> e.repairItem, v -> e.repairItem = v, env());
+
+            f.section(t("section.tool_material_stats"));
+            f.integer(t("field.max_damage"), 1, 100000, () -> e.durability, v -> e.durability = v);
+            f.decimal(t("field.tool_speed"), () -> e.speed, v -> e.speed = Math.max(0.5, v), t("help.tool_speed"));
+            f.decimal(t("field.attack_damage_bonus"), () -> e.attackDamageBonus, v -> e.attackDamageBonus = Math.max(0, v), t("help.attack_damage_bonus"));
+            f.integer(t("field.enchantability"), 1, 100, () -> e.enchantability, v -> e.enchantability = v);
+            f.choice(t("field.mining_level"), List.of("0", "1", "2", "3", "4"), lv -> switch (lv) {
+                case "0" -> "0 - " + t("tier.wood");
+                case "1" -> "1 - " + t("tier.stone");
+                case "2" -> "2 - " + t("tier.iron");
+                case "3" -> "3 - " + t("tier.diamond");
+                default -> "4 - " + t("tier.netherite");
+            }, () -> String.valueOf(Math.max(0, Math.min(4, e.miningLevel))), v -> e.miningLevel = Integer.parseInt(v), t("help.mining_level"));
+
+            long users = c.p.all(Item.class).stream().filter(i -> i.isTool() && e.name.equals(i.tier)).count();
+            f.add(Ui.help(t("tool_material.users", users)));
+        }
+    }
 }

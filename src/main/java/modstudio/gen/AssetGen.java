@@ -45,6 +45,7 @@ public final class AssetGen {
     public void modAssets(boolean forgeRenderType) {
         for (Item it : ctx.all(Item.class)) itemModel(it, it.name);
         for (Block b : ctx.all(Block.class)) block(b, forgeRenderType);
+        fluids();
         Map<String, TreeMap<Integer, String>> byBase = new TreeMap<>();
         rigAssets(byBase);
         overrides(byBase);
@@ -57,19 +58,24 @@ public final class AssetGen {
         themes();
         sounds();
         lang();
+        advancedAssets(true, forgeRenderType);
         shaders();
     }
 
-    /** Shader files: core programs replace the vanilla ones, includes can be used with #moj_import. */
+    /** Shader files: core programs, post-processing programs, and includes (#moj_import). */
     public void shaders() {
         for (Systems.Shader s : ctx.all(Systems.Shader.class)) {
             if (!Shaders.inRange(s, ctx.v) || s.program.isBlank()) continue;
             String name = s.program.trim();
-            // A graph is exported as GLSL: an include becomes a function, a core program its original source with the
-            // graph applied. A graph without a usable original source is left out (the validator says why).
             String fragment = ShaderNodes.fragment(s);
             if (s.kind.equals("include")) {
                 if (!fragment.isBlank()) ctx.files.text(asset("minecraft", "shaders/include/" + name + ".glsl"), fragment);
+                continue;
+            }
+            if (s.kind.equals("post")) {
+                if (s.graph() && ShaderNodes.order(s.nodes) == null) continue;
+                if (!s.vertex.isBlank()) ctx.files.text(asset("minecraft", "shaders/program/" + name + ".vsh"), s.vertex);
+                if (!fragment.isBlank()) ctx.files.text(asset("minecraft", "shaders/program/" + name + ".fsh"), fragment);
                 continue;
             }
             if (s.graph() && (!ShaderNodes.patchable(s.fragment) || ShaderNodes.order(s.nodes) == null)) continue;
@@ -199,10 +205,30 @@ public final class AssetGen {
             return;
         }
         String tex = texture(it.texture, "item");
-        String parent = it.isTool() ? "minecraft:item/handheld" : "minecraft:item/generated";
+        String parent = switch (it.kind) {
+            case "bow" -> "minecraft:item/bow";
+            case "crossbow" -> "minecraft:item/crossbow";
+            case "shield" -> "minecraft:item/generated";
+            default -> it.isTool() || it.kind.equals("trident") ? "minecraft:item/handheld" : "minecraft:item/generated";
+        };
         ctx.files.json(asset(ctx.ns, "models/item/" + modelName + ".json"),
                 J.obj("parent", parent, "textures", J.obj("layer0", tex == null ? "minecraft:item/barrier" : tex)));
         itemDefinition(modelName);
+    }
+
+    private void fluids() {
+        for (Fluid fl : ctx.all(Fluid.class)) {
+            String still = or(texture(fl.stillTexture, "block"), "minecraft:block/water_still");
+            or(texture(fl.flowingTexture, "block"), still);
+            ctx.files.json(asset(ctx.ns, "models/block/" + fl.name + ".json"), J.obj("textures", J.obj("particle", still)));
+            ctx.files.json(asset(ctx.ns, "blockstates/" + fl.name + ".json"), J.obj("variants", J.obj("", J.obj("model", ctx.ns + ":block/" + fl.name))));
+            if (fl.generateBucket) {
+                String bname = fl.name + "_bucket";
+                ctx.files.json(asset(ctx.ns, "models/item/" + bname + ".json"),
+                        J.obj("parent", "minecraft:item/generated", "textures", J.obj("layer0", "minecraft:item/water_bucket")));
+                itemDefinition(bname);
+            }
+        }
     }
 
     /** 1.21.4+ item model definition pointing at models/item/<name>. */
@@ -218,9 +244,14 @@ public final class AssetGen {
             return;
         }
         String fallback = "minecraft:block/stone";
-        JsonObject model;
+        String tex = or(texture(b.texture, "block"), fallback);
         String self = ctx.ns + ":block/" + b.name;
         boolean cutout = b.cutout();
+        if (List.of("slab", "stairs", "fence", "wall", "door", "trapdoor", "button", "pressure_plate", "carpet").contains(b.shape)) {
+            shapedBlock(b, tex, self, cutout, forgeRenderType);
+            return;
+        }
+        JsonObject model;
         Model custom = b.shape.equals("model") ? ctx.p.model(b.model) : null;
         switch (b.shape) {
             case "cube_bottom_top" -> model = J.obj("parent", "minecraft:block/cube_bottom_top", "textures", J.obj(
@@ -237,8 +268,8 @@ public final class AssetGen {
             }
             case "model" -> model = custom != null ? customModel(custom, "block")
                     : J.obj("parent", "minecraft:block/cube_all", "textures", J.obj("all", fallback));
-            case "cross" -> model = J.obj("parent", "minecraft:block/cross", "textures", J.obj("cross", or(texture(b.texture, "block"), fallback)));
-            default -> model = J.obj("parent", "minecraft:block/cube_all", "textures", J.obj("all", or(texture(b.texture, "block"), fallback)));
+            case "cross" -> model = J.obj("parent", "minecraft:block/cross", "textures", J.obj("cross", tex));
+            default -> model = J.obj("parent", "minecraft:block/cube_all", "textures", J.obj("all", tex));
         }
         if (cutout && forgeRenderType) model.addProperty("render_type", "minecraft:cutout");
         ctx.files.json(asset(ctx.ns, "models/block/" + b.name + ".json"), model);
@@ -262,10 +293,170 @@ public final class AssetGen {
 
         JsonObject itemModel;
         if (b.shape.equals("cross")) {
-            itemModel = J.obj("parent", "minecraft:item/generated", "textures", J.obj("layer0", or(texture(b.texture, "block"), fallback)));
+            itemModel = J.obj("parent", "minecraft:item/generated", "textures", J.obj("layer0", tex));
         } else itemModel = J.obj("parent", self);
         ctx.files.json(asset(ctx.ns, "models/item/" + b.name + ".json"), itemModel);
         itemDefinition(b.name);
+    }
+
+    private void shapedBlock(Block b, String tex, String self, boolean cutout, boolean forgeRenderType) {
+        String ns = ctx.ns;
+        JsonObject blockStates;
+        switch (b.shape) {
+            case "slab" -> {
+                blockModel(ns, b.name, "minecraft:block/slab", J.obj("bottom", tex, "top", tex, "side", tex), cutout, forgeRenderType);
+                blockModel(ns, b.name + "_top", "minecraft:block/slab_top", J.obj("bottom", tex, "top", tex, "side", tex), cutout, forgeRenderType);
+                blockModel(ns, b.name + "_double", "minecraft:block/cube_all", J.obj("all", tex), cutout, forgeRenderType);
+                blockStates = J.obj("variants", J.obj(
+                        "type=bottom", J.obj("model", self),
+                        "type=top", J.obj("model", self + "_top"),
+                        "type=double", J.obj("model", self + "_double")));
+                ctx.files.json(asset(ns, "models/item/" + b.name + ".json"), J.obj("parent", self));
+            }
+            case "stairs" -> {
+                JsonObject t = J.obj("bottom", tex, "top", tex, "side", tex);
+                blockModel(ns, b.name, "minecraft:block/stairs", t, cutout, forgeRenderType);
+                blockModel(ns, b.name + "_inner", "minecraft:block/inner_stairs", t.deepCopy(), cutout, forgeRenderType);
+                blockModel(ns, b.name + "_outer", "minecraft:block/outer_stairs", t.deepCopy(), cutout, forgeRenderType);
+                JsonObject variants = new JsonObject();
+                String[] dirs = {"east", "west", "south", "north"};
+                int[] ys = {0, 180, 90, 270};
+                for (int i = 0; i < 4; i++) {
+                    for (String half : List.of("bottom", "top")) {
+                        int xRot = half.equals("top") ? 180 : 0;
+                        for (String shape : List.of("straight", "inner_left", "inner_right", "outer_left", "outer_right")) {
+                            String m = self + (shape.startsWith("inner") ? "_inner" : shape.startsWith("outer") ? "_outer" : "");
+                            int y = ys[i];
+                            if (half.equals("bottom") && (shape.equals("inner_left") || shape.equals("outer_left"))) y = (y + 270) % 360;
+                            if (half.equals("top") && (shape.equals("inner_right") || shape.equals("outer_right"))) y = (y + 90) % 360;
+                            JsonObject entry = J.obj("model", m);
+                            if (xRot != 0) entry.addProperty("x", xRot);
+                            if (y != 0) entry.addProperty("y", y);
+                            if (xRot != 0 || y != 0) entry.addProperty("uvlock", true);
+                            variants.add("facing=" + dirs[i] + ",half=" + half + ",shape=" + shape, entry);
+                        }
+                    }
+                }
+                blockStates = J.obj("variants", variants);
+                ctx.files.json(asset(ns, "models/item/" + b.name + ".json"), J.obj("parent", self));
+            }
+            case "fence" -> {
+                blockModel(ns, b.name + "_post", "minecraft:block/fence_post", J.obj("texture", tex), cutout, forgeRenderType);
+                blockModel(ns, b.name + "_side", "minecraft:block/fence_side", J.obj("texture", tex), cutout, forgeRenderType);
+                blockModel(ns, b.name + "_inventory", "minecraft:block/fence_inventory", J.obj("texture", tex), cutout, forgeRenderType);
+                blockStates = J.obj("multipart", J.arr(
+                        J.obj("apply", J.obj("model", self + "_post")),
+                        J.obj("when", J.obj("north", "true"), "apply", J.obj("model", self + "_side", "uvlock", true)),
+                        J.obj("when", J.obj("east", "true"), "apply", J.obj("model", self + "_side", "y", 90, "uvlock", true)),
+                        J.obj("when", J.obj("south", "true"), "apply", J.obj("model", self + "_side", "y", 180, "uvlock", true)),
+                        J.obj("when", J.obj("west", "true"), "apply", J.obj("model", self + "_side", "y", 270, "uvlock", true))));
+                ctx.files.json(asset(ns, "models/item/" + b.name + ".json"), J.obj("parent", self + "_inventory"));
+            }
+            case "wall" -> {
+                blockModel(ns, b.name + "_post", "minecraft:block/template_wall_post", J.obj("wall", tex), cutout, forgeRenderType);
+                blockModel(ns, b.name + "_side", "minecraft:block/template_wall_side", J.obj("wall", tex), cutout, forgeRenderType);
+                blockModel(ns, b.name + "_side_tall", "minecraft:block/template_wall_side_tall", J.obj("wall", tex), cutout, forgeRenderType);
+                blockModel(ns, b.name + "_inventory", "minecraft:block/wall_inventory", J.obj("wall", tex), cutout, forgeRenderType);
+                JsonArray mp = J.arr(J.obj("when", J.obj("up", "true"), "apply", J.obj("model", self + "_post")));
+                String[] dirs = {"north", "east", "south", "west"};
+                for (int i = 0; i < 4; i++) {
+                    mp.add(J.obj("when", J.obj(dirs[i], "low"), "apply", i == 0 ? J.obj("model", self + "_side", "uvlock", true)
+                            : J.obj("model", self + "_side", "y", i * 90, "uvlock", true)));
+                    mp.add(J.obj("when", J.obj(dirs[i], "tall"), "apply", i == 0 ? J.obj("model", self + "_side_tall", "uvlock", true)
+                            : J.obj("model", self + "_side_tall", "y", i * 90, "uvlock", true)));
+                }
+                blockStates = J.obj("multipart", mp);
+                ctx.files.json(asset(ns, "models/item/" + b.name + ".json"), J.obj("parent", self + "_inventory"));
+            }
+            case "door" -> {
+                String topTex = or(texture(b.textureTop, "block"), tex);
+                JsonObject dt = J.obj("bottom", tex, "top", topTex);
+                for (String part : List.of("bottom_left", "bottom_left_open", "bottom_right", "bottom_right_open",
+                        "top_left", "top_left_open", "top_right", "top_right_open")) {
+                    blockModel(ns, b.name + "_" + part, "minecraft:block/door_" + part, dt.deepCopy(), true, forgeRenderType);
+                }
+                JsonObject variants = new JsonObject();
+                String[] dirs = {"east", "south", "west", "north"};
+                for (int i = 0; i < 4; i++) {
+                    for (String half : List.of("lower", "upper")) {
+                        String hp = half.equals("lower") ? "bottom" : "top";
+                        for (String hinge : List.of("left", "right")) {
+                            for (boolean open : new boolean[]{false, true}) {
+                                String suf = hp + "_" + hinge + (open ? "_open" : "");
+                                int y = ((open ? (hinge.equals("left") ? i + 1 : i + 3) : i) & 3) * 90;
+                                JsonObject e = J.obj("model", self + "_" + suf);
+                                if (y != 0) e.addProperty("y", y);
+                                variants.add("facing=" + dirs[i] + ",half=" + half + ",hinge=" + hinge + ",open=" + open, e);
+                            }
+                        }
+                    }
+                }
+                blockStates = J.obj("variants", variants);
+                ctx.files.json(asset(ns, "models/item/" + b.name + ".json"),
+                        J.obj("parent", "minecraft:item/generated", "textures", J.obj("layer0", tex)));
+            }
+            case "trapdoor" -> {
+                blockModel(ns, b.name + "_bottom", "minecraft:block/template_trapdoor_bottom", J.obj("texture", tex), cutout, forgeRenderType);
+                blockModel(ns, b.name + "_top", "minecraft:block/template_trapdoor_top", J.obj("texture", tex), cutout, forgeRenderType);
+                blockModel(ns, b.name + "_open", "minecraft:block/template_trapdoor_open", J.obj("texture", tex), cutout, forgeRenderType);
+                JsonObject variants = new JsonObject();
+                String[] dirs = {"north", "east", "south", "west"};
+                for (int i = 0; i < 4; i++) {
+                    for (String half : List.of("bottom", "top")) {
+                        for (boolean open : new boolean[]{false, true}) {
+                            String suf = open ? "_open" : "_" + half;
+                            int y = i * 90;
+                            JsonObject e = J.obj("model", self + suf);
+                            if (y != 0) e.addProperty("y", y);
+                            variants.add("facing=" + dirs[i] + ",half=" + half + ",open=" + open, e);
+                        }
+                    }
+                }
+                blockStates = J.obj("variants", variants);
+                ctx.files.json(asset(ns, "models/item/" + b.name + ".json"), J.obj("parent", self + "_bottom"));
+            }
+            case "button" -> {
+                blockModel(ns, b.name, "minecraft:block/button", J.obj("texture", tex), cutout, forgeRenderType);
+                blockModel(ns, b.name + "_pressed", "minecraft:block/button_pressed", J.obj("texture", tex), cutout, forgeRenderType);
+                blockModel(ns, b.name + "_inventory", "minecraft:block/button_inventory", J.obj("texture", tex), cutout, forgeRenderType);
+                JsonObject variants = new JsonObject();
+                String[] dirs = {"north", "east", "south", "west"};
+                for (int i = 0; i < 4; i++) {
+                    for (String face : List.of("floor", "wall", "ceiling")) {
+                        for (boolean pow : new boolean[]{false, true}) {
+                            JsonObject e = J.obj("model", self + (pow ? "_pressed" : ""));
+                            int x = face.equals("wall") ? 90 : face.equals("ceiling") ? 180 : 0;
+                            if (x != 0) e.addProperty("x", x);
+                            int y = face.equals("ceiling") ? ((i + 2) & 3) * 90 : i * 90;
+                            if (y != 0) e.addProperty("y", y);
+                            if (face.equals("wall")) e.addProperty("uvlock", true);
+                            variants.add("face=" + face + ",facing=" + dirs[i] + ",powered=" + pow, e);
+                        }
+                    }
+                }
+                blockStates = J.obj("variants", variants);
+                ctx.files.json(asset(ns, "models/item/" + b.name + ".json"), J.obj("parent", self + "_inventory"));
+            }
+            case "pressure_plate" -> {
+                blockModel(ns, b.name, "minecraft:block/pressure_plate_up", J.obj("texture", tex), cutout, forgeRenderType);
+                blockModel(ns, b.name + "_down", "minecraft:block/pressure_plate_down", J.obj("texture", tex), cutout, forgeRenderType);
+                blockStates = J.obj("variants", J.obj("powered=false", J.obj("model", self), "powered=true", J.obj("model", self + "_down")));
+                ctx.files.json(asset(ns, "models/item/" + b.name + ".json"), J.obj("parent", self));
+            }
+            default -> { // carpet
+                blockModel(ns, b.name, "minecraft:block/carpet", J.obj("wool", tex), cutout, forgeRenderType);
+                blockStates = J.obj("variants", J.obj("", J.obj("model", self)));
+                ctx.files.json(asset(ns, "models/item/" + b.name + ".json"), J.obj("parent", self));
+            }
+        }
+        ctx.files.json(asset(ns, "blockstates/" + b.name + ".json"), blockStates);
+        itemDefinition(b.name);
+    }
+
+    private void blockModel(String ns, String name, String parent, JsonObject textures, boolean cutout, boolean forgeRenderType) {
+        JsonObject o = J.obj("parent", parent, "textures", textures);
+        if (cutout && forgeRenderType) o.addProperty("render_type", "minecraft:cutout");
+        ctx.files.json(asset(ns, "models/block/" + name + ".json"), o);
     }
 
     private static String or(String a, String b) {
@@ -338,7 +529,75 @@ public final class AssetGen {
         themes();
         sounds();
         lang();
+        advancedAssets(false, false);
         shaders();
+    }
+
+    private void advancedAssets(boolean mods, boolean forgeRenderType) {
+        if (mods) {
+            for (ModElements.CustomEntity ce : ctx.all(ModElements.CustomEntity.class)) {
+                TextureAsset tex = ctx.p.texture(ce.texture);
+                if (tex == null) {
+                    Model mdl = ModelGen.entityModelSpec(ctx.p, ce);
+                    if (mdl != null) tex = ModelGen.firstModelTexture(ctx.p, mdl);
+                }
+                if (tex != null) ctx.files.bytes(asset(ctx.ns, "textures/entity/" + ce.name + ".png"), tex.bytes());
+                if (ce.spawnEgg && ce.isLivingMob()) {
+                    String egg = ce.name + "_spawn_egg";
+                    ctx.files.json(asset(ctx.ns, "models/item/" + egg + ".json"), J.obj("parent", "minecraft:item/template_spawn_egg"));
+                    itemDefinition(egg);
+                }
+            }
+            for (ModElements.Container ct : ctx.all(ModElements.Container.class)) {
+                String bn = ct.block.isBlank() ? ct.name : Ids.path(Ids.full(ct.block));
+                if (ctx.all(Block.class).stream().anyMatch(b -> b.name.equals(bn))) continue;
+                String self = ctx.ns + ":block/" + bn;
+                blockModel(ctx.ns, bn, "minecraft:block/cube_all", J.obj("all", "minecraft:block/furnace_top"), false, forgeRenderType);
+                ctx.files.json(asset(ctx.ns, "blockstates/" + bn + ".json"), J.obj("variants", J.obj("", J.obj("model", self))));
+                ctx.files.json(asset(ctx.ns, "models/item/" + bn + ".json"), J.obj("parent", self));
+                itemDefinition(bn);
+            }
+            for (ModElements.Portal pt : ctx.all(ModElements.Portal.class)) {
+                String ptex = or(texture(pt.texture, "block"), "minecraft:block/nether_portal");
+                JsonObject pm = J.obj("textures", J.obj("particle", ptex, "portal", ptex),
+                        "elements", J.arr(
+                                J.obj("from", J.arr(0, 0, 6), "to", J.arr(16, 16, 10), "faces", J.obj(
+                                        "north", J.obj("uv", J.arr(0, 0, 16, 16), "texture", "#portal"),
+                                        "south", J.obj("uv", J.arr(0, 0, 16, 16), "texture", "#portal")))));
+                if (forgeRenderType) pm.addProperty("render_type", "minecraft:translucent");
+                String bname = pt.name + "_portal";
+                ctx.files.json(asset(ctx.ns, "models/block/" + bname + ".json"), pm);
+                ctx.files.json(asset(ctx.ns, "blockstates/" + bname + ".json"), J.obj("variants", J.obj(
+                        "axis=z", J.obj("model", ctx.ns + ":block/" + bname, "y", 90),
+                        "axis=x", J.obj("model", ctx.ns + ":block/" + bname))));
+                if (pt.generateIgniter) {
+                    String iname = pt.name + "_igniter";
+                    String itex = or(texture(pt.igniterTexture, "item"), "minecraft:item/flint_and_steel");
+                    ctx.files.json(asset(ctx.ns, "models/item/" + iname + ".json"), J.obj("parent", "minecraft:item/generated", "textures", J.obj("layer0", itex)));
+                    itemDefinition(iname);
+                }
+            }
+        }
+        for (ModElements.ArmorTrim at : ctx.all(ModElements.ArmorTrim.class)) {
+            if (mods && at.generateTemplate) {
+                String tname = at.name + "_armor_trim_smithing_template";
+                String ttex = or(texture(at.texture, "item"), "minecraft:item/coast_armor_trim_smithing_template");
+                ctx.files.json(asset(ctx.ns, "models/item/" + tname + ".json"), J.obj("parent", "minecraft:item/generated", "textures", J.obj("layer0", ttex)));
+                itemDefinition(tname);
+            }
+            TextureAsset tex = ctx.p.texture(at.texture);
+            if (tex != null) {
+                ctx.files.bytes(asset(ctx.ns, "textures/trims/models/armor/" + at.name + ".png"), tex.bytes());
+                ctx.files.bytes(asset(ctx.ns, "textures/trims/models/armor/" + at.name + "_leggings.png"), tex.bytes());
+            }
+        }
+        for (ModElements.BannerPattern bp : ctx.all(ModElements.BannerPattern.class)) {
+            TextureAsset tex = ctx.p.texture(bp.texture);
+            if (tex != null) {
+                ctx.files.bytes(asset(ctx.ns, "textures/entity/banner/" + bp.name + ".png"), tex.bytes());
+                ctx.files.bytes(asset(ctx.ns, "textures/entity/shield/" + bp.name + ".png"), tex.bytes());
+            }
+        }
     }
 
     /** Tooltip box sprites for items with their own tooltip look (the tooltip_style component, 1.21.2+). */
@@ -419,6 +678,7 @@ public final class AssetGen {
     public void armor(boolean mod) {
         for (ArmorMaterial m : ctx.all(ArmorMaterial.class)) {
             TextureAsset l1 = ctx.p.texture(m.layer1), l2 = ctx.p.texture(m.layer2);
+            if (l1 == null && !m.armorTexture.isBlank()) l1 = ctx.p.texture(m.armorTexture);
             if (ctx.v.itemDefinitions()) {
                 JsonObject layers = new JsonObject();
                 String tex = ctx.ns + ":" + m.name;
@@ -437,6 +697,22 @@ public final class AssetGen {
                 String base = modern ? m.name : ctx.ns + "_" + m.name;
                 if (l1 != null) ctx.files.bytes(asset(ns, "textures/models/armor/" + base + "_layer_1.png"), l1.bytes());
                 if (l2 != null) ctx.files.bytes(asset(ns, "textures/models/armor/" + base + "_layer_2.png"), l2.bytes());
+            }
+        }
+        if (mod) {
+            Set<String> emittedArmorTex = new HashSet<>();
+            for (Item it : ctx.all(Item.class)) {
+                if (!it.isArmor()) continue;
+                Model mdl = ModelGen.wornArmorModel(ctx.p, it);
+                if (mdl == null) continue;
+                ArmorMaterial am = ModelGen.armorMaterialOf(ctx.p, it);
+                String key = ModelGen.armor3dTexKey(ctx.p, it, am, mdl);
+                if (key == null || !emittedArmorTex.add(key)) continue;
+                TextureAsset tex = null;
+                if (key.startsWith("mat_") && am != null) tex = ctx.p.texture(am.armorTexture);
+                else if (key.startsWith("mdl_")) tex = ModelGen.firstModelTexture(ctx.p, mdl);
+                else if (key.startsWith("lay_") && am != null) tex = ctx.p.texture(am.layer1);
+                if (tex != null) ctx.files.bytes(asset(ctx.ns, "textures/entity/armor_3d/" + key + ".png"), tex.bytes());
             }
         }
     }

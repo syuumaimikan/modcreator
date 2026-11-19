@@ -19,7 +19,7 @@ public final class Models {
     public static final List<Double> ANGLES = List.of(-45.0, -22.5, 0.0, 22.5, 45.0);
     public static final List<String> DISPLAY_CONTEXTS = List.of("gui", "ground", "fixed", "head", "firstperson_righthand", "thirdperson_righthand");
     public static final List<String> TEMPLATES = List.of("block", "slab", "carpet", "post", "pillar_small", "table", "lamp", "pedestal",
-            "stairs", "fence_post", "chair", "crystal", "rod", "biped", "empty");
+            "stairs", "fence_post", "chair", "crystal", "rod", "armor_helmet", "armor_chestplate", "armor_leggings", "armor_boots", "quadruped", "biped", "empty");
 
     // ------------------------------------------------------------------ geometry
 
@@ -56,6 +56,49 @@ public final class Models {
         return c;
     }
 
+    public static Cube boneCube(String name, String bone, double x1, double y1, double z1, double x2, double y2, double z2) {
+        Cube c = cube(name, x1, y1, z1, x2, y2, z2);
+        c.bone = bone;
+        return c;
+    }
+
+    private static void addBone(Model m, String name, String parent, double px, double py, double pz) {
+        Elements.Bone b = new Elements.Bone();
+        b.name = name;
+        b.parent = parent;
+        b.pivot = new double[]{px, py, pz};
+        m.bones.add(b);
+    }
+
+    /** Returns a mirrored clone of a cube across center 8 on axis (0=X, 1=Y, 2=Z). */
+    public static Cube mirrorCube(Cube src, int axis) {
+        Cube c = copy(src);
+        double a = 16.0 - c.to[axis], b = 16.0 - c.from[axis];
+        c.from[axis] = Math.min(a, b);
+        c.to[axis] = Math.max(a, b);
+        c.origin[axis] = 16.0 - c.origin[axis];
+        String rotAxis = c.axis == null ? "y" : c.axis;
+        boolean flipRot = (axis == 0 && !rotAxis.equals("x"))
+                || (axis == 1 && !rotAxis.equals("y"))
+                || (axis == 2 && !rotAxis.equals("z"));
+        if (flipRot && c.rotation != 0) c.rotation = -c.rotation;
+        String pairA = axis == 0 ? "west" : axis == 1 ? "down" : "north";
+        String pairB = axis == 0 ? "east" : axis == 1 ? "up" : "south";
+        Face fa = c.faces.get(pairA), fb = c.faces.get(pairB);
+        if (fa != null && fb != null) {
+            c.faces.put(pairA, fb);
+            c.faces.put(pairB, fa);
+        }
+        if (c.name != null && !c.name.endsWith("_mirror")) c.name = c.name + "_mirror";
+        if (c.bone != null) {
+            if (c.bone.endsWith("_l")) c.bone = c.bone.substring(0, c.bone.length() - 2) + "_r";
+            else if (c.bone.endsWith("_r")) c.bone = c.bone.substring(0, c.bone.length() - 2) + "_l";
+            else if (c.bone.startsWith("left_")) c.bone = "right_" + c.bone.substring(5);
+            else if (c.bone.startsWith("right_")) c.bone = "left_" + c.bone.substring(6);
+        }
+        return c;
+    }
+
     public static Cube copy(Cube c) {
         Cube n = new Cube();
         n.name = c.name;
@@ -67,6 +110,7 @@ public final class Models {
         n.origin = c.origin.clone();
         n.rescale = c.rescale;
         n.shade = c.shade;
+        n.inflate = c.inflate;
         n.faces = new LinkedHashMap<>();
         for (var e : c.faces.entrySet()) {
             Face f = e.getValue(), g = new Face();
@@ -148,6 +192,65 @@ public final class Models {
                 Cube h = cube("handle", 7.5, 0, 7.5, 8.5, 10, 8.5);
                 m.cubes.add(h);
                 m.cubes.add(cube("head", 6.5, 10, 6.5, 9.5, 13, 9.5));
+            }
+            case "armor_helmet" -> {
+                Rig.biped(m);
+                m.cubes.clear();
+                m.animations.clear();
+                m.cubes.add(boneCube("helm_shell", "head", 3.5, 23.5, 3.5, 12.5, 32.5, 12.5));
+                m.cubes.add(boneCube("helm_crest", "head", 7.0, 32.5, 2.5, 9.0, 34.5, 13.0));
+                Cube hornL = boneCube("horn_l", "head", 12.2, 29.0, 6.5, 15.2, 31.5, 9.5);
+                hornL.rotation = 22.5;
+                hornL.axis = "z";
+                hornL.origin = new double[]{12.2, 29.0, 8.0};
+                m.cubes.add(hornL);
+                Cube hornR = boneCube("horn_r", "head", 0.8, 29.0, 6.5, 3.8, 31.5, 9.5);
+                hornR.rotation = -22.5;
+                hornR.axis = "z";
+                hornR.origin = new double[]{3.8, 29.0, 8.0};
+                m.cubes.add(hornR);
+            }
+            case "armor_chestplate" -> {
+                Rig.biped(m);
+                m.cubes.clear();
+                m.animations.clear();
+                m.cubes.add(boneCube("torso_plate", "body", 3.4, 11.6, 5.4, 12.6, 24.4, 10.6));
+                m.cubes.add(boneCube("chest_core", "body", 5.5, 15.5, 4.8, 10.5, 21.5, 5.6));
+                m.cubes.add(boneCube("pauldron_r", "right_arm", -0.6, 18.5, 5.4, 4.4, 24.5, 10.6));
+                m.cubes.add(boneCube("pauldron_l", "left_arm", 11.6, 18.5, 5.4, 16.6, 24.5, 10.6));
+            }
+            case "armor_leggings" -> {
+                Rig.biped(m);
+                m.cubes.clear();
+                m.animations.clear();
+                m.cubes.add(boneCube("belt", "body", 3.5, 11.5, 5.5, 12.5, 14.5, 10.5));
+                m.cubes.add(boneCube("greave_r", "right_leg", 3.6, 4.0, 5.6, 8.2, 12.2, 10.4));
+                m.cubes.add(boneCube("greave_l", "left_leg", 7.8, 4.0, 5.6, 12.4, 12.2, 10.4));
+            }
+            case "armor_boots" -> {
+                Rig.biped(m);
+                m.cubes.clear();
+                m.animations.clear();
+                m.cubes.add(boneCube("boot_r", "right_leg", 3.3, -0.3, 5.3, 8.3, 5.5, 10.7));
+                m.cubes.add(boneCube("boot_l", "left_leg", 7.7, -0.3, 5.3, 12.7, 5.5, 10.7));
+            }
+            case "quadruped" -> {
+                m.kind = "entity";
+                m.textureWidth = 64;
+                m.textureHeight = 64;
+                addBone(m, "body", "", 8, 10, 8);
+                addBone(m, "head", "body", 8, 13, 2);
+                addBone(m, "leg_fl", "body", 5, 6, 3);
+                addBone(m, "leg_fr", "body", 11, 6, 3);
+                addBone(m, "leg_bl", "body", 5, 6, 13);
+                addBone(m, "leg_br", "body", 11, 6, 13);
+                m.cubes.add(boneCube("torso", "body", 4, 6, 1, 12, 14, 15));
+                m.cubes.add(boneCube("skull", "head", 5, 10, -5, 11, 16, 1));
+                m.cubes.add(boneCube("snout", "head", 6.5, 10, -8, 9.5, 13, -5));
+                m.cubes.add(boneCube("foot_fl", "leg_fl", 4, 0, 1, 7, 6, 4));
+                m.cubes.add(boneCube("foot_fr", "leg_fr", 9, 0, 1, 12, 6, 4));
+                m.cubes.add(boneCube("foot_bl", "leg_bl", 4, 0, 11, 7, 6, 14));
+                m.cubes.add(boneCube("foot_br", "leg_br", 9, 0, 11, 12, 6, 14));
             }
             case "empty" -> {
             }
@@ -300,12 +403,18 @@ public final class Models {
     /** An imported model plus images that should become project textures (texture key -> PNG bytes). */
     public record Imported(Model model, Map<String, byte[]> images, Map<String, String> imageNames) {}
 
-    /** Reads a Java block/item model JSON or a Blockbench .bbmodel file. */
+    /** Reads a Java block/item model JSON, a Blockbench .bbmodel file, or a Bedrock .geo.json file. */
     public static Imported read(String json, String fileName) {
         JsonObject o = JsonParser.parseString(json).getAsJsonObject();
         if (o.has("meta") && o.has("elements") && o.get("elements").isJsonArray()
                 && (o.has("resolution") || o.getAsJsonObject("meta").has("format_version"))) {
             return readBlockbench(o);
+        }
+        if (o.has("minecraft:geometry") && o.get("minecraft:geometry").isJsonArray()) {
+            return readBedrock(o);
+        }
+        for (String k : o.keySet()) {
+            if (k.startsWith("geometry.")) return readLegacyBedrock(o.getAsJsonObject(k));
         }
         return readJava(o);
     }
@@ -500,8 +609,10 @@ public final class Models {
                 for (JsonElement ke : anim.getAsJsonArray("keyframes")) {
                     JsonObject kf = ke.getAsJsonObject();
                     String ch = kf.has("channel") ? kf.get("channel").getAsString() : "";
-                    if (!Rig.CHANNELS.contains(ch) || !kf.has("data_points")) continue;
-                    JsonObject dp = kf.getAsJsonArray("data_points").get(0).getAsJsonObject();
+                    if (!Rig.CHANNELS.contains(ch) || !kf.has("data_points") || !kf.get("data_points").isJsonArray()) continue;
+                    JsonArray dps = kf.getAsJsonArray("data_points");
+                    if (dps.isEmpty() || !dps.get(0).isJsonObject()) continue;
+                    JsonObject dp = dps.get(0).getAsJsonObject();
                     Elements.AnimTrack tr = an.track(bone, ch);
                     if (tr == null) {
                         tr = new Elements.AnimTrack();
@@ -566,6 +677,7 @@ public final class Models {
             double sx = c.to[0] - c.from[0], sy = c.to[1] - c.from[1], sz = c.to[2] - c.from[2];
             cb.add("origin", arr(ox, oy, oz));
             cb.add("size", arr(sx, sy, sz));
+            if (Math.abs(c.inflate) > 1e-6) cb.addProperty("inflate", c.inflate);
             if (c.rotation != 0) {
                 double[] r = new double[3];
                 int idx = c.axis.equals("x") ? 0 : c.axis.equals("y") ? 1 : 2;
@@ -610,5 +722,119 @@ public final class Models {
         list.add(geo);
         root.add("minecraft:geometry", list);
         return root;
+    }
+
+    private static Imported readBedrock(JsonObject root) {
+        JsonArray arr = root.getAsJsonArray("minecraft:geometry");
+        if (arr.isEmpty()) return new Imported(new Model(), Map.of(), Map.of());
+        JsonObject geo = arr.get(0).getAsJsonObject();
+        Model m = new Model();
+        if (geo.has("description") && geo.get("description").isJsonObject()) {
+            JsonObject desc = geo.getAsJsonObject("description");
+            m.textureWidth = desc.has("texture_width") ? Math.max(1, desc.get("texture_width").getAsInt()) : 16;
+            m.textureHeight = desc.has("texture_height") ? Math.max(1, desc.get("texture_height").getAsInt()) : 16;
+        }
+        if (geo.has("bones") && geo.get("bones").isJsonArray()) {
+            parseBedrockBones(m, geo.getAsJsonArray("bones"));
+        }
+        if (m.textures.isEmpty()) m.textures.put("0", "");
+        return new Imported(m, Map.of(), Map.of());
+    }
+
+    private static Imported readLegacyBedrock(JsonObject geo) {
+        Model m = new Model();
+        m.textureWidth = geo.has("texturewidth") ? Math.max(1, geo.get("texturewidth").getAsInt()) : 64;
+        m.textureHeight = geo.has("textureheight") ? Math.max(1, geo.get("textureheight").getAsInt()) : 32;
+        if (geo.has("bones") && geo.get("bones").isJsonArray()) {
+            parseBedrockBones(m, geo.getAsJsonArray("bones"));
+        }
+        if (m.textures.isEmpty()) m.textures.put("0", "");
+        return new Imported(m, Map.of(), Map.of());
+    }
+
+    private static void parseBedrockBones(Model m, JsonArray bones) {
+        boolean singleRoot = bones.size() == 1 && bones.get(0).isJsonObject()
+                && "root".equals(bones.get(0).getAsJsonObject().has("name")
+                ? bones.get(0).getAsJsonObject().get("name").getAsString() : "");
+        double kx = 16.0 / m.textureWidth, ky = 16.0 / m.textureHeight;
+        int cubeIdx = 0;
+        for (JsonElement be : bones) {
+            if (!be.isJsonObject()) continue;
+            JsonObject bo = be.getAsJsonObject();
+            String rawName = bo.has("name") ? bo.get("name").getAsString() : "bone";
+            String bName = Ids.toId(rawName);
+            if (bName.isEmpty() || bName.equals(Rig.ROOT)) bName = "bone";
+            double[] bp = bo.has("pivot") ? dbl(bo.get("pivot"), 3, 0) : new double[]{0, 0, 0};
+            double[] modPivot = {8 - bp[0], bp[1], bp[2] + 8};
+            if (!singleRoot) {
+                Elements.Bone b = new Elements.Bone();
+                String unique = bName;
+                for (int n = 2; m.bone(unique) != null; n++) unique = bName + "_" + n;
+                bName = unique;
+                b.name = bName;
+                b.parent = bo.has("parent") ? Ids.toId(bo.get("parent").getAsString()) : "";
+                b.pivot = modPivot;
+                m.bones.add(b);
+            }
+            if (!bo.has("cubes") || !bo.get("cubes").isJsonArray()) continue;
+            for (JsonElement ce : bo.getAsJsonArray("cubes")) {
+                if (!ce.isJsonObject()) continue;
+                JsonObject cb = ce.getAsJsonObject();
+                double[] orig = dbl(cb.get("origin"), 3, 0);
+                double[] size = dbl(cb.get("size"), 3, 1);
+                Cube c = new Cube();
+                c.name = "cube" + (++cubeIdx);
+                c.from = new double[]{8 - (orig[0] + size[0]), orig[1], orig[2] + 8};
+                c.to = new double[]{8 - orig[0], orig[1] + size[1], orig[2] + size[2] + 8};
+                if (cb.has("inflate") && cb.get("inflate").isJsonPrimitive()) c.inflate = cb.get("inflate").getAsDouble();
+                if (!singleRoot) c.bone = bName;
+                if (cb.has("rotation") && cb.get("rotation").isJsonArray()) {
+                    double[] r = dbl(cb.get("rotation"), 3, 0);
+                    int ax = Math.abs(r[0]) >= Math.abs(r[1]) && Math.abs(r[0]) >= Math.abs(r[2]) ? 0
+                            : Math.abs(r[1]) >= Math.abs(r[2]) ? 1 : 2;
+                    c.axis = ax == 0 ? "x" : ax == 1 ? "y" : "z";
+                    c.rotation = snapAngle(ax == 2 ? r[ax] : -r[ax]);
+                    double[] cp = cb.has("pivot") ? dbl(cb.get("pivot"), 3, 0) : bp;
+                    c.origin = new double[]{8 - cp[0], cp[1], cp[2] + 8};
+                } else {
+                    c.origin = modPivot.clone();
+                }
+                if (cb.has("uv") && cb.get("uv").isJsonObject()) {
+                    for (String dir : Cube.FACES) c.face(dir).enabled = false;
+                    JsonObject uvObj = cb.getAsJsonObject("uv");
+                    for (var fe : uvObj.entrySet()) {
+                        Face f = c.face(fe.getKey());
+                        if (f == null || !fe.getValue().isJsonObject()) continue;
+                        JsonObject fo = fe.getValue().getAsJsonObject();
+                        f.enabled = true;
+                        double[] u0 = dbl(fo.get("uv"), 2, 0);
+                        double[] du = dbl(fo.get("uv_size"), 2, 16);
+                        f.uv = new double[]{u0[0] * kx, u0[1] * ky, (u0[0] + du[0]) * kx, (u0[1] + du[1]) * ky};
+                        if (fo.has("material_instance")) {
+                            String mat = fo.get("material_instance").getAsString();
+                            f.texture = mat;
+                            m.textures.putIfAbsent(mat, "");
+                        }
+                    }
+                } else if (cb.has("uv") && cb.get("uv").isJsonArray()) {
+                    double[] boxUv = dbl(cb.get("uv"), 2, 0);
+                    double u = boxUv[0], v = boxUv[1];
+                    double sx = Math.max(0, size[0]), sy = Math.max(0, size[1]), sz = Math.max(0, size[2]);
+                    setBoxUv(c.face("north"), u + sz, v + sz, u + sz + sx, v + sz + sy, kx, ky);
+                    setBoxUv(c.face("south"), u + sz + sx + sz, v + sz, u + sz + 2 * sx + sz, v + sz + sy, kx, ky);
+                    setBoxUv(c.face("west"), u, v + sz, u + sz, v + sz + sy, kx, ky);
+                    setBoxUv(c.face("east"), u + sz + sx, v + sz, u + sz + sx + sz, v + sz + sy, kx, ky);
+                    setBoxUv(c.face("up"), u + sz, v, u + sz + sx, v + sz, kx, ky);
+                    setBoxUv(c.face("down"), u + sz + sx, v, u + sz + 2 * sx, v + sz, kx, ky);
+                }
+                m.cubes.add(c);
+            }
+        }
+    }
+
+    private static void setBoxUv(Face f, double u1, double v1, double u2, double v2, double kx, double ky) {
+        f.enabled = true;
+        f.texture = "0";
+        f.uv = new double[]{u1 * kx, v1 * ky, u2 * kx, v2 * ky};
     }
 }

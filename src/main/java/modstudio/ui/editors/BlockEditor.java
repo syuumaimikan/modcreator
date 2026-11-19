@@ -20,6 +20,10 @@ import modstudio.ui.controls.TextureField;
 import java.util.List;
 
 final class BlockEditor extends EditorBase<Block> {
+    private static final List<String> INSTRUMENTS = List.of(
+            "harp", "basedrum", "snare", "hat", "bass", "flute", "bell", "guitar",
+            "chime", "xylophone", "iron_xylophone", "cow_bell", "didgeridoo", "bit", "banjo", "pling");
+    private static final List<String> PUSH_REACTIONS = List.of("normal", "destroy", "block", "ignore");
     private BlockPreview preview;
     private ModelView3D modelPreview;
     private final Label previewName = Ui.label("", "title-4");
@@ -47,7 +51,7 @@ final class BlockEditor extends EditorBase<Block> {
         nameRow();
         f.text(t("field.display_name"), () -> e.displayName, v -> e.displayName = v);
         localized("name", t("field.display_name"), () -> e.displayName);
-        f.choice(t("field.shape"), List.of("cube", "cube_bottom_top", "pillar", "cross", "model", "crop"), s -> t("shape." + s), () -> e.shape, v -> {
+        f.choice(t("field.shape"), Block.SHAPES, s -> t("shape." + s), () -> e.shape, v -> {
             e.shape = v;
             if (v.equals("crop")) {
                 e.tool = "none";
@@ -65,14 +69,14 @@ final class BlockEditor extends EditorBase<Block> {
         f.check(t("field.rotatable"), () -> e.rotatable, v -> e.rotatable = v);
         f.showIf(() -> e.shape.equals("model"));
         texture(t("field.texture_all"), e.texture, v -> e.texture = v, "block");
-        f.showIf(() -> e.shape.equals("cube") || e.shape.equals("cross"));
+        f.showIf(() -> !e.shape.equals("cube_bottom_top") && !e.shape.equals("pillar") && !e.shape.equals("model") && !e.isCrop());
         f.row(t("field.seed_texture"), new TextureField(c.ws, c.window(), e.texture, () -> e.name + "_seeds", "seeds", v -> {
             e.texture = v;
             f.changed();
         }), t("help.seed_texture"));
         f.showIf(() -> e.isCrop());
         texture(t("field.texture_top"), e.textureTop, v -> e.textureTop = v, "block");
-        f.showIf(() -> e.shape.equals("cube_bottom_top") || e.shape.equals("pillar"));
+        f.showIf(() -> e.shape.equals("cube_bottom_top") || e.shape.equals("pillar") || e.shape.equals("door"));
         texture(t("field.texture_bottom"), e.textureBottom, v -> e.textureBottom = v, "block");
         f.showIf(() -> e.shape.equals("cube_bottom_top"));
         texture(t("field.texture_side"), e.textureSide, v -> e.textureSide = v, "block");
@@ -103,6 +107,15 @@ final class BlockEditor extends EditorBase<Block> {
         f.decimal(t("field.friction"), () -> e.friction, v -> e.friction = v, t("help.friction"));
         f.decimal(t("field.speed_factor"), () -> e.speedFactor, v -> e.speedFactor = v);
         f.decimal(t("field.jump_factor"), () -> e.jumpFactor, v -> e.jumpFactor = v);
+        f.integer(t("field.redstone_signal"), 0, 15, () -> e.redstoneSignal, v -> e.redstoneSignal = v);
+        f.check(t("field.can_connect_redstone"), () -> e.canConnectRedstone, v -> e.canConnectRedstone = v);
+        f.check(t("field.waterloggable"), () -> e.waterloggable, v -> e.waterloggable = v);
+        f.check(t("field.has_collision"), () -> e.hasCollision, v -> e.hasCollision = v, t("help.has_collision"));
+        f.check(t("field.falling_block"), () -> e.falling, v -> e.falling = v, t("help.falling_block"));
+        f.integer(t("field.flammability"), 0, 300, () -> e.flammability, v -> e.flammability = v, t("help.flammability"));
+        f.integer(t("field.fire_spread"), 0, 300, () -> e.fireSpread, v -> e.fireSpread = v, t("help.fire_spread"));
+        f.choice(t("field.instrument"), INSTRUMENTS, x -> t("instrument." + x), () -> e.instrument, v -> e.instrument = v, t("help.instrument"));
+        f.choice(t("field.push_reaction"), PUSH_REACTIONS, x -> t("push_reaction." + x), () -> e.pushReaction, v -> e.pushReaction = v, t("help.push_reaction"));
 
         f.section(t("section.mining"));
         f.sectionShowIf(() -> !e.isCrop());
@@ -124,11 +137,15 @@ final class BlockEditor extends EditorBase<Block> {
         f.showIf(() -> e.drop.equals("item"));
         f.check(t("field.fortune"), () -> e.fortune, v -> e.fortune = v);
         f.showIf(() -> e.drop.equals("item"));
+        f.integer(t("field.xp_min"), 0, 100, () -> e.xpMin, v -> e.xpMin = v, t("help.xp_drop"));
+        f.integer(t("field.xp_max"), 0, 100, () -> e.xpMax, v -> e.xpMax = v);
 
         f.section(t("section.ore"), t("help.ore"));
         f.sectionShowIf(() -> !e.isCrop());
         f.check(t("field.ore_gen"), () -> e.oreGen, v -> e.oreGen = v);
         f.choice(t("field.ore_dimension"), List.of("overworld", "nether", "end"), x -> t("dim." + x), () -> e.oreDimension, v -> e.oreDimension = v);
+        f.showIf(() -> e.oreGen);
+        f.choice(t("field.ore_distribution"), List.of("trapezoid", "uniform"), x -> t("ore_dist." + x), () -> e.oreDistribution, v -> e.oreDistribution = v);
         f.showIf(() -> e.oreGen);
         f.integer(t("field.ore_size"), 1, 64, () -> e.oreSize, v -> e.oreSize = v, t("help.ore_size"));
         f.showIf(() -> e.oreGen);
@@ -138,6 +155,21 @@ final class BlockEditor extends EditorBase<Block> {
         f.showIf(() -> e.oreGen);
         f.integer(t("field.ore_max_y"), -64, 320, () -> e.oreMaxY, v -> e.oreMaxY = v);
         f.showIf(() -> e.oreGen);
+        f.check(t("field.ore_prevent_surface"), () -> e.orePreventSurface, v -> e.orePreventSurface = v, t("help.ore_prevent_surface"));
+        f.showIf(() -> e.oreGen);
+        f.integer(t("field.ore_surface_depth"), 0, 64, () -> e.oreSurfaceDepth, v -> e.oreSurfaceDepth = v, t("help.ore_surface_depth"));
+        f.showIf(() -> e.oreGen && e.orePreventSurface);
+        f.decimal(t("field.ore_discard_air"), () -> e.oreDiscardAir, v -> e.oreDiscardAir = Math.max(0, Math.min(1, v)), t("help.ore_discard_air"));
+        f.showIf(() -> e.oreGen);
+        f.text(t("field.ore_replace_target"), () -> e.oreReplaceTarget, v -> e.oreReplaceTarget = v, t("help.ore_replace_target"));
+        f.showIf(() -> e.oreGen);
+        f.text(t("field.ore_biomes"), () -> e.oreBiomes, v -> e.oreBiomes = v, t("help.ore_biomes"));
+        f.showIf(() -> e.oreGen);
+
+        SystemEditors.logic(this, t("section.block_use"), t("help.block_use"), e.onUse, () -> t("start.block_use"));
+        SystemEditors.logic(this, t("section.block_step"), t("help.block_step"), e.onStep, () -> t("start.block_step"));
+        SystemEditors.logic(this, t("section.block_random_tick"), t("help.block_random_tick"), e.onRandomTick, () -> t("start.block_random_tick"));
+        SystemEditors.logic(this, t("section.block_neighbor"), t("help.block_neighbor"), e.onNeighborChanged, () -> t("start.block_neighbor"));
     }
 
     private final VBox stages = new VBox(6);

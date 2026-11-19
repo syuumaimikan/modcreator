@@ -4,6 +4,8 @@ import modstudio.core.Elements.*;
 import modstudio.i18n.I18n;
 
 import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.BiConsumer;
 
 /** Checks a project for errors and platform limitations. */
 public final class Validator {
@@ -12,6 +14,13 @@ public final class Validator {
     public enum Severity { ERROR, WARNING, INFO }
 
     public record Problem(Severity severity, String elementUid, String message) {}
+
+    private static final List<BiConsumer<Project, List<Problem>>> CUSTOM_RULES = new CopyOnWriteArrayList<>();
+
+    /** Registers a custom project validation rule (used by ModStudioPlugin extensions). */
+    public static void registerRule(BiConsumer<Project, List<Problem>> rule) {
+        if (rule != null) CUSTOM_RULES.add(rule);
+    }
 
     public static List<Problem> validate(Project p) {
         List<Problem> r = new ArrayList<>();
@@ -35,7 +44,8 @@ public final class Validator {
                 r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.name_empty", typeName)));
                 continue;
             }
-            boolean valid = e.type() == ElementType.CODE_FILE || (e.type().allowsPath() ? Ids.PATH : Ids.NAME).matcher(e.name).matches();
+            boolean valid = e.type() == ElementType.CODE_FILE ? Ids.PATH.matcher(e.name.replace('.', '_')).matches()
+                    : (e.type().allowsPath() ? Ids.PATH : Ids.NAME).matcher(e.name).matches();
             if (!valid) r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.name_invalid", e.name)));
             String key = e.type().registryGroup() + "|" + e.name;
             if (seen.containsKey(key)) r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.name_duplicate", e.name)));
@@ -62,8 +72,76 @@ public final class Validator {
                         r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.song_missing", it.name, it.song)));
                     if (it.isArmor() && !(p.byName(ElementType.ARMOR_MATERIAL, it.armorMaterial) instanceof Elements.ArmorMaterial))
                         r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.armor_material_missing", it.name, it.armorMaterial)));
-                    if (!it.isArmor() && (p.has(Target.PAPER) || p.has(Target.DATAPACK)) && !Vanilla.CMD_BASES.containsKey(Ids.full(it.baseItem)))
+                    if (!it.isArmor() && (p.targets().stream().anyMatch(Target::isPlugin) || p.has(Target.DATAPACK)) && !Vanilla.CMD_BASES.containsKey(Ids.full(it.baseItem)))
                         r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.base_item_model", it.baseItem)));
+                    for (List<Step> l : List.of(it.onUse, it.onHitEntity, it.onTickInHand)) checkSteps(p, r, e, l);
+                }
+                case Fluid fl -> {
+                    if (p.texture(fl.stillTexture) == null)
+                        r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.texture_missing", fl.name)));
+                    if (fl.creativeTab.startsWith("tab:") && p.byName(ElementType.CREATIVE_TAB, fl.creativeTab.substring(4)) == null)
+                        r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.unknown_tab", fl.creativeTab.substring(4))));
+                    if (!modTarget) r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.mod_only", fl.name)));
+                    checkSteps(p, r, e, fl.onEntityInside);
+                }
+                case ModElements.Container ct -> {
+                    if (!modTarget) r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.mod_only", ct.name)));
+                    if (ct.block.isBlank()) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.container_block", ct.name)));
+                    for (var cr : ct.recipes) {
+                        if (cr.input.isBlank() || cr.output.isBlank())
+                            r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.container_recipe", ct.name)));
+                    }
+                    for (List<Step> l : List.of(ct.onOpen, ct.onClose, ct.onCraft)) checkSteps(p, r, e, l);
+                }
+                case ModElements.CustomEntity ce -> {
+                    if (!modTarget) r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.mod_only", ce.name)));
+                    if (!ce.model.isBlank() && p.model(ce.model) == null)
+                        r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.model_missing", ce.name, ce.model)));
+                    if (ce.creativeTab.startsWith("tab:") && p.byName(ElementType.CREATIVE_TAB, ce.creativeTab.substring(4)) == null)
+                        r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.unknown_tab", ce.creativeTab.substring(4))));
+                    if (ce.spawnMin > ce.spawnMax)
+                        r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.entity_spawn_range", ce.name)));
+                    for (List<Step> l : List.of(ce.onSpawn, ce.onHurt, ce.onDeath, ce.onInteract)) checkSteps(p, r, e, l);
+                }
+                case ModElements.ModConfig cfg -> {
+                    if (!modTarget) r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.mod_only", cfg.name)));
+                    java.util.Set<String> cfgSeen = new java.util.HashSet<>();
+                    for (var en : cfg.entries) {
+                        String k = en.key == null ? "" : en.key.trim();
+                        if (k.isBlank() || !k.matches("[A-Za-z0-9_.-]+") || !cfgSeen.add(k))
+                            r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.config_key", cfg.name, k)));
+                    }
+                }
+                case ModElements.MixinSpec mx -> {
+                    if (!modTarget) r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.mod_only", mx.name)));
+                    if (mx.enabled && !mx.rawMode && (mx.targetClass.isBlank() || mx.methodTarget.isBlank()))
+                        r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.mixin_target", mx.name)));
+                    else if (mx.enabled && mx.rawMode && mx.rawCode.isBlank())
+                        r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.mixin_target", mx.name)));
+                }
+                case ModElements.Portal pt -> {
+                    if (!modTarget) r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.mod_only", pt.name)));
+                    if (pt.targetDimension.isBlank() || pt.frameBlock.isBlank())
+                        r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.portal_incomplete", pt.name)));
+                }
+                case ModElements.WorldFeature wf -> {
+                    if (wf.minY > wf.maxY) r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.worldgen_y", wf.name)));
+                }
+                case ModElements.Profession pf -> {
+                    if (!modTarget) r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.mod_only", pf.name)));
+                    if (pf.workstationBlock.isBlank())
+                        r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.profession_station", pf.name)));
+                }
+                case ModElements.ArmorTrim at -> {
+                    if (!at.generateTemplate && at.item.isBlank())
+                        r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.trim_item", at.name)));
+                }
+                case ModElements.BannerPattern bp -> {
+                    if (p.texture(bp.texture) == null)
+                        r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.texture_missing", bp.name)));
+                }
+                case ModElements.CustomRecipeType rt -> {
+                    if (!modTarget) r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.mod_only", rt.name)));
                 }
                 case StatusEffect se -> {
                     if (p.texture(se.icon) == null) r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.effect_icon", se.name)));
@@ -175,9 +253,20 @@ public final class Validator {
                     TextureAsset l1 = p.texture(am.layer1);
                     if (l1 != null && (l1.width != 2 * l1.height))
                         r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.armor_layer_size", am.name)));
+                    TextureAsset l2 = p.texture(am.layer2);
+                    if (l2 != null && (l2.width != 2 * l2.height))
+                        r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.armor_layer_size", am.name)));
                     if (!am.repairItem.isBlank()) checkRef(p, r, e, am.repairItem);
+                    if (!am.setBonusEffect.isBlank()) checkEffectRef(p, r, e, am.setBonusEffect);
                     if (p.all(Item.class).stream().noneMatch(i -> i.isArmor() && i.armorMaterial.equals(am.name)))
                         r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.armor_no_pieces", am.name)));
+                }
+                case Elements.ToolMaterial tm -> {
+                    if (tm.durability < 1) r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.tool_durability", tm.name)));
+                    if (tm.speed <= 0) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.tool_speed", tm.name)));
+                    if (!tm.repairItem.isBlank()) checkRef(p, r, e, tm.repairItem);
+                    if (p.all(Item.class).stream().noneMatch(i -> i.isTool() && i.tier.equals(tm.name)))
+                        r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.tool_no_pieces", tm.name)));
                 }
                 case Block b -> {
                     boolean missing = switch (b.shape) {
@@ -202,9 +291,15 @@ public final class Validator {
                     if (b.creativeTab.startsWith("tab:") && p.byName(ElementType.CREATIVE_TAB, b.creativeTab.substring(4)) == null)
                         r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.unknown_tab", b.creativeTab.substring(4))));
                     for (Target t : targets) {
-                        if (t == Target.PAPER || t == Target.DATAPACK || t == Target.RESOURCEPACK)
+                        if (t.isPlugin() || t == Target.DATAPACK || t == Target.RESOURCEPACK)
                             r.add(new Problem(Severity.INFO, e.uid, I18n.t("problem.block_unsupported", b.name, I18n.t("target." + t.id))));
                     }
+                    for (List<Step> l : List.of(b.onUse, b.onStep, b.onRandomTick, b.onNeighborChanged)) checkSteps(p, r, e, l);
+                    if (b.oreGen) {
+                        if (b.oreMinY > b.oreMaxY) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.ore_range", b.name, b.oreMinY, b.oreMaxY)));
+                        if (!b.oreReplaceTarget.isBlank()) checkRef(p, r, e, b.oreReplaceTarget);
+                    }
+                    if (b.xpMax > 0 && b.xpMin > b.xpMax) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.ore_range", b.name, b.xpMin, b.xpMax)));
                 }
                 case Recipe rc -> {
                     if (rc.result.isBlank()) r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.recipe_no_result", rc.name)));
@@ -288,13 +383,19 @@ public final class Validator {
                 }
                 case Elements.Command c -> {
                     if (!Ids.NAME.matcher(c.name).matches()) r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.command_name", c.name)));
+                    if (c.permission < 0 || c.permission > 4)
+                        r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.command_path", c.name, "permission=" + c.permission, "0..4")));
                     checkSteps(p, r, e, c.steps);
+                    if (p.mcVersions().contains(McVersion.V1_20_1) && usesMacro(c.steps))
+                        r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.macro_old", "/" + c.name)));
                     for (CommandBranch b : c.branches) {
                         try {
                             CommandSpec.parse(b.path);
                         } catch (CommandSpec.SpecException ex) {
                             r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.command_path", c.name, b.path, ex.getMessage())));
                         }
+                        if (b.permission < -1 || b.permission > 4)
+                            r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.command_path", c.name, b.path, "permission -1..4")));
                         checkSteps(p, r, e, b.steps);
                         if (p.mcVersions().contains(McVersion.V1_20_1) && usesMacro(b.steps))
                             r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.macro_old", "/" + c.name + " " + b.path)));
@@ -336,7 +437,7 @@ public final class Validator {
                     if (m.block.isBlank()) r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.machine_block", m.name)));
                     else {
                         checkRef(p, r, e, m.block.contains("[") ? m.block.substring(0, m.block.indexOf('[')) : m.block);
-                        if (Ids.full(m.block).startsWith(p.meta.modId + ":") && (p.has(Target.DATAPACK) || p.has(Target.PAPER)))
+                        if (Ids.full(m.block).startsWith(p.meta.modId + ":") && (p.has(Target.DATAPACK) || p.targets().stream().anyMatch(Target::isPlugin)))
                             r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.machine_project_block", m.name)));
                     }
                     for (Systems.MachineIO io : m.io) {
@@ -348,6 +449,9 @@ public final class Validator {
                     if (m.io.isEmpty() && m.onCycle.isEmpty()) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.machine_idle", m.name)));
                 }
                 case Systems.Mob mob -> {
+                    for (List<Step> l : List.of(mob.onSpawn, mob.onTick, mob.onHurt, mob.onDeath, mob.onInteract)) checkSteps(p, r, e, l);
+                    for (Systems.BossPhase ph : mob.phases) checkSteps(p, r, e, ph.steps);
+                    for (String gear : List.of(mob.mainhand, mob.offhand, mob.head, mob.chest, mob.legs, mob.feet)) checkRef(p, r, e, gear);
                     if (!mob.rig.isBlank()) {
                         Elements.Model md = p.model(mob.rig.trim());
                         if (md == null) r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.rig_missing", mob.name, mob.rig)));
@@ -444,10 +548,10 @@ public final class Validator {
                 }
                 case Systems.Shader sh -> {
                     String prog = sh.program.trim();
-                    boolean include = sh.kind.equals("include");
+                    boolean include = sh.kind.equals("include"), post = sh.kind.equals("post");
                     if (prog.isEmpty() || !prog.matches("[a-z0-9_./-]+"))
                         r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.shader_program", sh.name, prog)));
-                    if (!sh.graph() && sh.fragment.isBlank() && (include || sh.vertex.isBlank()))
+                    if (!sh.graph() && sh.fragment.isBlank() && (include || post || sh.vertex.isBlank()))
                         r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.shader_empty", sh.name)));
                     for (String k : ShaderNodes.check(sh))
                         r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.shader_graph", sh.name, I18n.t(k))));
@@ -456,13 +560,13 @@ public final class Validator {
                         r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.shader_range", sh.name)));
                     if (p.mcVersions().stream().noneMatch(v -> Shaders.inRange(sh, v)))
                         r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.shader_no_version", sh.name)));
-                    List<String> issues = new ArrayList<>(sh.graph() && include ? List.of() : Shaders.check(sh.fragment, !include));
-                    if (!include) issues.addAll(Shaders.check(sh.vertex, true));
+                    List<String> issues = new ArrayList<>(sh.graph() && (include || (post && sh.fragment.isBlank())) ? List.of() : Shaders.check(sh.fragment, !include));
+                    if (!include && !post) issues.addAll(Shaders.check(sh.vertex, true));
                     for (String k : new LinkedHashSet<>(issues))
                         r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.shader_code", sh.name, I18n.t(k))));
                     if (!include) {
                         for (McVersion v : p.mcVersions()) {
-                            List<String> known = Shaders.programs(v);
+                            List<String> known = post ? Shaders.postPrograms() : Shaders.programs(v);
                             if (Shaders.inRange(sh, v) && !known.isEmpty() && !prog.isEmpty() && !known.contains(prog))
                                 r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.shader_unknown", sh.name, prog, v.id)));
                         }
@@ -470,6 +574,25 @@ public final class Validator {
                 }
                 case CodeFile cf -> {
                     if (cf.path.isBlank()) r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.codefile_path", cf.name)));
+                    if (cf.target != null && !cf.target.isBlank() && !cf.target.equals("all") && !cf.target.equals("mods")
+                            && !cf.target.equals("plugins") && !cf.target.equals("packs")) {
+                        for (String seg : cf.target.split(",")) {
+                            if (Target.of(seg.trim()) == null) {
+                                r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.unknown_element", cf.name, I18n.t("field.target"), seg.trim())));
+                            }
+                        }
+                    }
+                    if (cf.hook != null && !cf.hook.isBlank() && !"none".equals(cf.hook) && !cf.isJvmLanguage()) {
+                        r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.codefile_hook_lang", cf.name, cf.resolvedLanguage())));
+                    }
+                }
+                case Systems.Dimension dim -> {
+                    for (String b : dim.biomes) {
+                        if (b != null && b.startsWith(p.meta.modId + ":") && p.byName(ElementType.BIOME, Ids.path(b)) == null) {
+                            r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.unknown_element", dim.name, I18n.t("type.biome"), b)));
+                        }
+                    }
+                    if (dim.minY >= dim.height) r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.worldgen_y", dim.name)));
                 }
                 case CreativeTab tab -> {
                     checkRef(p, r, e, tab.icon);
@@ -478,8 +601,10 @@ public final class Validator {
                 default -> {
                 }
             }
+            checkExtendedDetails(p, r, e);
         }
-        if (p.elements.stream().anyMatch(e -> e instanceof Item) && (p.has(Target.PAPER) || p.has(Target.DATAPACK)) && !p.has(Target.RESOURCEPACK)) {
+        for (var rule : CUSTOM_RULES) rule.accept(p, r);
+        if (p.elements.stream().anyMatch(e -> e instanceof Item) && (p.targets().stream().anyMatch(Target::isPlugin) || p.has(Target.DATAPACK)) && !p.has(Target.RESOURCEPACK)) {
             r.add(new Problem(Severity.INFO, null, I18n.t("problem.need_resourcepack")));
         }
         r.sort(Comparator.comparing(Problem::severity));
@@ -487,13 +612,37 @@ public final class Validator {
     }
 
     private static void checkSteps(Project p, List<Problem> r, Element e, List<Step> steps) {
+        if (steps == null) return;
         for (Step s : steps) {
-            for (String k : List.of("item", "block")) checkRef(p, r, e, s.get(k));
-            checkElementRefs(p, r, e, Logic.STEPS.get(s.kind), s.p);
+            if (s == null) continue;
+            Logic.Def def = Logic.STEPS.get(s.kind);
+            if (def != null) {
+                for (Logic.Param prm : def.params()) {
+                    if (prm.type() == Logic.PType.ITEM || prm.type() == Logic.PType.BLOCK) {
+                        checkRef(p, r, e, s.get(prm.key()));
+                    } else if (prm.type() == Logic.PType.EFFECT) {
+                        checkEffectRef(p, r, e, s.get(prm.key()));
+                    }
+                }
+            } else {
+                for (String k : List.of("item", "block", "filter", "tool")) checkRef(p, r, e, s.get(k));
+            }
+            checkElementRefs(p, r, e, def, s.p);
             if (s.cond != null) {
-                checkRef(p, r, e, s.cond.get("item"));
-                checkRef(p, r, e, s.cond.get("block"));
-                checkElementRefs(p, r, e, Logic.CONDITIONS.get(s.cond.kind), s.cond.p);
+                Logic.Def cdef = Logic.CONDITIONS.get(s.cond.kind);
+                if (cdef != null) {
+                    for (Logic.Param prm : cdef.params()) {
+                        if (prm.type() == Logic.PType.ITEM || prm.type() == Logic.PType.BLOCK) {
+                            checkRef(p, r, e, s.cond.get(prm.key()));
+                        } else if (prm.type() == Logic.PType.EFFECT) {
+                            checkEffectRef(p, r, e, s.cond.get(prm.key()));
+                        }
+                    }
+                } else {
+                    checkRef(p, r, e, s.cond.get("item"));
+                    checkRef(p, r, e, s.cond.get("block"));
+                }
+                checkElementRefs(p, r, e, cdef, s.cond.p);
             }
             checkSteps(p, r, e, s.then);
             checkSteps(p, r, e, s.orElse);
@@ -518,7 +667,7 @@ public final class Validator {
      */
     private static boolean usesMacro(List<Step> steps) {
         for (Step s : steps) {
-            if (needsMacro(s.p)) return true;
+            if (!"java_code".equals(s.kind) && !"java_call".equals(s.kind) && needsMacro(s.p)) return true;
             if (s.cond != null && needsMacro(s.cond.p)) return true;
             if (usesMacro(s.then) || usesMacro(s.orElse)) return true;
         }
@@ -611,8 +760,61 @@ public final class Validator {
         if (id == null || id.isBlank()) return;
         String f = id.startsWith("#") ? id.substring(1) : id;
         if (id.startsWith("#")) return;
-        if (f.startsWith(p.meta.modId + ":") && p.itemLike(f) == null) {
+        if (f.startsWith(p.meta.modId + ":") && p.itemLike(f) == null && !hasGeneratedItem(p, f)) {
             r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.unknown_ref", id)));
+        }
+    }
+
+    private static boolean hasGeneratedItem(Project p, String id) {
+        String path = Ids.path(id);
+        for (Element el : p.elements) {
+            if (el instanceof Elements.Fluid fl && fl.generateBucket && (fl.name + "_bucket").equals(path)) return true;
+            if (el instanceof ModElements.CustomEntity ce && ce.spawnEgg && ce.isLivingMob() && (ce.name + "_spawn_egg").equals(path)) return true;
+            if (el instanceof ModElements.Portal pt && pt.generateIgniter && (pt.name + "_igniter").equals(path)) return true;
+            if (el instanceof ModElements.ArmorTrim at && at.generateTemplate && (at.name + "_armor_trim_smithing_template").equals(path)) return true;
+        }
+        return false;
+    }
+
+    private static void checkEffectRef(Project p, List<Problem> r, Element e, String id) {
+        if (id == null || id.isBlank()) return;
+        String f = Ids.full(id.trim());
+        if (Ids.ns(f).equals(p.meta.modId) && p.byName(ElementType.STATUS_EFFECT, Ids.path(f)) == null) {
+            r.add(new Problem(Severity.ERROR, e.uid, I18n.t("problem.unknown_element", e.name, I18n.t("type.status_effect"), id)));
+        }
+    }
+
+    private static void checkExtendedDetails(Project p, List<Problem> r, Element e) {
+        switch (e) {
+            case Item it -> {
+                if (!it.wornModel.isBlank() && p.model(it.wornModel) == null)
+                    r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.model_missing", it.name, it.wornModel)));
+                checkRef(p, r, e, it.repairItem);
+                checkRef(p, r, e, it.craftRemainder);
+                checkRef(p, r, e, it.useReturnItem);
+                checkRef(p, r, e, it.baseItem);
+                if (!it.foodEffect.isBlank()) checkEffectRef(p, r, e, it.foodEffect);
+            }
+            case ArmorMaterial am -> {
+                for (String m : List.of(am.helmetModel, am.chestplateModel, am.leggingsModel, am.bootsModel)) {
+                    if (!m.isBlank() && p.model(m) == null)
+                        r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.model_missing", am.name, m)));
+                }
+            }
+            case ModElements.CustomEntity ce -> {
+                if (!ce.model.isBlank()) {
+                    Elements.Model md = p.model(ce.model.trim());
+                    if (md != null && !md.bones.isEmpty()) {
+                        for (String an : List.of(ce.idleAnim, ce.walkAnim, ce.attackAnim)) {
+                            if (an != null && !an.isBlank() && md.animation(an.trim()) == null)
+                                r.add(new Problem(Severity.WARNING, e.uid, I18n.t("problem.rig_animation", ce.name, an)));
+                        }
+                    }
+                }
+                if (ce.tameable && !ce.tameItem.isBlank()) checkRef(p, r, e, ce.tameItem);
+            }
+            default -> {
+            }
         }
     }
 

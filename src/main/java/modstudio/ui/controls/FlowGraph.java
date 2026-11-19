@@ -54,7 +54,7 @@ public final class FlowGraph extends BorderPane {
         scroll.getStyleClass().add("flow-scroll");
         scroll.addEventFilter(ScrollEvent.SCROLL, e -> {
             if (!e.isControlDown()) return;
-            setZoom(zoom * (e.getDeltaY() > 0 ? 1.1 : 1 / 1.1));
+            if (e.getDeltaY() != 0) setZoom(zoom * (e.getDeltaY() > 0 ? 1.1 : 1 / 1.1));
             e.consume();
         });
         Button in = Ui.iconButton("mdi2m-magnify-plus-outline", I18n.t("graph.zoom_in"), () -> setZoom(zoom * 1.15));
@@ -228,6 +228,8 @@ public final class FlowGraph extends BorderPane {
             showInspector();
             e.consume();
         });
+        box.setOnMousePressed(e -> e.consume());
+        box.setOnMouseDragged(e -> e.consume());
         box.setOnDragDetected(e -> {
             dragged = s;
             draggedFrom = owner;

@@ -20,6 +20,7 @@ public final class Snapshotter {
     private final MainWindow w;
     private final Path dir;
     private final List<Runnable> steps = new ArrayList<>();
+    private final List<String> checks = new ArrayList<>();
     private int index;
 
     public Snapshotter(MainWindow w, Path dir) {
@@ -33,7 +34,7 @@ public final class Snapshotter {
         dialogShot(() -> NewProjectDialog.show(w), "81-new-project");
         add(w::openSample);
         String[] pages = {"overview", "textures", "translations", "item", "block", "creative_tab", "sound", "recipe",
-                "loot_table", "advancement", "tag", "function", "procedure", "command", "code_file", "model", "build", "play", "problems"};
+                "loot_table", "advancement", "tag", "function", "procedure", "command", "code_file", "model", "ai", "build", "play", "problems"};
         int n = 1;
         for (String page : pages) {
             int num = n++;
@@ -42,10 +43,53 @@ public final class Snapshotter {
                 v.show(page);
                 var elems = w.workspace().project.elements.stream()
                         .filter(e -> e.type().id.equals(page)).toList();
-                if (!elems.isEmpty()) v.openElement(elems.get(elems.size() > 1 && page.equals("item") ? 0 : 0).uid);
+                if (!elems.isEmpty()) v.openElement(elems.get(0).uid);
             });
-            add(() -> shot(w.scene(), String.format("%02d-%s", num, page)));
+            add(() -> {
+                if ("build".equals(page)) {
+                    for (javafx.scene.Node node : w.scene().getRoot().lookupAll(".tab-pane")) {
+                        if (node instanceof javafx.scene.control.TabPane tp && tp.getTabs().size() > 1) {
+                            tp.getSelectionModel().select(1);
+                        }
+                    }
+                }
+                shot(w.scene(), String.format("%02d-%s", num, page));
+            });
         }
+        // Create and verify ToolMaterial live + test AiAssistantPage quick prompt + MCP tool schema selection
+        add(() -> {
+            var v = w.workspaceView();
+            v.show("ai");
+            for (javafx.scene.Node node : w.scene().getRoot().lookupAll(".button")) {
+                if (node instanceof javafx.scene.control.Button b && b.getStyleClass().contains("chip")) {
+                    b.fire();
+                    break;
+                }
+            }
+            for (javafx.scene.Node node : w.scene().getRoot().lookupAll(".combo-box")) {
+                if (node instanceof javafx.scene.control.ComboBox<?> cb && !cb.getItems().isEmpty()) {
+                    cb.getSelectionModel().select(Math.min(2, cb.getItems().size() - 1));
+                    break;
+                }
+            }
+        });
+        add(() -> {
+            shot(w.scene(), "34-ai-active");
+            modstudio.core.Elements.ToolMaterial tm = new modstudio.core.Elements.ToolMaterial();
+            tm.name = "ruby_alloy";
+            tm.displayName = "Ruby Alloy";
+            tm.durability = 1400;
+            tm.speed = 8.5;
+            tm.attackDamageBonus = 3.5;
+            tm.enchantability = 18;
+            tm.miningLevel = 3;
+            tm.repairItem = w.workspace().project.meta.modId + ":ruby";
+            w.workspace().project.elements.add(tm);
+            w.workspace().changed();
+            w.workspaceView().rebuildAfterExternalMutation();
+            w.workspaceView().openElement(tm.uid);
+        });
+        add(() -> shot(w.scene(), "35-tool_material-ruby_alloy"));
         add(() -> {
             var ws = w.workspace();
             var v = w.workspaceView();
@@ -86,9 +130,12 @@ public final class Snapshotter {
                 v.show(pn[0]);
                 w.workspace().project.elements.stream().filter(e -> e.type().id.equals(pn[0]) && e.name.equals(pn[1])).findFirst().ifPresent(e -> v.openElement(e.uid));
             });
-            add(() -> shot(w.scene(), num + "-" + pn[0] + (pn[1].isEmpty() ? "" : "-" + pn[1])));
+            add(() -> {
+                if ("armor_material".equals(pn[0])) verifyScrollIsolation("armor_material:" + pn[1]);
+                shot(w.scene(), num + "-" + pn[0] + (pn[1].isEmpty() ? "" : "-" + pn[1]));
+            });
         }
-        // the bone and animation sections of the animated model, further down the editor
+        // the bone and animation sections of the animated model, further down the editor (non-colliding file names)
         for (double pos : new double[]{0.55, 0.8}) {
             add(() -> {
                 for (javafx.scene.Node node : w.scene().getRoot().lookupAll(".scroll-pane")) {
@@ -96,7 +143,7 @@ public final class Snapshotter {
                             && sp.getContent().lookup(".model-view") != null) sp.setVvalue(pos);
                 }
             });
-            add(() -> shot(w.scene(), (pos < 0.7 ? "70" : "71") + "-model-rig"));
+            add(() -> shot(w.scene(), (pos < 0.7 ? "85" : "86") + "-model-rig"));
         }
         // the background, opening animation and sounds of the shop menu
         add(() -> {
@@ -110,7 +157,7 @@ public final class Snapshotter {
                         && sp.getContent().lookup(".mc-menu") != null) sp.setVvalue(0.75);
             }
         });
-        add(() -> shot(w.scene(), "72-menu-look"));
+        add(() -> shot(w.scene(), "87-menu-look"));
         // the assembly, processing and recipe sections of the crusher
         add(() -> {
             var v = w.workspaceView();
@@ -125,7 +172,7 @@ public final class Snapshotter {
                             && sp.getContent().lookup(".voxel-editor") != null) sp.setVvalue(pos);
                 }
             });
-            add(() -> shot(w.scene(), (pos < 0.6 ? "73" : "74") + "-multiblock-assembly"));
+            add(() -> shot(w.scene(), (pos < 0.6 ? "88" : "89") + "-multiblock-assembly"));
         }
         // the node graph and the live preview of the shimmer shader, further down its editor
         add(() -> {
@@ -177,6 +224,24 @@ public final class Snapshotter {
             });
             pt.play();
         });
+        // Git dialog screenshot
+        dialogShot(() -> GitDialog.show(w.stage, w.workspace().dir()), "84-git-dialog");
+        // RpgSampleProject walkthrough covering advanced mod elements (entity, container, portal, world_feature, profession, etc.)
+        add(w::openRpgSample);
+        String[] rpgPages = {"entity", "container", "portal", "world_feature", "profession", "mod_config", "mixin", "armor_trim", "banner_pattern", "recipe_type"};
+        int rn = 90;
+        for (String rp : rpgPages) {
+            int rnum = rn++;
+            add(() -> {
+                var v = w.workspaceView();
+                v.show(rp);
+                w.workspace().project.elements.stream().filter(e -> e.type().id.equals(rp)).findFirst().ifPresent(e -> v.openElement(e.uid));
+            });
+            add(() -> {
+                if ("entity".equals(rp)) verifyScrollIsolation("rpg-entity");
+                shot(w.scene(), String.format("%02d-rpg-%s", rnum, rp));
+            });
+        }
         // the new project dialog with a data pack chosen: no Java package, a namespace instead of a mod id
         add(() -> {
             PauseTransition pt = new PauseTransition(Duration.millis(500));
@@ -220,10 +285,41 @@ public final class Snapshotter {
         add(() -> {
         });
         add(() -> {
+            try {
+                Files.createDirectories(dir);
+                Files.writeString(dir.resolve("verify-report.txt"), String.join("\n", checks) + "\n");
+            } catch (java.io.IOException ex) {
+                ex.printStackTrace();
+            }
             System.out.println("Snapshots written to " + dir);
             Platform.exit();
         });
         next();
+    }
+
+    private void verifyScrollIsolation(String label) {
+        for (javafx.scene.Node mv : w.scene().getRoot().lookupAll(".model-view")) {
+            for (javafx.scene.Parent cur = mv.getParent(); cur != null; cur = cur.getParent()) {
+                if (cur instanceof javafx.scene.control.ScrollPane sp) {
+                    sp.setVvalue(0.25);
+                    double before = sp.getVvalue();
+                    javafx.scene.input.ScrollEvent se = new javafx.scene.input.ScrollEvent(
+                            javafx.scene.input.ScrollEvent.SCROLL, 50, 50, 50, 50,
+                            false, false, false, false, false, false,
+                            0, -80, 0, -80,
+                            javafx.scene.input.ScrollEvent.HorizontalTextScrollUnits.NONE, 0,
+                            javafx.scene.input.ScrollEvent.VerticalTextScrollUnits.NONE, 0, 0, null);
+                    javafx.event.Event.fireEvent(mv, se);
+                    double after = sp.getVvalue();
+                    boolean isolated = Math.abs(after - before) < 0.0001;
+                    sp.setVvalue(0.0);
+                    String line = (isolated ? "PASS " : "FAIL ") + "scroll_isolation[" + label + "]: before=" + before + " after=" + after;
+                    checks.add(line);
+                    System.out.println(line);
+                    return;
+                }
+            }
+        }
     }
 
     /** Opens a modal dialog, captures it once laid out and closes it again. */

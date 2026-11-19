@@ -5,7 +5,9 @@ import java.util.function.Supplier;
 public enum ElementType {
     ITEM("item", Elements.Item.class, Elements.Item::new),
     BLOCK("block", Elements.Block.class, Elements.Block::new),
+    FLUID("fluid", Elements.Fluid.class, Elements.Fluid::new),
     ARMOR_MATERIAL("armor_material", Elements.ArmorMaterial.class, Elements.ArmorMaterial::new),
+    TOOL_MATERIAL("tool_material", Elements.ToolMaterial.class, Elements.ToolMaterial::new),
     STATUS_EFFECT("status_effect", Elements.StatusEffect.class, Elements.StatusEffect::new),
     POTION("potion", Elements.Potion.class, Elements.Potion::new),
     ENCHANTMENT("enchantment", Elements.Enchantment.class, Elements.Enchantment::new),
@@ -43,7 +45,17 @@ public enum ElementType {
     TRADER("trader", Systems.Trader.class, Systems.Trader::new),
     THEME("theme", Systems.Theme.class, Systems.Theme::new),
     ICON_FONT("icon_font", Systems.IconFont.class, Systems.IconFont::new),
-    SCREEN("screen", Systems.CustomScreen.class, Systems.CustomScreen::new);
+    SCREEN("screen", Systems.CustomScreen.class, Systems.CustomScreen::new),
+    CONTAINER("container", ModElements.Container.class, ModElements.Container::new),
+    ENTITY("entity", ModElements.CustomEntity.class, ModElements.CustomEntity::new),
+    MOD_CONFIG("mod_config", ModElements.ModConfig.class, ModElements.ModConfig::new),
+    MIXIN("mixin", ModElements.MixinSpec.class, ModElements.MixinSpec::new),
+    PORTAL("portal", ModElements.Portal.class, ModElements.Portal::new),
+    WORLD_FEATURE("world_feature", ModElements.WorldFeature.class, ModElements.WorldFeature::new),
+    PROFESSION("profession", ModElements.Profession.class, ModElements.Profession::new),
+    ARMOR_TRIM("armor_trim", ModElements.ArmorTrim.class, ModElements.ArmorTrim::new),
+    BANNER_PATTERN("banner_pattern", ModElements.BannerPattern.class, ModElements.BannerPattern::new),
+    RECIPE_TYPE("recipe_type", ModElements.CustomRecipeType.class, ModElements.CustomRecipeType::new);
 
     public final String id;
     public final Class<? extends Element> cls;

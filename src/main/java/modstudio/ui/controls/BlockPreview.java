@@ -39,7 +39,12 @@ public final class BlockPreview extends StackPane {
             if (ripe != null) g.drawImage(ripe, 27, 27, 96, 96);
             return;
         }
-        double cx = 75, w = 56, y0 = 14, hgt = 64;
+        double cx = 75, w = 56, y0 = 14, hgt = switch (b.shape) {
+            case "slab", "carpet" -> b.shape.equals("carpet") ? 8 : 32;
+            case "pressure_plate", "button" -> 12;
+            default -> 64;
+        };
+        if (hgt < 64) y0 += (64 - hgt) * 0.7;
         // top: A(cx,y0) B(cx+w,y0+w/2) D(cx-w,y0+w/2)
         face(g, top, cx, y0, w / 16, w / 32, -w / 16, w / 32, 1.0);
         // left: from D(cx-w, y0+w/2) along +x to C(cx, y0+w), down by hgt

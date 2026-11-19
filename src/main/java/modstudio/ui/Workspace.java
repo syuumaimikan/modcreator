@@ -13,30 +13,43 @@ import modstudio.core.*;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** An open project: change tracking, autosave, validation and image caching. */
+/** An open project: change tracking, undo/redo history, autosave, validation and image caching. */
 public final class Workspace {
+    private static final int MAX_UNDO = 40;
     public final Project project;
     public final AppSettings settings;
     private Path file;
     private final BooleanProperty dirty = new SimpleBooleanProperty(false);
     private final IntegerProperty revision = new SimpleIntegerProperty(0);
+    private final BooleanProperty canUndo = new SimpleBooleanProperty(false);
+    private final BooleanProperty canRedo = new SimpleBooleanProperty(false);
     private final ObservableList<Validator.Problem> problems = FXCollections.observableArrayList();
     private final List<Runnable> structureListeners = new ArrayList<>();
+    private final List<Runnable> restoreListeners = new ArrayList<>();
     private final PauseTransition validateTimer = new PauseTransition(Duration.millis(350));
     private final PauseTransition saveTimer = new PauseTransition(Duration.seconds(2));
+    private final PauseTransition undoTimer = new PauseTransition(Duration.millis(450));
+    private final ArrayDeque<String> undoStack = new ArrayDeque<>();
+    private final ArrayDeque<String> redoStack = new ArrayDeque<>();
     private final Map<String, Image> images = new HashMap<>();
+    private String currentSnapshot;
+    private boolean restoring;
+    private boolean undoPending;
     private String lastSaveError;
 
     public Workspace(Project project, Path file, AppSettings settings) {
         this.project = project;
         this.file = file;
         this.settings = settings;
+        this.currentSnapshot = ProjectIO.toJson(project);
         validateTimer.setOnFinished(e -> validate());
+        undoTimer.setOnFinished(e -> commitUndo());
         saveTimer.setOnFinished(e -> {
             if (settings.autosave && dirty.get() && file != null && !settings.transientMode) {
                 try {
@@ -65,6 +78,14 @@ public final class Workspace {
         return revision;
     }
 
+    public BooleanProperty canUndoProperty() {
+        return canUndo;
+    }
+
+    public BooleanProperty canRedoProperty() {
+        return canRedo;
+    }
+
     public ObservableList<Validator.Problem> problems() {
         return problems;
     }
@@ -79,16 +100,108 @@ public final class Workspace {
         revision.set(revision.get() + 1);
         validateTimer.playFromStart();
         if (settings.autosave) saveTimer.playFromStart();
+        if (!restoring) {
+            undoPending = true;
+            syncUndoProps();
+            undoTimer.playFromStart();
+        }
     }
 
     /** Call after elements were added, removed or renamed. */
     public void structureChanged() {
         changed();
+        if (!restoring) commitUndo();
         for (Runnable r : new ArrayList<>(structureListeners)) r.run();
     }
 
     public void onStructureChanged(Runnable r) {
         structureListeners.add(r);
+    }
+
+    public void onRestored(Runnable r) {
+        restoreListeners.add(r);
+    }
+
+    private void syncUndoProps() {
+        canUndo.set(undoPending || !undoStack.isEmpty());
+        canRedo.set(!redoStack.isEmpty());
+    }
+
+    private void commitUndo() {
+        undoPending = false;
+        undoTimer.stop();
+        if (restoring) return;
+        String next = ProjectIO.toJson(project);
+        if (next.equals(currentSnapshot)) {
+            syncUndoProps();
+            return;
+        }
+        undoStack.push(currentSnapshot);
+        while (undoStack.size() > MAX_UNDO) undoStack.removeLast();
+        redoStack.clear();
+        currentSnapshot = next;
+        syncUndoProps();
+    }
+
+    /** Undoes the last project edit, returning true if state changed. */
+    public boolean undo() {
+        if (restoring) return false;
+        undoTimer.stop();
+        String live = ProjectIO.toJson(project);
+        String target;
+        if (undoPending && !live.equals(currentSnapshot)) {
+            redoStack.push(live);
+            target = currentSnapshot;
+        } else if (!undoStack.isEmpty()) {
+            redoStack.push(live);
+            target = undoStack.pop();
+        } else {
+            undoPending = false;
+            syncUndoProps();
+            return false;
+        }
+        applySnapshot(target);
+        return true;
+    }
+
+    /** Redoes a previously undone project edit, returning true if state changed. */
+    public boolean redo() {
+        if (restoring || redoStack.isEmpty()) return false;
+        undoTimer.stop();
+        undoStack.push(ProjectIO.toJson(project));
+        while (undoStack.size() > MAX_UNDO) undoStack.removeLast();
+        applySnapshot(redoStack.pop());
+        return true;
+    }
+
+    private void applySnapshot(String snap) {
+        Project parsed = ProjectIO.fromJson(snap);
+        if (parsed == null) return;
+        restoring = true;
+        undoPending = false;
+        try {
+            project.meta = parsed.meta;
+            project.versions.clear();
+            project.versions.putAll(parsed.versions);
+            project.elements.clear();
+            project.elements.addAll(parsed.elements);
+            project.textures.clear();
+            project.textures.addAll(parsed.textures);
+            project.translations.clear();
+            project.translations.putAll(parsed.translations);
+            currentSnapshot = snap;
+            images.clear();
+            thumbnails = null;
+            dirty.set(true);
+            revision.set(revision.get() + 1);
+            validate();
+            if (settings.autosave) saveTimer.playFromStart();
+            syncUndoProps();
+            for (Runnable r : new ArrayList<>(structureListeners)) r.run();
+            for (Runnable r : new ArrayList<>(restoreListeners)) r.run();
+        } finally {
+            restoring = false;
+        }
     }
 
     public void validate() {

@@ -265,12 +265,31 @@ public final class StepsEditor extends VBox {
                 f.setPrefWidth(300);
                 return f;
             }
+            case LONGTEXT -> {
+                TextField tf = new TextField(v);
+                tf.setPrefColumnCount(34);
+                tf.textProperty().addListener((o, a, b) -> {
+                    values.put(p.key(), b);
+                    changed.run();
+                });
+                return tf;
+            }
+            case CODE -> {
+                CodeEditor ce = new CodeEditor("java");
+                ce.setText(v);
+                ce.setPrefHeight(130);
+                ce.setPrefWidth(480);
+                ce.setOnTextChanged(b -> {
+                    values.put(p.key(), b);
+                    changed.run();
+                });
+                return ce;
+            }
             default -> {
                 TextField tf = new TextField(v);
                 tf.setPrefColumnCount(switch (p.type()) {
                     case INT, DECIMAL -> 5;
                     case COORD -> 5;
-                    case LONGTEXT -> 34;
                     default -> 18;
                 });
                 tf.textProperty().addListener((o, a, b) -> {

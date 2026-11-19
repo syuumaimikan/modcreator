@@ -2,16 +2,20 @@ package modstudio.core;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** Definitions of procedure triggers, steps and conditions (shared by editors and compilers). */
 public final class Logic {
     private Logic() {}
 
     /** Parameter value kinds; the editor picks a control per kind. */
-    public enum PType { TEXT, LONGTEXT, INT, DECIMAL, BOOL, SELECTOR, ITEM, BLOCK, ENTITY, EFFECT, SOUND, PARTICLE, FUNCTION, CHOICE, COORD, DIMENSION, REF, ENCHANTMENT, DAMAGE_TYPE }
+    public enum PType { TEXT, LONGTEXT, CODE, INT, DECIMAL, BOOL, SELECTOR, ITEM, BLOCK, ENTITY, EFFECT, SOUND, PARTICLE, FUNCTION, CHOICE, COORD, DIMENSION, REF, ENCHANTMENT, DAMAGE_TYPE }
 
     public record Param(String key, PType type, String def, List<String> choices) {
         public static Param of(String key, PType type, String def) {
@@ -37,6 +41,43 @@ public final class Logic {
     public static final Map<String, List<Param>> PREDICATE_TERMS = new LinkedHashMap<>();
     /** Functions an item modifier element can apply, with their values. */
     public static final Map<String, List<Param>> MODIFIER_FUNCTIONS = new LinkedHashMap<>();
+    /** Extension sets for plugin-contributed steps and triggers. */
+    public static final Set<String> CUSTOM_BODY_STEPS = Collections.synchronizedSet(new LinkedHashSet<>(List.of("repeat", "for_each", "at_position", "schedule")));
+    public static final Set<String> CUSTOM_MOD_ONLY_STEPS = Collections.synchronizedSet(new LinkedHashSet<>());
+    public static final Map<String, List<Target>> CUSTOM_TRIGGER_SUPPORT = new ConcurrentHashMap<>();
+
+    /** Registers a custom procedure step at runtime (e.g., from a ModStudioPlugin). */
+    public static void registerStep(Def def, boolean modOnly, boolean hasBody) {
+        if (def == null || def.id() == null || def.id().isBlank()) return;
+        STEPS.put(def.id(), def);
+        if (modOnly) CUSTOM_MOD_ONLY_STEPS.add(def.id());
+        if (hasBody) CUSTOM_BODY_STEPS.add(def.id());
+    }
+
+    /** Registers a custom procedure condition at runtime. */
+    public static void registerCondition(Def def) {
+        if (def == null || def.id() == null || def.id().isBlank()) return;
+        CONDITIONS.put(def.id(), def);
+    }
+
+    /** Registers a custom procedure trigger and its supported output targets. */
+    public static void registerTrigger(Def def, Target... supportedTargets) {
+        if (def == null || def.id() == null || def.id().isBlank()) return;
+        TRIGGERS.put(def.id(), def);
+        if (supportedTargets != null && supportedTargets.length > 0) {
+            CUSTOM_TRIGGER_SUPPORT.put(def.id(), List.of(supportedTargets));
+        }
+    }
+
+    /** Registers a custom predicate condition term. */
+    public static void registerPredicateTerm(String id, Param... ps) {
+        if (id != null && !id.isBlank()) PREDICATE_TERMS.put(id, List.of(ps));
+    }
+
+    /** Registers a custom item modifier function. */
+    public static void registerModifierFunction(String id, Param... ps) {
+        if (id != null && !id.isBlank()) MODIFIER_FUNCTIONS.put(id, List.of(ps));
+    }
 
     static void step(String id, String cat, Param... ps) {
         STEPS.put(id, new Def(id, cat, List.of(ps)));
@@ -97,6 +138,8 @@ public final class Logic {
         step("if", "logic");
         step("repeat", "logic", Param.of("times", PType.INT, "3"));
         step("for_each", "logic", Param.of("selector", PType.SELECTOR, "@a[distance=..16]"));
+        step("java_code", "logic", Param.of("imports", PType.TEXT, ""), Param.of("code", PType.CODE, "if (player != null) player.displayClientMessage(Component.literal(\"Hello from Java!\"), false);"));
+        step("java_call", "logic", Param.of("method", PType.TEXT, "MyHelper.run"), Param.of("args", PType.TEXT, ""));
         step("at_position", "logic", Param.of("x", PType.COORD, "~"), Param.of("y", PType.COORD, "~5"), Param.of("z", PType.COORD, "~"));
         step("schedule", "logic", Param.of("ticks", PType.INT, "20"));
         step("stop", "logic");
@@ -271,7 +314,12 @@ public final class Logic {
 
     /** Steps that contain a nested list of steps (stored in Step.then). */
     public static boolean hasBody(String kind) {
-        return kind.equals("repeat") || kind.equals("for_each") || kind.equals("at_position") || kind.equals("schedule") || LogicExtra.BODY.contains(kind);
+        return CUSTOM_BODY_STEPS.contains(kind) || LogicExtra.BODY.contains(kind);
+    }
+
+    /** Whether a step requires mod loader client/server hooks (not datapack/paper). */
+    public static boolean isModOnlyStep(String kind) {
+        return LogicExtra.MOD_ONLY.contains(kind) || CUSTOM_MOD_ONLY_STEPS.contains(kind);
     }
 
     /** Triggers that run without a player context (the executor is the server). */
@@ -281,7 +329,9 @@ public final class Logic {
 
     /** Which targets can run a trigger. */
     public static List<Target> triggerSupport(String trigger) {
-        List<Target> r = new ArrayList<>(List.of(Target.FORGE, Target.NEOFORGE, Target.FABRIC, Target.PAPER, Target.DATAPACK));
+        List<Target> custom = CUSTOM_TRIGGER_SUPPORT.get(trigger);
+        if (custom != null) return new ArrayList<>(custom);
+        List<Target> r = new ArrayList<>(List.of(Target.FORGE, Target.NEOFORGE, Target.FABRIC, Target.QUILT, Target.PAPER, Target.FOLIA, Target.DATAPACK));
         if (trigger.equals("cron")) r.remove(Target.DATAPACK);
         switch (trigger) {
             case "load", "tick", "player_tick", "interval", "player_join", "player_death", "block_break", "block_place",

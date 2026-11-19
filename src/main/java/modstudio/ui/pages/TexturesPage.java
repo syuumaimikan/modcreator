@@ -107,12 +107,63 @@ public final class TexturesPage extends BorderPane implements WorkspaceView.Page
     }
 
     private int usage(TextureAsset tex) {
-        int n = tex.id.equals(p.meta.icon) ? 1 : 0;
+        String id = tex.id;
+        int n = id.equals(p.meta.icon) ? 1 : 0;
         for (Element e : p.elements) {
-            if (e instanceof Elements.Item it && it.texture.equals(tex.id)) n++;
-            if (e instanceof Elements.Block b && (b.texture.equals(tex.id) || b.textureTop.equals(tex.id)
-                    || b.textureBottom.equals(tex.id) || b.textureSide.equals(tex.id))) n++;
-            if (e instanceof Elements.Model m && m.textures.containsValue(tex.id)) n++;
+            switch (e) {
+                case Elements.Item it -> {
+                    if (id.equals(it.texture)) n++;
+                    if (id.equals(it.tooltipBackgroundTexture)) n++;
+                    if (id.equals(it.tooltipFrameTexture)) n++;
+                }
+                case Elements.Block b -> {
+                    if (id.equals(b.texture) || id.equals(b.textureTop) || id.equals(b.textureBottom) || id.equals(b.textureSide)) n++;
+                    for (String st : b.stageTextures) if (id.equals(st)) n++;
+                }
+                case Elements.Fluid fl -> {
+                    if (id.equals(fl.stillTexture) || id.equals(fl.flowingTexture)) n++;
+                }
+                case Elements.Model m -> {
+                    for (String v : m.textures.values()) if (id.equals(v)) n++;
+                }
+                case Elements.ArmorMaterial am -> {
+                    if (id.equals(am.layer1)) n++;
+                    if (id.equals(am.layer2)) n++;
+                }
+                case Elements.StatusEffect se -> {
+                    if (id.equals(se.icon)) n++;
+                }
+                case Elements.Painting pa -> {
+                    if (id.equals(pa.texture)) n++;
+                }
+                case Systems.Menu mn -> {
+                    if (id.equals(mn.backgroundTexture)) n++;
+                }
+                case Systems.Theme th -> {
+                    if (id.equals(th.glintTexture)) n++;
+                    for (Systems.TextureOverride o : th.textures) if (id.equals(o.texture)) n++;
+                }
+                case Systems.IconFont ic -> {
+                    for (Systems.Icon x : ic.icons) if (id.equals(x.texture)) n++;
+                }
+                case Systems.CustomScreen sc -> {
+                    for (Systems.ScreenWidget w : sc.widgets) if (id.equals(w.texture)) n++;
+                }
+                case ModElements.CustomEntity ce -> {
+                    if (id.equals(ce.texture)) n++;
+                }
+                case ModElements.Portal pt -> {
+                    if (id.equals(pt.texture) || id.equals(pt.igniterTexture)) n++;
+                }
+                case ModElements.ArmorTrim at -> {
+                    if (id.equals(at.texture)) n++;
+                }
+                case ModElements.BannerPattern bp -> {
+                    if (id.equals(bp.texture)) n++;
+                }
+                default -> {
+                }
+            }
         }
         return n;
     }

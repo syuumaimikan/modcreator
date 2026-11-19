@@ -123,6 +123,9 @@ public final class OverviewPage extends StackPane implements WorkspaceView.Page 
             row++;
         }
         f.row(t("field.targets"), new VBox(8, tg, targetWarning));
+        f.row(t("overview.upgrade"), Ui.hbox(10,
+                Ui.button(t("overview.upgrade_btn"), "mdi2a-arrow-up-bold-circle-outline", this::openUpgradeDialog),
+                Ui.help(t("overview.upgrade_help", p.meta.sourceMcVersion.isBlank() ? p.meta.mcVersion : p.meta.sourceMcVersion))));
         refreshTargets();
 
         // Versions
@@ -130,6 +133,112 @@ public final class OverviewPage extends StackPane implements WorkspaceView.Page 
         f.add(versions);
         f.sectionShowIf(() -> ProjectScope.hasCode(p.targets()) || p.targets().contains(Target.BEDROCK));
         rebuildVersions();
+
+        // Dependencies
+        VBox depsBox = new VBox(8);
+        f.section(t("overview.dependencies"), t("overview.dependencies_help"));
+        f.add(depsBox);
+        f.add(Ui.button(t("overview.add_dependency"), "mdi2p-plus", () -> {
+            p.meta.dependencies.add(new ModElements.ModDependency());
+            rebuildDeps(depsBox);
+            f.changed();
+        }));
+        f.sectionShowIf(() -> ProjectScope.hasCode(p.targets()));
+        rebuildDeps(depsBox);
+
+        // Maven Repositories, Libraries & Custom Gradle
+        VBox reposBox = new VBox(8);
+        VBox libsBox = new VBox(8);
+        f.section(t("overview.java_build"), t("overview.java_build_help"));
+        f.add(reposBox);
+        f.add(Ui.button(t("overview.add_maven"), "mdi2p-plus", () -> {
+            p.meta.mavenRepos.add("");
+            rebuildRepos(reposBox);
+            f.changed();
+        }));
+        f.add(libsBox);
+        f.add(Ui.button(t("overview.add_library"), "mdi2p-plus", () -> {
+            p.meta.libraries.add(new ModElements.GradleDep());
+            rebuildLibs(libsBox);
+            f.changed();
+        }));
+        f.text(t("field.jvm_args"), () -> p.meta.jvmArgs, v -> p.meta.jvmArgs = v, t("help.jvm_args"));
+        f.area(t("field.custom_gradle"), () -> p.meta.customGradle, v -> p.meta.customGradle = v, 5, t("help.custom_gradle"));
+        f.sectionShowIf(() -> ProjectScope.hasCode(p.targets()));
+        rebuildRepos(reposBox);
+        rebuildLibs(libsBox);
+    }
+
+    private void rebuildRepos(VBox reposBox) {
+        reposBox.getChildren().clear();
+        for (int i = 0; i < p.meta.mavenRepos.size(); i++) {
+            int idx = i;
+            TextField url = new TextField(p.meta.mavenRepos.get(idx));
+            url.setPromptText("https://maven.blamejared.com");
+            url.setPrefWidth(360);
+            url.textProperty().addListener((o, a, b) -> {
+                p.meta.mavenRepos.set(idx, b.trim());
+                f.changed();
+            });
+            Button del = Ui.iconButton("mdi2c-close", t("action.delete"), () -> {
+                p.meta.mavenRepos.remove(idx);
+                rebuildRepos(reposBox);
+                f.changed();
+            });
+            HBox row = Ui.hbox(8, url, del);
+            row.setAlignment(Pos.CENTER_LEFT);
+            reposBox.getChildren().add(row);
+        }
+    }
+
+    private void rebuildLibs(VBox libsBox) {
+        libsBox.getChildren().clear();
+        for (var lib : p.meta.libraries) {
+            ComboBox<String> scope = Ui.combo(List.of("implementation", "compileOnly", "runtimeOnly", "modImplementation", "modCompileOnly", "jarJar", "localJar"), s -> s);
+            scope.setValue(lib.scope == null || lib.scope.isBlank() ? "implementation" : lib.scope);
+            scope.valueProperty().addListener((o, a, b) -> { lib.scope = b; f.changed(); });
+            ComboBox<String> tgt = Ui.combo(List.of("all", "mods", "forge", "neoforge", "fabric", "quilt", "paper", "folia"),
+                    x -> x.equals("all") ? t("target.all") : t("target." + x));
+            tgt.setValue(lib.target == null || lib.target.isBlank() ? "all" : lib.target);
+            tgt.valueProperty().addListener((o, a, b) -> { lib.target = b; f.changed(); });
+            TextField coord = new TextField(lib.coordinate == null ? "" : lib.coordinate);
+            coord.setPromptText("group:artifact:version");
+            coord.setPrefWidth(260);
+            coord.textProperty().addListener((o, a, b) -> { lib.coordinate = b.trim(); f.changed(); });
+            Button del = Ui.iconButton("mdi2c-close", t("action.delete"), () -> {
+                p.meta.libraries.remove(lib);
+                rebuildLibs(libsBox);
+                f.changed();
+            });
+            HBox row = Ui.hbox(8, scope, tgt, coord, del);
+            row.setAlignment(Pos.CENTER_LEFT);
+            libsBox.getChildren().add(row);
+        }
+    }
+
+    private void rebuildDeps(VBox depsBox) {
+        depsBox.getChildren().clear();
+        for (var dep : p.meta.dependencies) {
+            TextField id = new TextField(dep.modId);
+            id.setPromptText("modid");
+            id.setPrefWidth(160);
+            id.textProperty().addListener((o, a, b) -> { dep.modId = b.trim(); f.changed(); });
+            TextField ver = new TextField(dep.version);
+            ver.setPromptText("*");
+            ver.setPrefWidth(120);
+            ver.textProperty().addListener((o, a, b) -> { dep.version = b.trim(); f.changed(); });
+            CheckBox req = new CheckBox(t("field.required"));
+            req.setSelected(dep.required);
+            req.selectedProperty().addListener((o, a, b) -> { dep.required = b; f.changed(); });
+            Button del = Ui.iconButton("mdi2c-close", t("action.delete"), () -> {
+                p.meta.dependencies.remove(dep);
+                rebuildDeps(depsBox);
+                f.changed();
+            });
+            HBox row = Ui.hbox(8, id, ver, req, del);
+            row.setAlignment(Pos.CENTER_LEFT);
+            depsBox.getChildren().add(row);
+        }
     }
 
     private void modIdRow() {
@@ -177,7 +286,9 @@ public final class OverviewPage extends StackPane implements WorkspaceView.Page 
         targetWarning.setText(String.join("\n", notes));
         targetWarning.getStyleClass().remove("warning-text");
         if (!notes.isEmpty()) targetWarning.getStyleClass().add("warning-text");
+        updateStats();
         view.updateHeader();
+        view.invalidatePages("build", "play", "compat");
     }
 
     private void rebuildVersions() {
@@ -236,5 +347,52 @@ public final class OverviewPage extends StackPane implements WorkspaceView.Page 
         tile.setPadding(new Insets(10, 12, 10, 12));
         tile.setOnMouseClicked(e -> view.show("textures"));
         stats.add(tile, i % 6, i / 6);
+    }
+
+    private void openUpgradeDialog() {
+        Dialog<ButtonType> d = new Dialog<>();
+        Ui.styleDialog(d, view.window());
+        d.setTitle(t("overview.upgrade_title"));
+        d.setHeaderText(t("overview.upgrade_header", p.meta.sourceMcVersion.isBlank() ? p.meta.mcVersion : p.meta.sourceMcVersion));
+        ButtonType ok = new ButtonType(t("overview.upgrade_apply"), ButtonBar.ButtonData.OK_DONE);
+        d.getDialogPane().getButtonTypes().addAll(ok, new ButtonType(t("action.cancel"), ButtonBar.ButtonData.CANCEL_CLOSE));
+
+        ComboBox<McVersion> ver = new ComboBox<>();
+        ver.getItems().setAll(McVersion.values());
+        ver.setValue(McVersion.latest());
+
+        ComboBox<String> loader = Ui.combo(List.of("keep", "neoforge", "fabric", "quilt", "neoforge+fabric", "datapack"),
+                x -> t("overview.upgrade_loader." + x));
+        loader.setValue("keep");
+
+        GridPane g = new GridPane();
+        g.setHgap(12);
+        g.setVgap(10);
+        g.addRow(0, new Label(t("overview.upgrade_target_mc")), ver);
+        g.addRow(1, new Label(t("overview.upgrade_target_loader")), loader);
+        d.getDialogPane().setContent(Ui.vbox(10, g, Ui.help(t("overview.upgrade_note"))));
+
+        d.showAndWait().filter(bt -> bt == ok).ifPresent(bt -> {
+            McVersion targetMc = ver.getValue();
+            List<Target> nextTargets = switch (loader.getValue()) {
+                case "neoforge" -> List.of(Target.NEOFORGE);
+                case "fabric" -> List.of(Target.FABRIC);
+                case "quilt" -> List.of(Target.QUILT);
+                case "neoforge+fabric" -> List.of(Target.NEOFORGE, Target.FABRIC);
+                case "datapack" -> List.of(Target.DATAPACK);
+                default -> null;
+            };
+            ProjectUpgrader.Report rep = ProjectUpgrader.upgrade(p, targetMc, nextTargets);
+            view.ws.structureChanged();
+            view.invalidateAllExceptCurrent();
+            view.show("overview");
+            StringBuilder body = new StringBuilder();
+            for (String c : rep.changes()) body.append("• ").append(c).append('\n');
+            if (!rep.warnings().isEmpty()) {
+                body.append('\n');
+                for (String w : rep.warnings()) body.append("! ").append(w).append('\n');
+            }
+            Ui.info(view.window(), t("overview.upgrade_done", targetMc.id), body.toString());
+        });
     }
 }

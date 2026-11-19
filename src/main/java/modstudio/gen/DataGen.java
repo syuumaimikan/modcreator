@@ -3,6 +3,7 @@ package modstudio.gen;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import modstudio.core.*;
 import modstudio.core.Elements.*;
 
@@ -40,6 +41,7 @@ public final class DataGen {
         lootTables();
         predicatesAndModifiers();
         if (realItems) blockData();
+        advancedData();
         advancements();
         userTags();
         armorTags();
@@ -125,6 +127,7 @@ public final class DataGen {
                 o.add("key", key);
                 JsonObject res = result(r.result, r.count);
                 if (res == null) return null;
+                applyResultComponents(res, r);
                 o.add("result", res);
             }
             case "shapeless" -> {
@@ -137,6 +140,7 @@ public final class DataGen {
                 o.add("ingredients", ing);
                 JsonObject res = result(r.result, r.count);
                 if (res == null) return null;
+                applyResultComponents(res, r);
                 o.add("result", res);
             }
             case "smelting", "blasting", "smoking", "campfire" -> {
@@ -149,6 +153,7 @@ public final class DataGen {
                 if (res == null) return null;
                 if (ctx.components()) {
                     res.remove("count");
+                    applyResultComponents(res, r);
                     o.add("result", res);
                 } else o.addProperty("result", Ids.full(r.result));
                 o.addProperty("experience", r.experience);
@@ -160,8 +165,10 @@ public final class DataGen {
                 o.add("ingredient", ingredient(r.input));
                 JsonObject res = result(r.result, r.count);
                 if (res == null) return null;
-                if (ctx.components()) o.add("result", res);
-                else {
+                if (ctx.components()) {
+                    applyResultComponents(res, r);
+                    o.add("result", res);
+                } else {
                     o.addProperty("result", Ids.full(r.result));
                     o.addProperty("count", r.count);
                 }
@@ -174,7 +181,8 @@ public final class DataGen {
                 o.add("addition", ingredient(r.addition));
                 JsonObject res = result(r.result, 1);
                 if (res == null) return null;
-                if (!ctx.components()) res.remove("count");
+                if (ctx.components()) applyResultComponents(res, r);
+                else res.remove("count");
                 o.add("result", res);
             }
             default -> {
@@ -182,6 +190,19 @@ public final class DataGen {
             }
         }
         return o;
+    }
+
+    private void applyResultComponents(JsonObject res, Recipe r) {
+        if (!ctx.components() || r.resultComponents == null || r.resultComponents.isBlank()) return;
+        try {
+            JsonElement parsed = JsonParser.parseString(r.resultComponents.trim());
+            if (!parsed.isJsonObject()) return;
+            JsonObject comp = res.has("components") && res.get("components").isJsonObject()
+                    ? res.getAsJsonObject("components") : new JsonObject();
+            for (var e : parsed.getAsJsonObject().entrySet()) comp.add(e.getKey(), e.getValue());
+            res.add("components", comp);
+        } catch (Exception ignored) {
+        }
     }
 
     /** Trimmed shaped pattern with key letters. */
@@ -288,6 +309,26 @@ public final class DataGen {
                         if (en.countMin != 1 || en.countMax != 1) fns.add(countFn(en.countMin, Math.max(en.countMin, en.countMax)));
                         if (en.fortune) fns.add(J.obj("function", "minecraft:apply_bonus", "enchantment", "minecraft:fortune", "formula", "minecraft:ore_drops"));
                         if (en.enchant) fns.add(J.obj("function", "minecraft:enchant_randomly"));
+                        if (en.enchantLevelsMax > 0) {
+                            fns.add(J.obj("function", "minecraft:enchant_with_levels", "levels", J.obj("type", "minecraft:uniform",
+                                    "min", Math.max(1, en.enchantLevelsMin), "max", Math.max(Math.max(1, en.enchantLevelsMin), en.enchantLevelsMax))));
+                        }
+                        if (en.lootingBonus > 0) {
+                            Object bonus = J.obj("type", "minecraft:uniform", "min", 0, "max", en.lootingBonus);
+                            fns.add(ctx.singular()
+                                    ? J.obj("function", "minecraft:enchanted_count_increase", "enchantment", "minecraft:looting", "count", bonus)
+                                    : J.obj("function", "minecraft:looting_enchant", "count", bonus));
+                        }
+                        if (en.explosionDecay) fns.add(J.obj("function", "minecraft:explosion_decay"));
+                        if (!en.customName.isBlank()) {
+                            fns.add(J.obj("function", "minecraft:set_name", "name", J.obj("text", en.customName, "italic", false)));
+                        }
+                        if (!en.lore.isBlank()) {
+                            JsonArray lines = new JsonArray();
+                            for (String line : en.lore.split("\\R")) lines.add(J.obj("text", line));
+                            fns.add(J.obj("function", "minecraft:set_lore", "lore", lines, "mode", ctx.components() ? "replace_all" : null));
+                            if (!ctx.components()) fns.get(fns.size() - 1).remove("mode");
+                        }
                         entries.add(itemEntry(en.name, en.weight, fns));
                     }
                 }
@@ -299,6 +340,10 @@ public final class DataGen {
             if (!pool.predicate.isBlank()) {
                 String pr = pool.predicate.trim();
                 conds.add(J.obj("condition", "minecraft:reference", "name", pr.contains(":") ? pr : ctx.ns + ":" + pr));
+            }
+            if (!pool.blockStateBlock.isBlank() && !pool.blockStateProp.isBlank()) {
+                conds.add(J.obj("condition", "minecraft:block_state_property", "block", Ids.full(pool.blockStateBlock),
+                        "properties", J.obj(pool.blockStateProp.trim(), pool.blockStateVal.trim())));
             }
             if (!conds.isEmpty()) po.add("conditions", conds);
             pools.add(po);
@@ -338,17 +383,52 @@ public final class DataGen {
                 tag("block", "minecraft", "bee_growables").values.add(id);
                 tag("block", "minecraft", "maintains_farmland").values.add(id);
                 tag("item", "minecraft", "villager_plantable_seeds").values.add(id);
-            } else if (!b.tool.equals("none")) {
-                tag("block", "minecraft", "mineable/" + b.tool).values.add(id);
-                switch (b.toolLevel) {
-                    case "stone" -> tag("block", "minecraft", "needs_stone_tool").values.add(id);
-                    case "iron" -> tag("block", "minecraft", "needs_iron_tool").values.add(id);
-                    case "diamond" -> tag("block", "minecraft", "needs_diamond_tool").values.add(id);
-                    default -> {
+            } else {
+                String shapeTag = switch (b.shape) {
+                    case "slab" -> "slabs";
+                    case "stairs" -> "stairs";
+                    case "fence" -> "fences";
+                    case "wall" -> "walls";
+                    case "door" -> "doors";
+                    case "trapdoor" -> "trapdoors";
+                    case "button" -> "buttons";
+                    case "pressure_plate" -> "pressure_plates";
+                    case "carpet" -> "wool_carpets";
+                    default -> "";
+                };
+                if (!shapeTag.isEmpty()) {
+                    tag("block", "minecraft", shapeTag).values.add(id);
+                    tag("item", "minecraft", shapeTag).values.add(id);
+                }
+                if (!b.tool.equals("none")) {
+                    tag("block", "minecraft", "mineable/" + b.tool).values.add(id);
+                    switch (b.toolLevel) {
+                        case "stone" -> tag("block", "minecraft", "needs_stone_tool").values.add(id);
+                        case "iron" -> tag("block", "minecraft", "needs_iron_tool").values.add(id);
+                        case "diamond" -> tag("block", "minecraft", "needs_diamond_tool").values.add(id);
+                        default -> {
+                        }
                     }
                 }
             }
             if (b.oreGen) oreFeatures(b);
+        }
+        for (Fluid fl : ctx.all(Fluid.class)) {
+            String tagName = fl.isLavaLike ? "lava" : "water";
+            tag("fluid", "minecraft", tagName).values.add(ctx.id(fl.name));
+            tag("fluid", "minecraft", tagName).values.add(ctx.id(fl.name + "_flowing"));
+        }
+        for (ModElements.Container ct : ctx.all(ModElements.Container.class)) {
+            String bn = ct.block.isBlank() ? ct.name : Ids.path(Ids.full(ct.block));
+            if (ctx.all(Block.class).stream().anyMatch(b -> b.name.equals(bn))) continue;
+            String id = ctx.id(bn);
+            if (ctx.p.byName(ElementType.LOOT_TABLE, "blocks/" + bn) == null) {
+                ctx.files.json(data(ctx.ns, ctx.lootDir(), "blocks/" + bn + ".json"),
+                        J.obj("type", "minecraft:block", "pools", J.arr(J.obj("rolls", 1, "bonus_rolls", 0,
+                                "entries", J.arr(J.obj("type", "minecraft:item", "name", id)),
+                                "conditions", J.arr(J.obj("condition", "minecraft:survives_explosion"))))));
+            }
+            tag("block", "minecraft", "mineable/pickaxe").values.add(id);
         }
     }
 
@@ -375,6 +455,19 @@ public final class DataGen {
             }
             default -> {
             }
+        }
+        if (b.shape.equals("slab")) {
+            JsonObject entry = J.obj("type", "minecraft:item", "name", id, "functions", J.arr(
+                    J.obj("function", "minecraft:set_count", "count", 2, "conditions", J.arr(
+                            J.obj("condition", "minecraft:block_state_property", "block", id, "properties", J.obj("type", "double")))),
+                    J.obj("function", "minecraft:explosion_decay")));
+            return J.obj("type", "minecraft:block", "pools", J.arr(J.obj("rolls", 1, "bonus_rolls", 0, "entries", J.arr(entry))));
+        }
+        if (b.shape.equals("door")) {
+            JsonObject cond = J.obj("condition", "minecraft:block_state_property", "block", id, "properties", J.obj("half", "lower"));
+            return J.obj("type", "minecraft:block", "pools", J.arr(J.obj("rolls", 1, "bonus_rolls", 0,
+                    "entries", J.arr(J.obj("type", "minecraft:item", "name", id, "conditions", J.arr(cond))),
+                    "conditions", J.arr(survives))));
         }
         return J.obj("type", "minecraft:block", "pools", J.arr(J.obj("rolls", 1, "bonus_rolls", 0,
                 "entries", J.arr(J.obj("type", "minecraft:item", "name", id)), "conditions", J.arr(survives))));
@@ -408,37 +501,75 @@ public final class DataGen {
         String id = ctx.id(b.name);
         String feature = oreFeature(b);
         JsonArray targets = new JsonArray();
-        switch (b.oreDimension) {
-            case "nether" -> targets.add(J.obj("state", J.obj("Name", id), "target",
-                    J.obj("predicate_type", "minecraft:tag_match", "tag", "minecraft:base_stone_nether")));
-            case "end" -> targets.add(J.obj("state", J.obj("Name", id), "target",
-                    J.obj("predicate_type", "minecraft:block_match", "block", "minecraft:end_stone")));
-            default -> {
-                targets.add(J.obj("state", J.obj("Name", id), "target",
-                        J.obj("predicate_type", "minecraft:tag_match", "tag", "minecraft:stone_ore_replaceables")));
-                targets.add(J.obj("state", J.obj("Name", id), "target",
-                        J.obj("predicate_type", "minecraft:tag_match", "tag", "minecraft:deepslate_ore_replaceables")));
+        if (b.oreReplaceTarget != null && !b.oreReplaceTarget.isBlank()) {
+            for (String raw : b.oreReplaceTarget.split(",")) {
+                String t = Ids.full(raw.trim());
+                if (t.isBlank()) continue;
+                JsonObject rule = Ids.isTag(t)
+                        ? J.obj("predicate_type", "minecraft:tag_match", "tag", t.substring(1))
+                        : J.obj("predicate_type", "minecraft:block_match", "block", t);
+                targets.add(J.obj("state", J.obj("Name", id), "target", rule));
             }
         }
+        if (targets.isEmpty()) {
+            switch (b.oreDimension) {
+                case "nether" -> targets.add(J.obj("state", J.obj("Name", id), "target",
+                        J.obj("predicate_type", "minecraft:tag_match", "tag", "minecraft:base_stone_nether")));
+                case "end" -> targets.add(J.obj("state", J.obj("Name", id), "target",
+                        J.obj("predicate_type", "minecraft:block_match", "block", "minecraft:end_stone")));
+                default -> {
+                    targets.add(J.obj("state", J.obj("Name", id), "target",
+                            J.obj("predicate_type", "minecraft:tag_match", "tag", "minecraft:stone_ore_replaceables")));
+                    targets.add(J.obj("state", J.obj("Name", id), "target",
+                            J.obj("predicate_type", "minecraft:tag_match", "tag", "minecraft:deepslate_ore_replaceables")));
+                }
+            }
+        }
+        double discardAir = Math.max(0.0, Math.min(1.0, b.oreDiscardAir));
         ctx.files.json(data(ctx.ns, "worldgen/configured_feature", feature + ".json"), J.obj("type", "minecraft:ore",
-                "config", J.obj("discard_chance_on_air_exposure", 0.0, "size", b.oreSize, "targets", targets)));
+                "config", J.obj("discard_chance_on_air_exposure", discardAir, "size", b.oreSize, "targets", targets)));
+        String heightType = "uniform".equals(b.oreDistribution) ? "minecraft:uniform" : "minecraft:trapezoid";
+        JsonArray placement = J.arr(
+                J.obj("type", "minecraft:count", "count", b.oreCount),
+                J.obj("type", "minecraft:in_square"),
+                J.obj("type", "minecraft:height_range", "height", J.obj("type", heightType,
+                        "min_inclusive", J.obj("absolute", Math.min(b.oreMinY, b.oreMaxY)),
+                        "max_inclusive", J.obj("absolute", Math.max(b.oreMinY, b.oreMaxY)))));
+        if (b.orePreventSurface && !"nether".equals(b.oreDimension) && !"end".equals(b.oreDimension)) {
+            placement.add(J.obj("type", "minecraft:surface_relative_threshold_filter",
+                    "heightmap", "OCEAN_FLOOR_WG",
+                    "max_inclusive", -Math.max(1, b.oreSurfaceDepth)));
+        }
+        placement.add(J.obj("type", "minecraft:biome"));
         ctx.files.json(data(ctx.ns, "worldgen/placed_feature", feature + ".json"), J.obj(
                 "feature", ctx.id(feature),
-                "placement", J.arr(
-                        J.obj("type", "minecraft:count", "count", b.oreCount),
-                        J.obj("type", "minecraft:in_square"),
-                        J.obj("type", "minecraft:height_range", "height", J.obj("type", "minecraft:uniform",
-                                "min_inclusive", J.obj("absolute", Math.min(b.oreMinY, b.oreMaxY)),
-                                "max_inclusive", J.obj("absolute", Math.max(b.oreMinY, b.oreMaxY)))),
-                        J.obj("type", "minecraft:biome"))));
+                "placement", placement));
     }
 
     public static String biomeTag(Block b) {
+        if (b.oreBiomes != null && !b.oreBiomes.isBlank()) {
+            for (String raw : b.oreBiomes.split(",")) {
+                String t = Ids.full(raw.trim());
+                if (!t.isBlank()) return t;
+            }
+        }
         return switch (b.oreDimension) {
             case "nether" -> "#minecraft:is_nether";
             case "end" -> "#minecraft:is_end";
             default -> "#minecraft:is_overworld";
         };
+    }
+
+    public static List<String> biomeList(Block b) {
+        List<String> out = new ArrayList<>();
+        if (b.oreBiomes != null && !b.oreBiomes.isBlank()) {
+            for (String raw : b.oreBiomes.split(",")) {
+                String t = Ids.full(raw.trim());
+                if (!t.isBlank()) out.add(t);
+            }
+        }
+        if (out.isEmpty()) out.add(biomeTag(b));
+        return out;
     }
 
     // ---------------------------------------------------------------- advancements
@@ -528,7 +659,8 @@ public final class DataGen {
                 "hidden", a.hidden);
         if (parent.isEmpty() && !a.background.isBlank()) display.addProperty("background", a.background);
         o.add("display", display);
-        o.add("criteria", J.obj("main", J.obj("trigger", "minecraft:" + a.trigger, "conditions", triggerConditions(a.trigger, a.triggerValue))));
+        String trig = "sleeping_in_bed".equals(a.trigger) ? "slept_in_bed" : a.trigger;
+        o.add("criteria", J.obj("main", J.obj("trigger", "minecraft:" + trig, "conditions", triggerConditions(trig, a.triggerValue))));
         JsonObject rewards = new JsonObject();
         if (a.rewardXp > 0) rewards.addProperty("experience", a.rewardXp);
         if (!a.rewardFunction.isBlank()) rewards.addProperty("function", a.rewardFunction.contains(":") ? a.rewardFunction : ctx.ns + ":" + a.rewardFunction);
@@ -566,12 +698,35 @@ public final class DataGen {
         }
     }
 
-    /** 1.21.2+ mod armor materials repair with an item tag. */
+    /** Armor/tool material repair tags, custom item repair tags, and 1.20.6+ incorrect-for-tool block tags. */
     private void armorTags() {
-        if (!realItems || !ctx.registryKeys()) return;
+        if (!realItems) return;
+        if (ctx.components()) {
+            for (ToolMaterial tm : ctx.all(ToolMaterial.class)) {
+                String parentTag = switch (tm.miningLevel) {
+                    case 0 -> "#minecraft:incorrect_for_wooden_tool";
+                    case 1 -> "#minecraft:incorrect_for_stone_tool";
+                    case 3 -> "#minecraft:incorrect_for_diamond_tool";
+                    case 4 -> "#minecraft:incorrect_for_netherite_tool";
+                    default -> "#minecraft:incorrect_for_iron_tool";
+                };
+                tag("block", ctx.ns, "incorrect_for_" + tm.name + "_tool").values.add(parentTag);
+                if (ctx.registryKeys() && !tm.repairItem.isBlank()) {
+                    tag("item", ctx.ns, "repairs_" + tm.name + "_tool").values.add(Ids.full(tm.repairItem));
+                }
+            }
+        }
+        if (!ctx.registryKeys()) return;
         for (ArmorMaterial m : ctx.all(ArmorMaterial.class)) {
             if (m.repairItem.isBlank()) continue;
             tag("item", ctx.ns, "repairs_" + m.name).values.add(Ids.full(m.repairItem));
+        }
+        for (Item it : ctx.all(Item.class)) {
+            if (it.repairItem.isBlank()) continue;
+            String rep = Ids.full(it.repairItem.trim());
+            if (!Ids.isTag(rep) && !Ids.ns(rep).equals("minecraft")) {
+                tag("item", ctx.ns, "repair_" + it.name).values.add(rep);
+            }
         }
     }
 
@@ -724,6 +879,31 @@ public final class DataGen {
         new MachineGen(ctx, pc, root, realItems, tick).generate();
         new CutsceneGen(ctx, pc, tick, joinCalls).generate();
         new ScreenGen(ctx).refreshFunction(pc.functions, load);
+        for (Block b : ctx.all(Block.class)) {
+            if (!b.onUse.isEmpty()) pc.compile("blocks/" + b.name + "/on_use", b.onUse, List.of(), List.of());
+            if (!b.onStep.isEmpty()) pc.compile("blocks/" + b.name + "/on_step", b.onStep, List.of(), List.of());
+            if (!b.onRandomTick.isEmpty()) pc.compile("blocks/" + b.name + "/on_random_tick", b.onRandomTick, List.of(), List.of());
+            if (!b.onNeighborChanged.isEmpty()) pc.compile("blocks/" + b.name + "/on_neighbor_changed", b.onNeighborChanged, List.of(), List.of());
+        }
+        for (Item it : ctx.all(Item.class)) {
+            if (!it.onUse.isEmpty()) pc.compile("items/" + it.name + "/on_use", it.onUse, List.of(), List.of());
+            if (!it.onHitEntity.isEmpty()) pc.compile("items/" + it.name + "/on_hit", it.onHitEntity, List.of(), List.of());
+            if (!it.onTickInHand.isEmpty()) pc.compile("items/" + it.name + "/on_tick", it.onTickInHand, List.of(), List.of());
+        }
+        for (Fluid fl : ctx.all(Fluid.class)) {
+            if (!fl.onEntityInside.isEmpty()) pc.compile("fluids/" + fl.name + "/inside", fl.onEntityInside, List.of(), List.of());
+        }
+        for (ModElements.Container ct : ctx.all(ModElements.Container.class)) {
+            if (!ct.onOpen.isEmpty()) pc.compile("containers/" + ct.name + "/on_open", ct.onOpen, List.of(), List.of());
+            if (!ct.onClose.isEmpty()) pc.compile("containers/" + ct.name + "/on_close", ct.onClose, List.of(), List.of());
+            if (!ct.onCraft.isEmpty()) pc.compile("containers/" + ct.name + "/on_craft", ct.onCraft, List.of(), List.of());
+        }
+        for (ModElements.CustomEntity ce : ctx.all(ModElements.CustomEntity.class)) {
+            if (!ce.onSpawn.isEmpty()) pc.compile("entities/" + ce.name + "/on_spawn", ce.onSpawn, List.of(), List.of());
+            if (!ce.onHurt.isEmpty()) pc.compile("entities/" + ce.name + "/on_hurt", ce.onHurt, List.of(), List.of());
+            if (!ce.onDeath.isEmpty()) pc.compile("entities/" + ce.name + "/on_death", ce.onDeath, List.of(), List.of());
+            if (!ce.onInteract.isEmpty()) pc.compile("entities/" + ce.name + "/on_interact", ce.onInteract, List.of(), List.of());
+        }
         if (!joinCalls.isEmpty()) {
             load.add("scoreboard objectives add " + ns + ".left minecraft.custom:minecraft.leave_game");
             tick.add("execute as @a[tag=!" + ns + ".joined] at @s run function " + ns + ":_join");
@@ -771,5 +951,115 @@ public final class DataGen {
         for (Item it : ctx.all(Item.class)) {
             ctx.files.text(fn("give/" + it.name), "give @s " + ItemSpec.give(ctx, it) + " 1\n");
         }
+    }
+
+    private void advancedData() {
+        for (ModElements.WorldFeature wf : ctx.all(ModElements.WorldFeature.class)) {
+            JsonObject configured = configuredFeature(wf);
+            ctx.files.json(data(ctx.ns, "worldgen/configured_feature", wf.name + ".json"), configured);
+            ctx.files.json(data(ctx.ns, "worldgen/placed_feature", wf.name + ".json"), placedFeature(wf));
+        }
+        for (ModElements.ArmorTrim at : ctx.all(ModElements.ArmorTrim.class)) {
+            String tpl = at.generateTemplate
+                    ? (realItems ? ctx.id(at.name + "_armor_trim_smithing_template")
+                    : (at.item.isBlank() ? "minecraft:coast_armor_trim_smithing_template" : Ids.full(at.item)))
+                    : Ids.full(at.item);
+            JsonObject o = J.obj("asset_id", ctx.id(at.name), "description", J.obj("translate", "trim_pattern." + ctx.ns + "." + at.name), "decal", at.decal);
+            if (!ctx.v.atLeast(McVersion.V1_21_8) && !tpl.isBlank()) o.addProperty("template_item", tpl);
+            ctx.files.json(data(ctx.ns, "trim_pattern", at.name + ".json"), o);
+            if (at.generateTemplate && realItems) tag("item", "minecraft", "trim_templates").values.add(tpl);
+        }
+        if (realItems) {
+            for (ModElements.CustomEntity ce : ctx.all(ModElements.CustomEntity.class)) {
+                if (!ce.isLivingMob() || ce.lootTable.isBlank() || ctx.p.byName(ElementType.LOOT_TABLE, "entities/" + ce.name) != null) continue;
+                String tableRef = Ids.full(ce.lootTable.trim());
+                JsonObject entry = J.obj("type", "minecraft:loot_table", ctx.components() ? "value" : "name", tableRef);
+                ctx.files.json(data(ctx.ns, ctx.lootDir(), "entities/" + ce.name + ".json"),
+                        J.obj("type", "minecraft:entity", "pools", J.arr(J.obj("rolls", 1, "bonus_rolls", 0, "entries", J.arr(entry)))));
+            }
+        }
+        if (ctx.components()) {
+            for (ModElements.BannerPattern bp : ctx.all(ModElements.BannerPattern.class)) {
+                ctx.files.json(data(ctx.ns, "banner_pattern", bp.name + ".json"), J.obj(
+                        "asset_id", ctx.id(bp.name),
+                        "translation_key", "block.minecraft.banner." + ctx.ns + "." + bp.name));
+            }
+        }
+    }
+
+    private JsonObject configuredFeature(ModElements.WorldFeature wf) {
+        String blk = Ids.full(wf.block.isBlank() ? "minecraft:stone" : wf.block);
+        return switch (wf.featureType) {
+            case "tree" -> {
+                String trunk = Ids.full(wf.trunkBlock.isBlank() ? "minecraft:oak_log" : wf.trunkBlock);
+                String leaves = Ids.full(wf.leavesBlock.isBlank() ? "minecraft:oak_leaves" : wf.leavesBlock);
+                yield J.obj("type", "minecraft:tree", "config", J.obj(
+                        "ignore_vines", true,
+                        "minimum_size", J.obj("type", "minecraft:two_layers_feature_size", "limit", 1, "lower_size", 0, "upper_size", 1),
+                        "dirt_provider", stateProvider("minecraft:dirt"),
+                        "trunk_provider", stateProvider(trunk),
+                        "foliage_provider", stateProvider(leaves),
+                        "trunk_placer", J.obj("type", "minecraft:straight_trunk_placer", "base_height", Math.max(2, wf.trunkHeight), "height_rand_a", 2, "height_rand_b", 0),
+                        "foliage_placer", J.obj("type", "minecraft:blob_foliage_placer", "radius", Math.max(1, wf.foliageRadius), "offset", 0, "height", 3),
+                        "decorators", new JsonArray()));
+            }
+            case "patch" -> J.obj("type", "minecraft:random_patch", "config", J.obj(
+                    "tries", Math.max(1, wf.size * 4),
+                    "xz_spread", Math.max(1, Math.min(16, wf.xzSpread)),
+                    "y_spread", Math.max(1, Math.min(16, wf.ySpread)),
+                    "feature", J.obj("feature", J.obj("type", "minecraft:simple_block", "config", J.obj("to_place", stateProvider(blk))), "placement", new JsonArray())));
+            case "spike" -> J.obj("type", "minecraft:block_column", "config", J.obj(
+                    "direction", "up",
+                    "allowed_placement", J.obj("type", "minecraft:matching_blocks", "blocks", "minecraft:air"),
+                    "prioritize_tip", false,
+                    "layers", J.arr(J.obj("height", J.obj("type", "minecraft:uniform", "min_inclusive", 2, "max_inclusive", Math.max(3, wf.size)),
+                            "provider", stateProvider(blk)))));
+            default -> {
+                String raw = wf.replaceTarget.isBlank() ? "#minecraft:stone_ore_replaceables" : wf.replaceTarget;
+                JsonArray targets = new JsonArray();
+                for (String part : raw.split(",")) {
+                    String target = Ids.full(part.trim());
+                    if (target.isBlank()) continue;
+                    JsonObject rule = Ids.isTag(target)
+                            ? J.obj("predicate_type", "minecraft:tag_match", "tag", target.substring(1))
+                            : J.obj("predicate_type", "minecraft:block_match", "block", target);
+                    targets.add(J.obj("target", rule, "state", J.obj("Name", blk)));
+                }
+                if (targets.isEmpty()) {
+                    targets.add(J.obj("target", J.obj("predicate_type", "minecraft:tag_match", "tag", "minecraft:stone_ore_replaceables"),
+                            "state", J.obj("Name", blk)));
+                }
+                double discard = Math.max(0.0, Math.min(1.0, wf.discardAir));
+                yield J.obj("type", "minecraft:ore", "config", J.obj("discard_chance_on_air_exposure", discard, "size", Math.max(1, Math.min(64, wf.size)),
+                        "targets", targets));
+            }
+        };
+    }
+
+    private JsonObject placedFeature(ModElements.WorldFeature wf) {
+        JsonArray place = new JsonArray();
+        if (wf.rareFilter) place.add(J.obj("type", "minecraft:rarity_filter", "chance", Math.max(1, wf.count)));
+        else place.add(J.obj("type", "minecraft:count", "count", Math.max(1, wf.count)));
+        place.add(J.obj("type", "minecraft:in_square"));
+        if (wf.featureType.equals("ore")) {
+            int min = Math.min(wf.minY, wf.maxY), max = Math.max(wf.minY, wf.maxY);
+            String heightType = "uniform".equals(wf.distribution) ? "minecraft:uniform" : "minecraft:trapezoid";
+            place.add(J.obj("type", "minecraft:height_range", "height", J.obj("type", heightType,
+                    "min_inclusive", J.obj("absolute", min), "max_inclusive", J.obj("absolute", max))));
+            boolean nonSurfaceDim = wf.biomes != null && (wf.biomes.contains("nether") || wf.biomes.contains("end"));
+            if (wf.preventSurface && !nonSurfaceDim) {
+                place.add(J.obj("type", "minecraft:surface_relative_threshold_filter",
+                        "heightmap", "OCEAN_FLOOR_WG",
+                        "max_inclusive", -Math.max(1, wf.surfaceDepth)));
+            }
+        } else {
+            place.add(J.obj("type", "minecraft:heightmap", "heightmap", wf.featureType.equals("tree") ? "OCEAN_FLOOR" : "WORLD_SURFACE_WG"));
+        }
+        place.add(J.obj("type", "minecraft:biome"));
+        return J.obj("feature", ctx.id(wf.name), "placement", place);
+    }
+
+    private static JsonObject stateProvider(String blockId) {
+        return J.obj("type", "minecraft:simple_state_provider", "state", J.obj("Name", blockId));
     }
 }

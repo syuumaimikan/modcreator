@@ -53,6 +53,10 @@ public final class SystemsGen {
             case V1_21_1 -> 3955;
             case V1_21_4 -> 4189;
             case V1_21_8 -> 4440;
+            case V1_21_9 -> 4554;
+            case V1_21_10 -> 4556;
+            case V1_21_11 -> 4671;
+            case V26_1 -> 4786;
         };
     }
 

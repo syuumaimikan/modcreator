@@ -9,6 +9,7 @@ import javafx.scene.paint.Color;
 import modstudio.core.Elements.Step;
 import modstudio.core.Ids;
 import modstudio.core.Logic;
+import modstudio.core.PreviewModels;
 import modstudio.core.Systems.*;
 import modstudio.gen.SystemsGen;
 import modstudio.ui.Ui;
@@ -33,6 +34,10 @@ final class SystemEditors {
     // ------------------------------------------------------------------ mob
 
     static final class MobEditor extends EditorBase<Mob> {
+        private EntityPreview3D preview3d;
+        private final Label previewName = Ui.label("", "title-4");
+        private final Label previewInfo = Ui.muted("");
+
         MobEditor(Ctx c, Mob e) {
             super(c, e);
         }
@@ -62,6 +67,13 @@ final class SystemEditors {
 
         @Override
         protected void fill() {
+            preview3d = new EntityPreview3D(c.ws, 230, 210, true);
+            VBox info = new VBox(4, previewName, previewInfo);
+            HBox top = new HBox(16, preview3d, info);
+            top.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+            top.getStyleClass().add("preview-strip");
+            f.addTop(top);
+
             f.section(t("section.general"), t("help.mob"));
             nameRow();
             f.id(t("field.mob.base"), IdField.Kind.ENTITY, () -> e.base, v -> e.base = v, env(), t("help.mob.base"));
@@ -145,6 +157,21 @@ final class SystemEditors {
             logic(this, t("section.mob.on_hurt"), t("help.mob.on_hurt"), e.onHurt, () -> t("mob.start.hurt"));
             logic(this, t("section.mob.on_death"), t("help.mob.on_death"), e.onDeath, () -> t("mob.start.death"));
             logic(this, t("section.mob.on_interact"), t("help.mob.on_interact"), e.onInteract, () -> t("mob.start.interact"));
+        }
+
+        @Override
+        protected void refresh() {
+            if (preview3d == null) return;
+            var mdl = PreviewModels.forMob(c.p, e);
+            double sc = e.rig.isBlank() ? Math.max(0.1, e.scale) : Math.max(0.1, e.rigScale * e.scale);
+            preview3d.setPreview(mdl, "", false, sc, 0.6 * sc, 1.95 * sc, e.idleAnim);
+            previewName.setText(e.displayName.isBlank() ? Ids.titleCase(e.name) : e.displayName);
+            StringBuilder sb = new StringBuilder();
+            sb.append(e.base).append('\n');
+            sb.append("HP: ").append(Form.fmt(e.health)).append("  |  DMG: ").append(Form.fmt(e.damage))
+                    .append("  |  Scale: ").append(Form.fmt(sc));
+            if (e.boss) sb.append('\n').append(t("field.boss"));
+            previewInfo.setText(sb.toString());
         }
 
         @Override

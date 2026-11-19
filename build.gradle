@@ -32,6 +32,12 @@ dependencies {
     // Ogg Vorbis decoding for sound previews (JavaFX media cannot play .ogg)
     implementation 'com.googlecode.soundlibs:jorbis:0.0.17.4'
     runtimeOnly 'org.slf4j:slf4j-nop:1.7.36'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
 }
 
 application {

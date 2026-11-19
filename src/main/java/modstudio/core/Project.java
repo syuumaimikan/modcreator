@@ -16,6 +16,8 @@ public final class Project {
     public List<TextureAsset> textures = new ArrayList<>();
     /** Extra translation keys: game language -> key -> text. */
     public Map<String, Map<String, String>> translations = new LinkedHashMap<>();
+    /** Optional path to the original imported .jar/.zip artifact for patching or reference. */
+    public String sourceArtifact = "";
 
     public static final class Meta {
         public String name = "My Mod";
@@ -28,11 +30,18 @@ public final class Project {
         public String packageName = "com.example.mymod";
         /** Version edited in the UI (vanilla lists, previews). Always contained in mcVersions. */
         public String mcVersion = "1.21.1";
+        /** Detected original MC version when imported (may be older than McVersion, e.g. 1.12.2). */
+        public String sourceMcVersion = "";
         /** All Minecraft versions the project is exported for. */
         public List<String> mcVersions = new ArrayList<>();
         public List<String> targets = new ArrayList<>(List.of("neoforge", "fabric"));
         public List<String> languages = new ArrayList<>();
         public String icon = "";
+        public List<ModElements.ModDependency> dependencies = new ArrayList<>();
+        public List<String> mavenRepos = new ArrayList<>();
+        public List<ModElements.GradleDep> libraries = new ArrayList<>();
+        public String customGradle = "";
+        public String jvmArgs = "";
     }
 
     public McVersion mc() {
@@ -134,6 +143,12 @@ public final class Project {
         return all(Elements.Model.class).stream().filter(m -> m.name.equals(name)).findFirst().orElse(null);
     }
 
+    /** Project custom tool material by element name, or null. */
+    public Elements.ToolMaterial toolMaterial(String name) {
+        if (name == null || name.isBlank()) return null;
+        return all(Elements.ToolMaterial.class).stream().filter(tm -> tm.name.equals(name.trim())).findFirst().orElse(null);
+    }
+
     public TextureAsset texture(String id) {
         if (id == null || id.isEmpty()) return null;
         for (TextureAsset t : textures) if (t.id.equals(id)) return t;
@@ -159,9 +174,9 @@ public final class Project {
         return Versions.defaults(t, mc).getOrDefault(key, "");
     }
 
-    /** A unique, valid element name derived from a base. */
+    /** A unique, valid element name derived from a base (preserving subfolders when allowed). */
     public String uniqueName(ElementType type, String base) {
-        String b = Ids.toId(base);
+        String b = type.allowsPath() ? Ids.toPath(base) : Ids.toId(base);
         if (b.isEmpty()) b = type.id;
         String n = b;
         int i = 2;

@@ -166,7 +166,13 @@ public final class BlockScene3D extends Pane {
                 pan.setY(pan.getY() - dy * k);
             }
         });
-        sub.setOnScroll(e -> dist.setZ(Math.max(-6000, Math.min(-10, dist.getZ() * (e.getDeltaY() > 0 ? 0.9 : 1.1)))));
+        this.addEventFilter(javafx.scene.input.ScrollEvent.SCROLL, e -> {
+            double dy = e.getDeltaY() != 0 ? e.getDeltaY() : e.getDeltaX();
+            if (dy != 0) dist.setZ(Math.max(-6000, Math.min(-10, dist.getZ() * (dy > 0 ? 0.9 : 1.1))));
+            e.consume();
+        });
+        this.addEventFilter(javafx.scene.input.ScrollEvent.SCROLL_STARTED, javafx.event.Event::consume);
+        this.addEventFilter(javafx.scene.input.ScrollEvent.SCROLL_FINISHED, javafx.event.Event::consume);
         sub.setOnMouseClicked(e -> {
             if (e.getClickCount() == 2) home();
         });

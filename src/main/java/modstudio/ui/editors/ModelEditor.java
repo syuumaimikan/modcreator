@@ -36,6 +36,7 @@ final class ModelEditor extends EditorBase<Model> {
     private boolean syncing;
     private String displayContext = "gui";
     private RigPanel rig;
+    private double snapStep = 0.25;
 
     /** Model names for pickers, with "" (none) first. */
     static java.util.List<String> modelChoices(Ctx c) {
@@ -53,8 +54,19 @@ final class ModelEditor extends EditorBase<Model> {
     protected void fill() {
         f.section(t("section.general"));
         nameRow();
-        f.choice(t("field.model_kind"), List.of("block", "item"), x -> t("modelkind." + x), () -> e.kind, v -> e.kind = v, t("help.model_kind"));
+        f.choice(t("field.model_kind"), List.of("block", "item", "entity"), x -> t("modelkind." + x), () -> e.kind, v -> e.kind = v, t("help.model_kind"));
         f.check(t("field.ambient_occlusion"), () -> e.ambientOcclusion, v -> e.ambientOcclusion = v);
+        Spinner<Integer> tw = Form.intSpinner(8, 512, Math.max(8, e.textureWidth), v -> {
+            e.textureWidth = v;
+            f.changed();
+        });
+        Spinner<Integer> th = Form.intSpinner(8, 512, Math.max(8, e.textureHeight), v -> {
+            e.textureHeight = v;
+            f.changed();
+        });
+        tw.setPrefWidth(88);
+        th.setPrefWidth(88);
+        f.row(t("field.texture_size"), Ui.hbox(8, Ui.label("W", "text-muted"), tw, Ui.label("H", "text-muted"), th), t("help.texture_size"));
 
         ComboBox<String> template = Ui.combo(Models.TEMPLATES, x -> t("modeltpl." + x));
         template.setValue("block");
@@ -99,6 +111,10 @@ final class ModelEditor extends EditorBase<Model> {
     private Node workbench() {
         view3d = new ModelView3D(c.ws, 560, 420, true);
         view3d.setOnSelect(i -> select(i));
+        view3d.setOnTransform(committed -> {
+            edited();
+            if (committed) rebuildCube();
+        });
         cubeList.setCellFactory(lv -> new ListCell<>() {
             @Override
             protected void updateItem(Cube cu, boolean empty) {
@@ -139,7 +155,9 @@ final class ModelEditor extends EditorBase<Model> {
         });
         Button up = Ui.iconButton("mdi2c-chevron-up", t("action.move_up"), () -> move(-1));
         Button down = Ui.iconButton("mdi2c-chevron-down", t("action.move_down"), () -> move(1));
-        HBox listTools = Ui.hbox(2, add, dup, del, Ui.spacer(), up, down);
+        Button mirX = Ui.iconButton("mdi2f-flip-horizontal", t("model.mirror_x"), () -> mirrorSelected(0));
+        Button mirZ = Ui.iconButton("mdi2f-flip-vertical", t("model.mirror_z"), () -> mirrorSelected(2));
+        HBox listTools = Ui.hbox(2, add, dup, mirX, mirZ, del, Ui.spacer(), up, down);
         VBox left = new VBox(6, cubeList, listTools);
         VBox.setVgrow(cubeList, Priority.ALWAYS);
 
@@ -152,10 +170,29 @@ final class ModelEditor extends EditorBase<Model> {
             if (v.equals("iso")) tb.setSelected(true);
             viewBar.getChildren().add(tb);
         }
+        ComboBox<Double> snapBox = new ComboBox<>();
+        snapBox.getItems().setAll(1.0, 0.5, 0.25, 0.1);
+        snapBox.setValue(snapStep);
+        snapBox.setConverter(new javafx.util.StringConverter<>() {
+            @Override
+            public String toString(Double d) {
+                return d == null ? "" : Form.fmt(d);
+            }
+
+            @Override
+            public Double fromString(String s) {
+                return null;
+            }
+        });
+        snapBox.valueProperty().addListener((o, a, b) -> {
+            if (b == null) return;
+            snapStep = b;
+            view3d.setSnapStep(b);
+        });
         CheckBox grid = new CheckBox(t("model.grid"));
         grid.setSelected(true);
         grid.selectedProperty().addListener((o, a, b) -> view3d.setShowGrid(b));
-        viewBar.getChildren().addAll(Ui.spacer(), grid);
+        viewBar.getChildren().addAll(Ui.spacer(), Ui.label(t("model.snap"), "text-muted"), snapBox, grid);
         Label hint = Ui.help(t("model.mouse_help"));
         VBox center = new VBox(6, viewBar, view3d, rig.previewBar(), hint);
         VBox.setVgrow(view3d, Priority.ALWAYS);
@@ -180,6 +217,15 @@ final class ModelEditor extends EditorBase<Model> {
         if (sel < 0 || j < 0 || j >= e.cubes.size()) return;
         java.util.Collections.swap(e.cubes, sel, j);
         sel = j;
+        structureChanged();
+    }
+
+    private void mirrorSelected(int axis) {
+        if (sel < 0 || sel >= e.cubes.size()) return;
+        Cube mirrored = Models.mirrorCube(e.cubes.get(sel), axis);
+        mirrored.name = uniqueCubeName(mirrored.name);
+        e.cubes.add(sel + 1, mirrored);
+        sel++;
         structureChanged();
     }
 
@@ -279,15 +325,47 @@ final class ModelEditor extends EditorBase<Model> {
             });
             g.addRow(r++, label(t("rig.bone")), boneBox);
         }
-        g.addRow(r++, label(t("model.from")), xyz(cu.from, true));
-        g.addRow(r++, label(t("model.to")), xyz(cu.to, true));
+        final boolean[] syncingBounds = {false};
+        TextField[] fromFields = new TextField[3], toFields = new TextField[3], sizeFields = new TextField[3];
+        HBox fromBox = Ui.hbox(6), toBox = Ui.hbox(6), sizeBox = Ui.hbox(6);
+        String[] posAxes = {"X", "Y", "Z"}, dimAxes = {"W", "H", "D"};
+        for (int i = 0; i < 3; i++) {
+            int k = i;
+            fromFields[i] = num(cu.from[i], x -> {
+                if (syncingBounds[0]) return;
+                syncingBounds[0] = true;
+                cu.from[k] = Models.clamp(x, -16, 32);
+                sizeFields[k].setText(Form.fmt(Math.round((cu.to[k] - cu.from[k]) * 1000.0) / 1000.0));
+                syncingBounds[0] = false;
+            });
+            toFields[i] = num(cu.to[i], x -> {
+                if (syncingBounds[0]) return;
+                syncingBounds[0] = true;
+                cu.to[k] = Models.clamp(x, -16, 32);
+                sizeFields[k].setText(Form.fmt(Math.round((cu.to[k] - cu.from[k]) * 1000.0) / 1000.0));
+                syncingBounds[0] = false;
+            });
+            sizeFields[i] = num(Math.round((cu.to[i] - cu.from[i]) * 1000.0) / 1000.0, x -> {
+                if (syncingBounds[0]) return;
+                syncingBounds[0] = true;
+                cu.to[k] = Models.clamp(cu.from[k] + x, -16, 32);
+                toFields[k].setText(Form.fmt(Math.round(cu.to[k] * 1000.0) / 1000.0));
+                syncingBounds[0] = false;
+            });
+            fromBox.getChildren().addAll(Ui.label(posAxes[i], "text-muted"), fromFields[i]);
+            toBox.getChildren().addAll(Ui.label(posAxes[i], "text-muted"), toFields[i]);
+            sizeBox.getChildren().addAll(Ui.label(dimAxes[i], "text-muted"), sizeFields[i]);
+        }
+        g.addRow(r++, label(t("model.from")), fromBox);
+        g.addRow(r++, label(t("model.to")), toBox);
+        g.addRow(r++, label(t("model.size")), sizeBox);
 
         HBox nudge = Ui.hbox(4);
         for (String ax : List.of("x", "y", "z")) {
             int k = ax.equals("x") ? 0 : ax.equals("y") ? 1 : 2;
             nudge.getChildren().add(Ui.label(ax.toUpperCase(), "text-muted"));
-            nudge.getChildren().add(Ui.iconButton("mdi2m-minus", t("model.move_minus", ax.toUpperCase()), () -> shift(cu, k, -1)));
-            nudge.getChildren().add(Ui.iconButton("mdi2p-plus", t("model.move_plus", ax.toUpperCase()), () -> shift(cu, k, 1)));
+            nudge.getChildren().add(Ui.iconButton("mdi2m-minus", t("model.move_minus", ax.toUpperCase()), () -> shift(cu, k, -snapStep)));
+            nudge.getChildren().add(Ui.iconButton("mdi2p-plus", t("model.move_plus", ax.toUpperCase()), () -> shift(cu, k, snapStep)));
         }
         g.addRow(r++, label(t("model.move")), nudge);
 
@@ -319,6 +397,8 @@ final class ModelEditor extends EditorBase<Model> {
         });
         g.addRow(r++, label(t("model.rotation")), Ui.hbox(8, angle, Ui.label(t("model.axis"), "text-muted"), axis));
         g.addRow(r++, label(t("model.origin")), xyz(cu.origin, true));
+        TextField inflate = num(cu.inflate, x -> cu.inflate = Models.clamp(x, -4, 4));
+        g.addRow(r++, label(t("model.inflate")), Ui.hbox(8, inflate, Ui.help(t("help.model_inflate"))));
         CheckBox shade = new CheckBox(t("model.shade"));
         shade.setSelected(cu.shade);
         shade.selectedProperty().addListener((o, a, b) -> {
@@ -403,9 +483,9 @@ final class ModelEditor extends EditorBase<Model> {
     }
 
     private void shift(Cube cu, int axis, double d) {
-        cu.from[axis] = Models.clamp(cu.from[axis] + d, -16, 32);
-        cu.to[axis] = Models.clamp(cu.to[axis] + d, -16, 32);
-        cu.origin[axis] = Models.clamp(cu.origin[axis] + d, -16, 32);
+        cu.from[axis] = Models.clamp(Math.round((cu.from[axis] + d) * 1000.0) / 1000.0, -16, 32);
+        cu.to[axis] = Models.clamp(Math.round((cu.to[axis] + d) * 1000.0) / 1000.0, -16, 32);
+        cu.origin[axis] = Models.clamp(Math.round((cu.origin[axis] + d) * 1000.0) / 1000.0, -16, 32);
         edited();
         rebuildCube();
     }

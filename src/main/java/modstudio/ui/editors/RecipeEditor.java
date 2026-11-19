@@ -85,6 +85,8 @@ final class RecipeEditor extends EditorBase<Recipe> {
             default -> {
             }
         }
+        b.text(t("field.recipe_components"), () -> e.resultComponents, v -> e.resultComponents = v.trim(), t("help.recipe_components"));
+        b.check(t("field.recipe_remainder"), () -> e.keepRemainder, v -> e.keepRemainder = v);
         b.add(Ui.help(t("help.slot")));
         body.getChildren().setAll(b);
     }

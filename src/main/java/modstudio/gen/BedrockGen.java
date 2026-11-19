@@ -52,18 +52,32 @@ public final class BedrockGen {
         return J.arr(v[0], v[1], v[2]);
     }
 
+    private record ScriptHook(String modulePath, String hook, String method) {}
+
+    private static boolean isScriptFile(CodeFile cf) {
+        String lang = cf.resolvedLanguage();
+        if ("typescript".equals(lang) || "javascript".equals(lang)) return true;
+        String low = cf.path == null ? "" : cf.path.trim().toLowerCase(Locale.ROOT);
+        return low.endsWith(".js") || low.endsWith(".ts") || low.endsWith(".tsx") || low.endsWith(".mjs");
+    }
+
     public void generate() {
-        boolean scripts = !ctx.all(Procedure.class).isEmpty() || !ctx.all(Elements.Command.class).isEmpty()
-                || ctx.all(Function.class).stream().anyMatch(f -> f.onLoad) || !ctx.all(modstudio.core.Systems.Cutscene.class).isEmpty();
-        manifests(scripts);
+        boolean hasUi = !ctx.all(Systems.Dialog.class).isEmpty();
+        boolean hasKeys = ctx.all(Systems.KeyBind.class).stream().anyMatch(k -> !k.fallback.equals("none"));
+        boolean customScripts = ctx.all(CodeFile.class).stream()
+                .anyMatch(cf -> Scaffold.matchesTarget(cf.target, ctx.target) && isScriptFile(cf));
+        boolean scripts = customScripts || !ctx.all(Procedure.class).isEmpty() || !ctx.all(Elements.Command.class).isEmpty()
+                || ctx.all(Function.class).stream().anyMatch(f -> f.onLoad)
+                || !ctx.all(Systems.Cutscene.class).isEmpty() || hasUi || hasKeys;
+        manifests(scripts, hasUi);
         items();
         blocks();
+        entities();
         recipes();
         lootTables();
         functions();
         sounds();
         lang();
-        if (scripts) script();
         if (!itemTextures.isEmpty()) ctx.files.json(rp + "textures/item_texture.json",
                 J.obj("resource_pack_name", ctx.ns, "texture_name", "atlas.items", "texture_data", itemTextures));
         if (!flipbooks.isEmpty()) ctx.files.json(rp + "textures/flipbook_textures.json", flipbooks);
@@ -76,15 +90,65 @@ public final class BedrockGen {
         }
         if (!ctx.all(Advancement.class).isEmpty()) ctx.note("advancements are not available in Bedrock Edition");
         if (!ctx.all(Tag.class).isEmpty()) ctx.note("tags are not exported to Bedrock Edition");
-        JavaCommon.codeFiles(ctx);
+        List<ScriptHook> extraModules = new ArrayList<>();
+        String userMainOverride = null;
+        for (CodeFile cf : ctx.all(CodeFile.class)) {
+            if (!Scaffold.matchesTarget(cf.target, ctx.target) || !isScriptFile(cf)) continue;
+            String rawPath = cf.path == null ? "" : cf.path.trim();
+            String norm = rawPath.replace('\\', '/').replace("{package}", ctx.pkgPath).replace("{modid}", ctx.ns);
+            String low = norm.toLowerCase(Locale.ROOT);
+            if (!low.endsWith(".js") && !low.endsWith(".ts") && !low.endsWith(".tsx") && !low.endsWith(".mjs")) {
+                String base = Ids.toId(cf.name == null || cf.name.isBlank() ? "script" : cf.name);
+                if (base.isEmpty()) base = "script";
+                norm = "scripts/" + base + ("typescript".equals(cf.resolvedLanguage()) ? ".ts" : ".js");
+            }
+            String content = cf.content.replace("{package_name}", ctx.pkg).replace("{modid}", ctx.ns).replace("{main_class}", ctx.mainClass);
+            if (norm.toLowerCase(Locale.ROOT).endsWith(".ts") || norm.toLowerCase(Locale.ROOT).endsWith(".tsx")) {
+                norm = norm.replaceFirst("\\.(?i)tsx?$", ".js");
+                content = transpileTsToJs(content);
+            } else if ("typescript".equals(cf.resolvedLanguage())) {
+                content = transpileTsToJs(content);
+            }
+            String rel = norm;
+            if (rel.startsWith(bp)) rel = rel.substring(bp.length());
+            while (rel.startsWith("/")) rel = rel.substring(1);
+            if (!rel.startsWith("scripts/")) rel = "scripts/" + rel;
+            String modRel = rel.substring("scripts/".length());
+            if ("main.js".equals(modRel)) userMainOverride = content;
+            else extraModules.add(new ScriptHook("./" + modRel, cf.hook, cf.hookMethod));
+            ctx.files.text(bp + rel, content);
+        }
+        if (scripts) script(extraModules);
+        if (userMainOverride != null) ctx.files.text(bp + "scripts/main.js", userMainOverride);
+        for (CodeFile cf : ctx.all(CodeFile.class)) {
+            if (!Scaffold.matchesTarget(cf.target, ctx.target) || cf.path.isBlank()) continue;
+            if (cf.isJvmLanguage() || isScriptFile(cf)) continue;
+            String path = cf.path.replace("{package}", ctx.pkgPath).replace("{modid}", ctx.ns);
+            if (path.startsWith("src/main/resources/")) path = path.substring("src/main/resources/".length());
+            ctx.files.text(path, cf.content.replace("{package_name}", ctx.pkg).replace("{modid}", ctx.ns).replace("{main_class}", ctx.mainClass));
+        }
     }
 
-    private void manifests(boolean scripts) {
+    static String transpileTsToJs(String ts) {
+        if (ts == null || ts.isBlank()) return "";
+        String out = ts;
+        out = out.replaceAll("(?m)^\\s*import\\s+type\\s+[^;]+;?\\r?\\n?", "");
+        out = out.replaceAll("(?m)^\\s*export\\s+(?:interface|type)\\s+[^{;]+(?:\\{[^}]*\\}|=[^;]+;)?\\r?\\n?", "");
+        out = out.replaceAll("(?m)^\\s*(?:interface|type)\\s+[A-Za-z_][\\w$]*(?:<[^>]+>)?\\s*(?:=[^;]+;|\\{[^}]*\\})\\r?\\n?", "");
+        out = out.replaceAll("\\b((?:function\\s+[A-Za-z_][\\w$]*|(?:const|let|var)?\\s*[A-Za-z_][\\w$]*\\s*=\\s*)?\\([^)]*\\))\\s*:\\s*[A-Za-z_][\\w$.<>\\[\\]|&\\s]*(?=\\s*(?:=>|\\{))", "$1");
+        out = out.replaceAll("(\\(|,)\\s*([A-Za-z_][\\w$]*)\\s*\\??:\\s*[A-Za-z_][\\w$.<>\\[\\]|&\\s]*(?=\\s*(?:[,)=]))", "$1 $2");
+        out = out.replaceAll("\\b(const|let|var)\\s+([A-Za-z_][\\w$]*)\\s*:\\s*[A-Za-z_][\\w$.<>\\[\\]|&\\s]*(?=\\s*[=;])", "$1 $2");
+        out = out.replaceAll("\\s+as\\s+(?:const|[A-Za-z_][\\w$.<>\\[\\]|&]*)", "");
+        return out;
+    }
+
+    private void manifests(boolean scripts, boolean ui) {
         JsonArray bpModules = J.arr(J.obj("type", "data", "uuid", uuid("bp-data"), "version", version()));
         JsonArray bpDeps = J.arr(J.obj("uuid", uuid("rp-header"), "version", version()));
         if (scripts) {
             bpModules.add(J.obj("type", "script", "language", "javascript", "uuid", uuid("bp-script"), "entry", "scripts/main.js", "version", version()));
             bpDeps.add(J.obj("module_name", "@minecraft/server", "version", ctx.version("script_api")));
+            if (ui) bpDeps.add(J.obj("module_name", "@minecraft/server-ui", "version", "1.2.0"));
         }
         ctx.files.json(bp + "manifest.json", J.obj("format_version", 2,
                 "header", J.obj("name", ctx.p.meta.name + " BP", "description", ctx.p.meta.description, "uuid", uuid("bp-header"),
@@ -137,38 +201,6 @@ public final class BedrockGen {
         return key;
     }
 
-    private static int durability(String tier) {
-        return switch (tier) {
-            case "wood" -> 59;
-            case "stone" -> 131;
-            case "gold" -> 32;
-            case "diamond" -> 1561;
-            case "netherite" -> 2031;
-            default -> 250;
-        };
-    }
-
-    private static int speed(String tier) {
-        return switch (tier) {
-            case "wood" -> 2;
-            case "stone" -> 4;
-            case "gold" -> 12;
-            case "diamond" -> 8;
-            case "netherite" -> 9;
-            default -> 6;
-        };
-    }
-
-    private static int tierDamage(String tier) {
-        return switch (tier) {
-            case "stone" -> 1;
-            case "iron" -> 2;
-            case "diamond" -> 3;
-            case "netherite" -> 4;
-            default -> 0;
-        };
-    }
-
     private String category(String tab, boolean block) {
         if (tab.contains("combat") || tab.contains("tools")) return "equipment";
         if (tab.contains("natural")) return "nature";
@@ -191,12 +223,25 @@ public final class BedrockGen {
                 c.addProperty("minecraft:use_animation", "eat");
                 c.add("minecraft:use_modifiers", J.obj("use_duration", it.fastFood ? 0.8 : 1.6, "movement_modifier", 0.35));
             }
+            if (it.useCooldown > 0) c.add("minecraft:cooldown", J.obj("category", ctx.id(it.name), "duration", it.useCooldown));
+            if (it.kind.equals("throwable")) {
+                c.add("minecraft:throwable", J.obj("do_swing_animation", true));
+                c.add("minecraft:projectile", J.obj("minimum_critical_power", 0.0, "projectile_entity", "minecraft:snowball"));
+            }
             if (it.isTool()) {
+                ItemSpec.ToolTierStats ts = ItemSpec.toolStats(ctx.p, it.tier);
+                int dur = it.maxDamage > 0 ? it.maxDamage : ts.durability();
+                int ench = it.enchantability >= 0 ? it.enchantability : ts.enchantability();
                 c.addProperty("minecraft:hand_equipped", true);
-                c.add("minecraft:durability", J.obj("max_durability", durability(it.tier)));
-                int dmg = (int) Math.max(1, Math.round(it.attackDamage + tierDamage(it.tier) + 1));
+                c.add("minecraft:durability", J.obj("max_durability", dur));
+                int dmg = (int) Math.max(1, Math.round(it.attackDamage + ts.attackDamageBonus() + 1));
                 c.addProperty("minecraft:damage", dmg);
-                c.add("minecraft:enchantable", J.obj("value", 10, "slot", it.kind));
+                c.add("minecraft:enchantable", J.obj("value", Math.max(1, ench), "slot", it.kind));
+                String rep = !it.repairItem.isBlank() ? it.repairItem : ts.repairItem();
+                if (!rep.isBlank() && !Ids.isTag(Ids.full(rep))) {
+                    c.add("minecraft:repairable", J.obj("repair_items", J.arr(J.obj("items", J.arr(Ids.full(rep)),
+                            "repair_amount", Math.max(1, dur / 4)))));
+                }
                 String blocks = switch (it.kind) {
                     case "pickaxe" -> "q.any_tag('stone', 'metal', 'rail', 'minecraft:is_pickaxe_item_destructible')";
                     case "axe" -> "q.any_tag('wood', 'pumpkin', 'plant', 'minecraft:is_axe_item_destructible')";
@@ -206,7 +251,7 @@ public final class BedrockGen {
                 };
                 if (blocks != null) {
                     c.add("minecraft:digger", J.obj("use_efficiency", true, "destroy_speeds",
-                            J.arr(J.obj("block", J.obj("tags", blocks), "speed", speed(it.tier)))));
+                            J.arr(J.obj("block", J.obj("tags", blocks), "speed", Math.round(ts.speed())))));
                 }
             }
             ctx.files.json(bp + "items/" + it.name + ".json", J.obj("format_version", "1.21.0", "minecraft:item", J.obj(
@@ -232,13 +277,33 @@ public final class BedrockGen {
             c.add("minecraft:repairable", J.obj("repair_items", J.arr(J.obj("items", J.arr(Ids.full(m.repairItem)),
                     "repair_amount", Math.max(1, m.durabilityOf(it.kind) / 4)))));
         }
-        TextureAsset layer = ctx.p.texture(it.kind.equals("leggings") ? m.layer2 : m.layer1);
-        String tex = "textures/models/armor/" + ctx.ns + "_" + m.name + (it.kind.equals("leggings") ? "_layer_2" : "_layer_1");
-        if (layer != null) ctx.files.bytes(rp + tex + ".png", layer.bytes());
+        Model worn = ModelGen.wornArmorModel(ctx.p, it);
+        String geoName = "geometry.humanoid.armor." + slot[2];
+        String texPath;
+        if (worn != null) {
+            geoName = "geometry." + ctx.ns + "." + it.name;
+            ctx.files.json(rp + "models/entity/" + it.name + ".geo.json", Models.toBedrock(worn, geoName, Math.max(16, worn.textureWidth), Math.max(16, worn.textureHeight)));
+            String texKey = ModelGen.armor3dTexKey(ctx.p, it, m, worn);
+            TextureAsset texAsset = texKey == null ? null
+                    : texKey.startsWith("mat_") ? ctx.p.texture(m.armorTexture)
+                    : texKey.startsWith("mdl_") ? ModelGen.firstModelTexture(ctx.p, worn)
+                    : ctx.p.texture(m.layer1);
+            if (texAsset != null) {
+                texPath = "textures/models/armor/" + ctx.ns + "_" + it.name + "_3d";
+                ctx.files.bytes(rp + texPath + ".png", texAsset.bytes());
+            } else {
+                texPath = "textures/models/armor/iron_1";
+            }
+        } else {
+            TextureAsset layer = ctx.p.texture(it.kind.equals("leggings") ? m.layer2 : m.layer1);
+            String ltex = "textures/models/armor/" + ctx.ns + "_" + m.name + (it.kind.equals("leggings") ? "_layer_2" : "_layer_1");
+            if (layer != null) ctx.files.bytes(rp + ltex + ".png", layer.bytes());
+            texPath = layer != null ? ltex : "textures/models/armor/iron_1";
+        }
         JsonObject desc = J.obj("identifier", ctx.id(it.name),
                 "materials", J.obj("default", "armor", "enchanted", "armor_enchanted"),
-                "textures", J.obj("default", layer != null ? tex : "textures/models/armor/iron_1", "enchanted", "textures/misc/enchanted_item_glint"),
-                "geometry", J.obj("default", "geometry.humanoid.armor." + slot[2]),
+                "textures", J.obj("default", texPath, "enchanted", "textures/misc/enchanted_item_glint"),
+                "geometry", J.obj("default", geoName),
                 "scripts", J.obj("parent_setup", slot[3]),
                 "render_controllers", J.arr("controller.render.armor"));
         ctx.files.json(rp + "attachables/" + it.name + ".json", J.obj("format_version", "1.10.0", "minecraft:attachable", J.obj("description", desc)));
@@ -327,6 +392,82 @@ public final class BedrockGen {
             ctx.files.json(bp + "loot_tables/blocks/" + ctx.ns + "/" + b.name + ".json", table);
         }
         if (blocksJson.size() > 1) ctx.files.json(rp + "blocks.json", blocksJson);
+    }
+
+    private void entities() {
+        for (ModElements.CustomEntity ce : ctx.all(ModElements.CustomEntity.class)) {
+            if (!ce.isLivingMob()) continue;
+            String eid = ctx.id(ce.name);
+            JsonObject comp = new JsonObject();
+            comp.add("minecraft:type_family", J.obj("family", J.arr(ce.kind, "mob")));
+            comp.add("minecraft:health", J.obj("value", (int) Math.max(1, ce.health), "max", (int) Math.max(1, ce.health)));
+            comp.add("minecraft:movement", J.obj("value", Math.max(0.05, ce.speed)));
+            if (ce.attackDamage > 0) comp.add("minecraft:attack", J.obj("damage", ce.attackDamage));
+            comp.add("minecraft:collision_box", J.obj("width", Math.max(0.2, ce.width), "height", Math.max(0.2, ce.height)));
+            if (Math.abs(ce.scale - 1.0) > 0.01) comp.add("minecraft:scale", J.obj("value", Math.max(0.2, Math.min(4.0, ce.scale))));
+            comp.add("minecraft:physics", new JsonObject());
+            comp.add("minecraft:pushable", J.obj("is_pushable", ce.pushable, "is_pushable_by_piston", ce.pushable));
+            if (ce.fireImmune) comp.add("minecraft:fire_immune", new JsonObject());
+            if (ce.burnsInDaylight) comp.add("minecraft:burns_in_daylight", new JsonObject());
+            if (ce.canFly) {
+                comp.add("minecraft:can_fly", new JsonObject());
+                comp.add("minecraft:navigation.fly", J.obj("can_path_over_water", true, "can_path_from_air", true));
+                comp.add("minecraft:movement.fly", new JsonObject());
+            }
+            if (ce.tameable) {
+                String tItem = ce.tameItem == null || ce.tameItem.isBlank() ? "minecraft:bone" : Ids.full(ce.tameItem);
+                comp.add("minecraft:tameable", J.obj("probability", 0.33, "tame_items", J.arr(Ids.isTag(tItem) ? tItem.substring(1) : tItem)));
+                comp.add("minecraft:behavior.follow_owner", J.obj("priority", 4, "speed_multiplier", 1.15, "start_distance", 10, "stop_distance", 2));
+            }
+            if (!ce.lootTable.isBlank()) comp.add("minecraft:loot", J.obj("table", "loot_tables/" + Ids.path(Ids.full(ce.lootTable)) + ".json"));
+            if (ce.xpReward >= 0) comp.add("minecraft:experience_reward", J.obj("on_death", ce.xpReward));
+            if (ce.aiGoals.contains("float") || ce.canSwim) comp.add("minecraft:behavior.float", J.obj("priority", 0));
+            if (ce.aiGoals.contains("melee")) comp.add("minecraft:behavior.melee_attack", J.obj("priority", 2, "speed_multiplier", 1.2));
+            if (ce.aiGoals.contains("panic")) comp.add("minecraft:behavior.panic", J.obj("priority", 1, "speed_multiplier", 1.4));
+            if (ce.canFly) {
+                comp.add("minecraft:behavior.random_fly", J.obj("priority", 5, "xz_dist", 10, "y_dist", 7, "speed_multiplier", 1.0));
+            } else if (ce.aiGoals.contains("stroll")) {
+                comp.add("minecraft:behavior.random_stroll", J.obj("priority", 5, "speed_multiplier", 1.0));
+            }
+            if (ce.aiGoals.contains("look_player")) comp.add("minecraft:behavior.look_at_player", J.obj("priority", 6, "look_distance", 8.0));
+            if (ce.aiGoals.contains("attack_nearest_player")) {
+                comp.add("minecraft:behavior.nearest_attackable_target", J.obj("priority", 1,
+                        "entity_types", J.arr(J.obj("filters", J.obj("test", "is_family", "subject", "other", "value", "player"), "max_dist", ce.followRange))));
+            }
+            ctx.files.json(bp + "entities/" + ce.name + ".json", J.obj("format_version", "1.21.0", "minecraft:entity", J.obj(
+                    "description", J.obj("identifier", eid, "is_spawnable", ce.spawnEgg, "is_summonable", true, "is_experimental", false),
+                    "components", comp)));
+
+            Model mdl = ModelGen.entityModelSpec(ctx.p, ce);
+            TextureAsset tex = ctx.p.texture(ce.texture);
+            if (tex == null && mdl != null) tex = ModelGen.firstModelTexture(ctx.p, mdl);
+            String texPath = "textures/entity/zombie/zombie";
+            if (tex != null) {
+                texPath = "textures/entity/" + ctx.ns + "/" + ce.name;
+                ctx.files.bytes(rp + texPath + ".png", tex.bytes());
+            }
+            String geo = "geometry.humanoid.custom";
+            if (mdl != null) {
+                geo = "geometry." + ctx.ns + "." + ce.name;
+                ctx.files.json(rp + "models/entity/" + ce.name + ".geo.json",
+                        Models.toBedrock(mdl, geo, Math.max(16, mdl.textureWidth), Math.max(16, mdl.textureHeight)));
+            }
+            JsonObject rDesc = J.obj("identifier", eid,
+                    "materials", J.obj("default", "entity_alphatest"),
+                    "textures", J.obj("default", texPath),
+                    "geometry", J.obj("default", geo),
+                    "render_controllers", J.arr("controller.render.default"));
+            if (ce.spawnEgg) rDesc.add("spawn_egg", J.obj("base_color", ce.eggPrimary, "overlay_color", ce.eggSecondary));
+            ctx.files.json(rp + "entity/" + ce.name + ".entity.json", J.obj("format_version", "1.10.0", "minecraft:client_entity", J.obj("description", rDesc)));
+
+            if (ce.naturalSpawn) {
+                ctx.files.json(bp + "spawn_rules/" + ce.name + ".json", J.obj("format_version", "1.8.0", "minecraft:spawn_rules", J.obj(
+                        "description", J.obj("identifier", eid, "population_control", "monster".equals(ce.category) ? "monster" : "animal"),
+                        "conditions", J.arr(J.obj("minecraft:spawns_on_surface", new JsonObject(),
+                                "minecraft:weight", J.obj("default", Math.max(1, ce.spawnWeight)),
+                                "minecraft:herd", J.obj("min_size", Math.max(1, ce.spawnMin), "max_size", Math.max(ce.spawnMin, ce.spawnMax)))))));
+            }
+        }
     }
 
     private JsonObject ingredient(String id) {
@@ -479,6 +620,7 @@ public final class BedrockGen {
 
     private void lang() {
         List<String> langs = new ArrayList<>();
+        Map<String, Map<String, String>> files = Localization.files(ctx.p);
         for (String lang : Localization.languages(ctx.p)) {
             StringBuilder sb = new StringBuilder();
             sb.append("pack.name=").append(ctx.p.meta.name).append('\n');
@@ -490,6 +632,12 @@ public final class BedrockGen {
             for (Block b : ctx.all(Block.class)) {
                 String v = lang.equals("en_us") ? (b.displayName.isBlank() ? Ids.titleCase(b.name) : b.displayName) : b.loc("name", lang);
                 if (!v.isBlank()) sb.append("tile.").append(ctx.id(b.name)).append(".name=").append(v).append('\n');
+            }
+            Map<String, String> entries = files.getOrDefault(lang, Map.of());
+            for (var en : entries.entrySet()) {
+                String k = en.getKey(), v = en.getValue();
+                if (k.startsWith("item.") || k.startsWith("block.") || v == null || v.isBlank()) continue;
+                sb.append(k).append('=').append(v.replace("\n", "\\n")).append('\n');
             }
             String code = bedrockLang(lang);
             langs.add(code);
@@ -733,7 +881,20 @@ public final class BedrockGen {
                 }
                 case "cutscene_stop" -> {
                     String sel = s.get("target").isBlank() ? "@s" : s.get("target").trim();
-                    out.append(indent).append("cmd(self, ").append(js("camera " + sel + " clear")).append(");\n");
+                    if (sel.equals("@s")) out.append(indent).append("stopCutscene(self, false);\n");
+                    else {
+                        out.append(indent).append("cmd(self, ").append(js("tag " + sel + " add ms_each")).append(");\n");
+                        out.append(indent).append("for (const each of eachTagged()) stopCutscene(each, false);\n");
+                    }
+                }
+                case "show_dialog" -> {
+                    String dlg = js(s.get("dialog").trim());
+                    String sel = s.get("target").isBlank() ? "@s" : s.get("target").trim();
+                    if (sel.equals("@s")) out.append(indent).append("if (dialogs[").append(dlg).append("]) dialogs[").append(dlg).append("](self);\n");
+                    else {
+                        out.append(indent).append("cmd(self, ").append(js("tag " + sel + " add ms_each")).append(");\n");
+                        out.append(indent).append("for (const each of eachTagged()) if (dialogs[").append(dlg).append("]) dialogs[").append(dlg).append("](each);\n");
+                    }
                 }
                 case "stop" -> out.append(indent).append("return;\n");
                 case "repeat" -> {
@@ -750,10 +911,30 @@ public final class BedrockGen {
         }
     }
 
-    private void script() {
+    private void script(List<ScriptHook> extraModules) {
+        boolean hasUi = !ctx.all(Systems.Dialog.class).isEmpty();
         StringBuilder sb = new StringBuilder();
         sb.append("// Generated by ModStudio.\n");
-        sb.append("import { world, system } from \"@minecraft/server\";\n\n");
+        sb.append("import { world, system } from \"@minecraft/server\";\n");
+        if (hasUi) sb.append("import { ActionFormData, MessageFormData } from \"@minecraft/server-ui\";\n");
+        List<String> hookCalls = new ArrayList<>();
+        for (int i = 0; i < extraModules.size(); i++) {
+            ScriptHook m = extraModules.get(i);
+            String hk = m.hook() == null ? "" : m.hook().trim();
+            String fn = m.method() == null ? "" : m.method().trim();
+            if (("common_init".equals(hk) || "server_tick".equals(hk)) && fn.matches("[A-Za-z_$][\\w$]*")) {
+                String alias = "_modHook" + i;
+                sb.append("import * as ").append(alias).append(" from ").append(js(m.modulePath())).append(";\n");
+                if ("common_init".equals(hk)) {
+                    hookCalls.add("if (typeof " + alias + "." + fn + " === \"function\") " + alias + "." + fn + "();");
+                } else {
+                    hookCalls.add("if (typeof " + alias + "." + fn + " === \"function\") system.runInterval(() => " + alias + "." + fn + "(), 20);");
+                }
+            } else {
+                sb.append("import ").append(js(m.modulePath())).append(";\n");
+            }
+        }
+        sb.append('\n');
         sb.append("""
                 function cmd(source, command) {
                   try {
@@ -816,10 +997,60 @@ public final class BedrockGen {
                 """);
         Set<String> objectives = new LinkedHashSet<>();
         sb.append(CutsceneGen.bedrockScript(ctx));
+        sb.append("const cutsceneEnds = {\n");
+        for (Systems.Cutscene c : ctx.all(Systems.Cutscene.class)) {
+            if (c.onEnd.isEmpty()) continue;
+            sb.append("  ").append(js(c.name)).append(": (self) => {\n");
+            statements(c.onEnd, sb, "    ", objectives);
+            sb.append("  },\n");
+        }
+        sb.append("};\n\n");
         sb.append("const procedures = {\n");
         for (Procedure p : ctx.all(Procedure.class)) {
             sb.append("  ").append(js(p.name)).append(": (self) => {\n");
             statements(p.steps, sb, "    ", objectives);
+            sb.append("  },\n");
+        }
+        sb.append("};\n\n");
+        sb.append("const keybinds = {\n");
+        for (Systems.KeyBind k : ctx.all(Systems.KeyBind.class)) {
+            if (k.fallback.equals("none")) continue;
+            sb.append("  ").append(js(k.name)).append(": (self) => {\n");
+            statements(k.steps, sb, "    ", objectives);
+            sb.append("  },\n");
+        }
+        sb.append("};\n\n");
+        sb.append("const dialogs = {\n");
+        for (Systems.Dialog d : ctx.all(Systems.Dialog.class)) {
+            String title = d.title.isBlank() ? Ids.titleCase(d.name) : d.title;
+            List<Systems.DialogButton> btns = d.effectiveButtons();
+            sb.append("  ").append(js(d.name)).append(": (self) => {\n");
+            sb.append("    if (!self || self.typeId !== \"minecraft:player\") return;\n");
+            if (d.kind.equals("confirmation") && btns.size() >= 2) {
+                sb.append("    const form = new MessageFormData().title(").append(js(title)).append(").body(").append(js(d.body)).append(")\n");
+                sb.append("      .button1(").append(js(btns.get(0).label.isBlank() ? "Yes" : btns.get(0).label)).append(")\n");
+                sb.append("      .button2(").append(js(btns.get(1).label.isBlank() ? "No" : btns.get(1).label)).append(");\n");
+            } else {
+                sb.append("    const form = new ActionFormData().title(").append(js(title)).append(").body(").append(js(d.body)).append(");\n");
+                for (Systems.DialogButton b : btns) {
+                    sb.append("    form.button(").append(js(b.label.isBlank() ? "OK" : b.label)).append(");\n");
+                }
+            }
+            sb.append("    form.show(self).then((res) => {\n");
+            sb.append("      if (res.canceled || res.selection === undefined) return;\n");
+            for (int i = 0; i < btns.size(); i++) {
+                Systems.DialogButton b = btns.get(i);
+                sb.append("      ").append(i == 0 ? "if" : "else if").append(" (res.selection === ").append(i).append(") {\n");
+                switch (b.action) {
+                    case "run" -> statements(b.steps, sb, "        ", objectives);
+                    case "dialog" -> sb.append("        if (dialogs[").append(js(b.target.trim())).append("]) dialogs[").append(js(b.target.trim())).append("](self);\n");
+                    case "url", "suggest", "copy" -> sb.append("        cmd(self, ").append(js("tellraw @s " + rawtext(b.target, "aqua", false))).append(");\n");
+                    default -> {
+                    }
+                }
+                sb.append("      }\n");
+            }
+            sb.append("    });\n");
             sb.append("  },\n");
         }
         sb.append("};\n\n");
@@ -841,12 +1072,30 @@ public final class BedrockGen {
         sb.append("});\n\n");
 
         List<Procedure> tick = by.getOrDefault("tick", List.of()), ptick = by.getOrDefault("player_tick", List.of());
-        if (!tick.isEmpty() || !ptick.isEmpty()) {
+        List<Systems.KeyBind> sneakKeys = ctx.all(Systems.KeyBind.class).stream().filter(k -> k.fallback.equals("sneak")).toList();
+        List<Systems.KeyBind> jumpKeys = ctx.all(Systems.KeyBind.class).stream().filter(k -> k.fallback.equals("jump")).toList();
+        if (!tick.isEmpty() || !ptick.isEmpty() || !sneakKeys.isEmpty() || !jumpKeys.isEmpty()) {
+            if (!sneakKeys.isEmpty()) sb.append("const prevSneak = new Map();\n");
+            if (!jumpKeys.isEmpty()) sb.append("const prevJump = new Map();\n");
             sb.append("system.runInterval(() => {\n");
             for (Procedure p : tick) sb.append("  procedures[").append(js(p.name)).append("](server());\n");
-            if (!ptick.isEmpty()) {
+            if (!ptick.isEmpty() || !sneakKeys.isEmpty() || !jumpKeys.isEmpty()) {
                 sb.append("  for (const player of world.getAllPlayers()) {\n");
                 for (Procedure p : ptick) sb.append("    procedures[").append(js(p.name)).append("](player);\n");
+                if (!sneakKeys.isEmpty()) {
+                    sb.append("    const sk = player.isSneaking === true;\n");
+                    sb.append("    if (sk && !prevSneak.get(player.id)) {\n");
+                    for (Systems.KeyBind k : sneakKeys) sb.append("      keybinds[").append(js(k.name)).append("](player);\n");
+                    sb.append("    }\n");
+                    sb.append("    prevSneak.set(player.id, sk);\n");
+                }
+                if (!jumpKeys.isEmpty()) {
+                    sb.append("    const jp = player.isJumping === true;\n");
+                    sb.append("    if (jp && !prevJump.get(player.id)) {\n");
+                    for (Systems.KeyBind k : jumpKeys) sb.append("      keybinds[").append(js(k.name)).append("](player);\n");
+                    sb.append("    }\n");
+                    sb.append("    prevJump.set(player.id, jp);\n");
+                }
                 sb.append("  }\n");
             }
             sb.append("}, 1);\n\n");
@@ -888,6 +1137,7 @@ public final class BedrockGen {
         for (Procedure p : ctx.all(Procedure.class)) {
             if (!Logic.triggerSupport(p.trigger).contains(Target.BEDROCK)) ctx.note("procedure " + p.name + ": trigger " + p.trigger + " is not available in Bedrock Edition");
         }
+        for (String call : hookCalls) sb.append(call).append('\n');
         ctx.files.text(bp + "scripts/main.js", sb.toString());
     }
 

@@ -103,6 +103,7 @@ public final class Systems {
         }
 
         public void set(int x, int y, int z, int v) {
+            if (x < 0 || y < 0 || z < 0 || x >= sx || y >= sy || z >= sz) return;
             ensure();
             cells[(y * sz + z) * sx + x] = v;
         }
@@ -497,7 +498,7 @@ public final class Systems {
 
     /** A widget of a custom screen or HUD overlay. */
     public static final class ScreenWidget {
-        /** panel, image, text, button, bar, item, entity */
+        /** panel, image, text, button, bar, item, entity, textfield, slider, checkbox, scroll_list, slot_display */
         public String kind = "text";
         /** top_left, top, top_right, left, center, right, bottom_left, bottom, bottom_right */
         public String anchor = "center";
@@ -534,6 +535,14 @@ public final class Systems {
         /** left, center, right */
         public String align = "left";
         public boolean shadow = true;
+        /** For slider bounds. */
+        public double min = 0;
+        public double maxVal = 100;
+        /** For checkbox default state. */
+        public boolean checked;
+        /** For textfield placeholder and scroll_list newline options. */
+        public String placeholder = "";
+        public String options = "";
     }
 
     /** A screen drawn by the mod on the client: opened like a menu, or shown on the HUD as an overlay. */

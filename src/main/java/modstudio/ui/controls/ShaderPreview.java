@@ -5,12 +5,16 @@ import javafx.geometry.Pos;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
+import javafx.scene.control.ColorPicker;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.Slider;
 import javafx.scene.image.PixelWriter;
 import javafx.scene.image.WritableImage;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
+import javafx.scene.paint.Color;
 import modstudio.core.Project;
 import modstudio.core.ShaderNodes;
 import modstudio.core.Systems.ShaderNode;
@@ -45,6 +49,9 @@ public final class ShaderPreview extends VBox {
     private int pw = 16, ph = 16;
     private boolean playing = true;
     private double time;
+    private double lightLevel = 1.0;
+    private boolean fogEnabled;
+    private Color fogColor = Color.web("#90B4FF");
     private long last;
     private final AnimationTimer timer;
 
@@ -53,7 +60,7 @@ public final class ShaderPreview extends VBox {
         this.project = project;
         this.nodes = nodes;
         getStyleClass().add("shader-preview");
-        List<String> choices = new ArrayList<>(List.of("@block", "@gem", "@gradient"));
+        List<String> choices = new ArrayList<>(List.of("@block", "@gem", "@gradient", "@scene"));
         for (TextureAsset t : project.textures) choices.add(t.name);
         source.getItems().setAll(choices);
         source.setConverter(new javafx.util.StringConverter<>() {
@@ -71,19 +78,41 @@ public final class ShaderPreview extends VBox {
         source.valueProperty().addListener((o, a, b) -> {
             loadSource();
             drawBefore();
+            drawAfter();
         });
         Button play = Ui.iconButton("mdi2p-pause", I18n.t("shader.preview_pause"), null);
         play.setOnAction(e -> {
             playing = !playing;
             play.setGraphic(Ui.icon(playing ? "mdi2p-pause" : "mdi2p-play"));
         });
-        Button restart = Ui.iconButton("mdi2r-replay", I18n.t("shader.preview_restart"), () -> time = 0);
+        Button restart = Ui.iconButton("mdi2r-replay", I18n.t("shader.preview_restart"), () -> {
+            time = 0;
+            drawAfter();
+        });
         HBox bar = Ui.hbox(8, Ui.label(I18n.t("shader.preview_source"), "form-label"), source, play, restart, timeLabel);
         bar.setAlignment(Pos.CENTER_LEFT);
+        Slider lightSlider = new Slider(0.1, 1.5, 1.0);
+        lightSlider.setPrefWidth(100);
+        lightSlider.valueProperty().addListener((o, a, b) -> {
+            lightLevel = b.doubleValue();
+            drawAfter();
+        });
+        CheckBox fogBox = new CheckBox(I18n.t("shader.preview_fog"));
+        fogBox.selectedProperty().addListener((o, a, b) -> {
+            fogEnabled = b;
+            drawAfter();
+        });
+        ColorPicker fogPicker = new ColorPicker(fogColor);
+        fogPicker.setOnAction(e -> {
+            fogColor = fogPicker.getValue();
+            drawAfter();
+        });
+        HBox envBar = Ui.hbox(10, Ui.label(I18n.t("shader.preview_light"), "text-muted", "text-small"), lightSlider, fogBox, fogPicker);
+        envBar.setAlignment(Pos.CENTER_LEFT);
         VBox b1 = new VBox(4, Ui.label(I18n.t("shader.preview_before"), "text-muted", "text-small"), before);
         VBox b2 = new VBox(4, Ui.label(I18n.t("shader.preview_after"), "text-muted", "text-small"), after);
         HBox views = Ui.hbox(16, b1, b2);
-        getChildren().addAll(bar, views);
+        getChildren().addAll(bar, envBar, views);
         env.texture = this::sample;
         loadSource();
         recompile();
@@ -132,6 +161,19 @@ public final class ShaderPreview extends VBox {
                     for (int x = 0; x < pw; x++) {
                         java.awt.Color c = java.awt.Color.getHSBColor(x / (float) pw, 0.75f, 0.35f + 0.65f * (1 - y / (float) ph));
                         px[y * pw + x] = 0xFF000000 | (c.getRGB() & 0xFFFFFF);
+                    }
+                }
+            }
+            case "@scene" -> {
+                pw = ph = 64;
+                px = new int[pw * ph];
+                for (int y = 0; y < ph; y++) {
+                    for (int x = 0; x < pw; x++) {
+                        int col;
+                        if (y < 24) col = (x > 46 && x < 56 && y > 4 && y < 14) ? 0xFFFFEE88 : 0xFF7FA8FF;
+                        else if (y < 28) col = 0xFF5D9B3C;
+                        else col = ((x / 8 + y / 8) % 2 == 0) ? 0xFF7B573C : 0xFF6B4B34;
+                        px[y * pw + x] = col;
                     }
                 }
             }
@@ -197,6 +239,15 @@ public final class ShaderPreview extends VBox {
                 sample(env.u, env.v, env.color);
                 try {
                     program.run(env, out);
+                    double shade = Math.max(0.1, Math.min(1.5, lightLevel));
+                    for (int i = 0; i < 3; i++) out[i] *= shade;
+                    if (fogEnabled) {
+                        double dx = env.u - 0.5, dy = env.v - 0.5;
+                        double fogT = Math.max(0.0, Math.min(1.0, (Math.hypot(dx, dy) - 0.15) / 0.45));
+                        out[0] = out[0] * (1 - fogT) + fogColor.getRed() * fogT;
+                        out[1] = out[1] * (1 - fogT) + fogColor.getGreen() * fogT;
+                        out[2] = out[2] * (1 - fogT) + fogColor.getBlue() * fogT;
+                    }
                 } catch (RuntimeException ex) {
                     out[0] = 1;
                     out[1] = 0;

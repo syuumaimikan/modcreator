@@ -2,6 +2,7 @@ package modstudio.ui.pages;
 
 import javafx.geometry.Insets;
 import javafx.scene.control.*;
+import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
@@ -19,7 +20,7 @@ import java.util.*;
  * API keys, tokens and webhook URLs used by web requests. Values live in a local file next to the project, are
  * masked in the editor and never become part of an export.
  */
-public final class SecretsPage extends VBox implements WorkspaceView.Page {
+public final class SecretsPage extends BorderPane implements WorkspaceView.Page {
     private final WorkspaceView view;
     private final VBox rows = new VBox(8);
     private final Label where = Ui.help("");
@@ -28,9 +29,9 @@ public final class SecretsPage extends VBox implements WorkspaceView.Page {
 
     public SecretsPage(WorkspaceView view) {
         this.view = view;
-        getStyleClass().add("page");
-        setSpacing(14);
-        setPadding(new Insets(20, 24, 24, 24));
+        VBox body = new VBox(14);
+        body.getStyleClass().add("page");
+        body.setPadding(new Insets(20, 24, 24, 24));
         Label title = Ui.label(I18n.t("page.secrets"), "title-2");
         Label intro = Ui.help(I18n.t("secrets.intro"));
         TextField name = new TextField();
@@ -47,7 +48,8 @@ public final class SecretsPage extends VBox implements WorkspaceView.Page {
         card.getStyleClass().add("card");
         card.setPadding(new Insets(14));
         Label runtime = Ui.help(I18n.t("secrets.runtime", view.ws.project.meta.modId, PaperGen.pluginName(view.ws.project)));
-        getChildren().addAll(title, intro, card, where, runtime);
+        body.getChildren().addAll(title, intro, card, where, runtime);
+        setCenter(Ui.scroll(body));
     }
 
     @Override

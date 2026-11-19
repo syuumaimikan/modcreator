@@ -68,4 +68,21 @@ public final class J {
         if (d == Math.rint(d) && Math.abs(d) < 1e9) return (long) d;
         return d;
     }
+
+    /** pack.mcmeta object handling both legacy integer pack_format and 1.21.9+ [major, minor] format arrays. */
+    public static JsonObject packMeta(modstudio.core.McVersion minV, modstudio.core.McVersion maxV, boolean resource, String description) {
+        JsonObject pack = obj("pack_format", minV.format(resource), "description", description == null ? "" : description);
+        if (minV != maxV) {
+            pack.add("supported_formats", arr(minV.format(resource), maxV.format(resource)));
+        }
+        if (maxV.minorPackFormat()) {
+            pack.add("min_format", arr(minV.format(resource), minV.formatMinor(resource)));
+            pack.add("max_format", arr(maxV.format(resource), maxV.formatMinor(resource)));
+        }
+        return obj("pack", pack);
+    }
+
+    public static JsonObject packMeta(modstudio.core.McVersion v, boolean resource, String description) {
+        return packMeta(v, v, resource, description);
+    }
 }

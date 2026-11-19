@@ -73,12 +73,66 @@ public final class ItemSpec {
         return "minecraft:item.armor.equip_" + s;
     }
 
-    /** Vanilla repair item of the set, or null (project items do not exist as real items here). */
-    private static String repair(GenContext ctx, Elements.ArmorMaterial m) {
-        if (m.repairItem.isBlank()) return null;
-        String r = Ids.full(m.repairItem);
+    public record ToolTierStats(int durability, float speed, float attackDamageBonus, int enchantability, int miningLevel, String repairItem) {}
+
+    public static ToolTierStats toolStats(modstudio.core.Project p, String tier) {
+        Elements.ToolMaterial tm = p == null ? null : p.toolMaterial(tier);
+        if (tm != null) {
+            return new ToolTierStats(Math.max(1, tm.durability), (float) Math.max(0.5, tm.speed),
+                    (float) tm.attackDamageBonus, Math.max(1, tm.enchantability),
+                    Math.max(0, Math.min(4, tm.miningLevel)), tm.repairItem == null ? "" : tm.repairItem);
+        }
+        return switch (tier == null ? "" : tier) {
+            case "wood" -> new ToolTierStats(59, 2.0f, 0.0f, 15, 0, "#minecraft:wooden_tool_materials");
+            case "stone" -> new ToolTierStats(131, 4.0f, 1.0f, 5, 1, "#minecraft:stone_tool_materials");
+            case "gold" -> new ToolTierStats(32, 12.0f, 0.0f, 22, 0, "#minecraft:gold_tool_materials");
+            case "diamond" -> new ToolTierStats(1561, 8.0f, 3.0f, 10, 3, "#minecraft:diamond_tool_materials");
+            case "netherite" -> new ToolTierStats(2031, 9.0f, 4.0f, 15, 4, "#minecraft:netherite_tool_materials");
+            default -> new ToolTierStats(250, 6.0f, 2.0f, 14, 2, "#minecraft:iron_tool_materials");
+        };
+    }
+
+    /** Vanilla/tag repair target for the item/material, or null (project items do not exist as real items here). */
+    private static String repair(GenContext ctx, String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        String r = Ids.full(raw);
         if (!Ids.isTag(r) && ctx.p.itemLike(r) != null) return null;
         return r;
+    }
+
+    private static JsonObject attrJson(GenContext ctx, Elements.Item it, String key, String name, String slot, double amount) {
+        JsonObject e = J.obj("type", attribute(ctx, name), "slot", slot, "amount", amount, "operation", "add_value");
+        if (ctx.singular()) e.addProperty("id", ctx.ns + ":" + key + "." + it.name + "." + name);
+        else {
+            int[] u = uuid(ctx, it, name);
+            e.add("uuid", J.arr(u[0], u[1], u[2], u[3]));
+            e.addProperty("name", ctx.ns + "." + key);
+        }
+        return e;
+    }
+
+    private static String attrSnbt(GenContext ctx, Elements.Item it, String key, String name, String slot, double amount) {
+        int[] u = uuid(ctx, it, name);
+        String uuid = "[I;" + u[0] + "," + u[1] + "," + u[2] + "," + u[3] + "]";
+        if (!ctx.components()) {
+            return "{AttributeName:\"generic." + name + "\",Name:\"" + ctx.ns + "." + key + "\",Amount:" + amount
+                    + "d,Operation:0,UUID:" + uuid + ",Slot:\"" + slot + "\"}";
+        }
+        if (!ctx.singular()) {
+            return "{type:\"" + attribute(ctx, name) + "\",slot:\"" + slot + "\",uuid:" + uuid
+                    + ",name:\"" + ctx.ns + "." + key + "\",amount:" + amount + "d,operation:\"add_value\"}";
+        }
+        return "{type:\"" + attribute(ctx, name) + "\",slot:\"" + slot + "\",id:\"" + ctx.ns + ":" + key + "." + it.name + "." + name
+                + "\",amount:" + amount + "d,operation:\"add_value\"}";
+    }
+
+    private static void appendAttrModifiers(GenContext ctx, Elements.Item it, java.util.List<String> mods, StringBuilder sb) {
+        String list = "[" + String.join(",", mods) + "]";
+        if (!ctx.components()) {
+            sb.append(",AttributeModifiers:").append(list);
+            return;
+        }
+        sb.append(",minecraft:attribute_modifiers=").append(ctx.v.snbtText() ? list : "{modifiers:" + list + "}");
     }
 
     /** Armor data components as JSON (1.20.5+). */
@@ -87,13 +141,7 @@ public final class ItemSpec {
         if (m == null) return;
         com.google.gson.JsonArray mods = new com.google.gson.JsonArray();
         for (Object[] a : armorAttributes(m, it.kind)) {
-            JsonObject e = J.obj("type", attribute(ctx, (String) a[0]), "slot", slot(it.kind), "amount", (double) a[1], "operation", "add_value");
-            if (ctx.singular()) e.addProperty("id", ctx.ns + ":armor." + it.name + "." + a[0]);
-            else {
-                e.add("uuid", J.arr(uuid(ctx, it, (String) a[0])[0], uuid(ctx, it, (String) a[0])[1], uuid(ctx, it, (String) a[0])[2], uuid(ctx, it, (String) a[0])[3]));
-                e.addProperty("name", ctx.ns + ".armor");
-            }
-            mods.add(e);
+            mods.add(attrJson(ctx, it, "armor", (String) a[0], slot(it.kind), (double) a[1]));
         }
         if (ctx.v.snbtText()) c.add("minecraft:attribute_modifiers", mods);
         else c.add("minecraft:attribute_modifiers", J.obj("modifiers", mods));
@@ -101,7 +149,29 @@ public final class ItemSpec {
         if (ctx.registryKeys()) {
             c.add("minecraft:equippable", J.obj("slot", slot(it.kind), "asset_id", ctx.id(m.name), "equip_sound", sound(m)));
             c.add("minecraft:enchantable", J.obj("value", Math.max(1, m.enchantability)));
-            String r = repair(ctx, m);
+            String r = repair(ctx, m.repairItem);
+            if (r != null) c.add("minecraft:repairable", J.obj("items", r));
+        }
+    }
+
+    /** Tool data components as JSON (1.20.5+). */
+    private static void toolComponents(GenContext ctx, Elements.Item it, JsonObject c) {
+        if (!it.isTool()) return;
+        ToolTierStats ts = toolStats(ctx.p, it.tier);
+        com.google.gson.JsonArray mods = new com.google.gson.JsonArray();
+        mods.add(attrJson(ctx, it, "tool", "attack_damage", "mainhand", Math.max(0.5, it.attackDamage + ts.attackDamageBonus())));
+        mods.add(attrJson(ctx, it, "tool", "attack_speed", "mainhand", it.attackSpeed));
+        if (ctx.v.snbtText()) c.add("minecraft:attribute_modifiers", mods);
+        else c.add("minecraft:attribute_modifiers", J.obj("modifiers", mods));
+        c.addProperty("minecraft:max_damage", it.maxDamage > 0 ? it.maxDamage : ts.durability());
+        if (!it.kind.equals("sword")) {
+            String blockTag = "#minecraft:mineable/" + it.kind;
+            c.add("minecraft:tool", J.obj("rules", J.arr(J.obj("blocks", blockTag, "speed", ts.speed(), "correct_for_drops", true)), "damage_per_block", 1));
+        }
+        if (ctx.registryKeys()) {
+            int ench = it.enchantability >= 0 ? it.enchantability : ts.enchantability();
+            c.add("minecraft:enchantable", J.obj("value", Math.max(1, ench)));
+            String r = repair(ctx, !it.repairItem.isBlank() ? it.repairItem : ts.repairItem());
             if (r != null) c.add("minecraft:repairable", J.obj("items", r));
         }
     }
@@ -112,33 +182,38 @@ public final class ItemSpec {
         if (m == null) return;
         java.util.List<String> mods = new java.util.ArrayList<>();
         for (Object[] a : armorAttributes(m, it.kind)) {
-            String name = (String) a[0];
-            int[] u = uuid(ctx, it, name);
-            String uuid = "[I;" + u[0] + "," + u[1] + "," + u[2] + "," + u[3] + "]";
-            double amount = (double) a[1];
-            if (!ctx.components()) {
-                mods.add("{AttributeName:\"generic." + name + "\",Name:\"" + ctx.ns + ".armor\",Amount:" + amount + "d,Operation:0,UUID:" + uuid
-                        + ",Slot:\"" + slot(it.kind) + "\"}");
-            } else if (!ctx.singular()) {
-                mods.add("{type:\"" + attribute(ctx, name) + "\",slot:\"" + slot(it.kind) + "\",uuid:" + uuid + ",name:\"" + ctx.ns + ".armor\",amount:"
-                        + amount + "d,operation:\"add_value\"}");
-            } else {
-                mods.add("{type:\"" + attribute(ctx, name) + "\",slot:\"" + slot(it.kind) + "\",id:\"" + ctx.ns + ":armor." + it.name + "." + name
-                        + "\",amount:" + amount + "d,operation:\"add_value\"}");
-            }
+            mods.add(attrSnbt(ctx, it, "armor", (String) a[0], slot(it.kind), (double) a[1]));
         }
-        if (!ctx.components()) {
-            sb.append(",AttributeModifiers:[").append(String.join(",", mods)).append(']');
-            return;
-        }
-        String list = "[" + String.join(",", mods) + "]";
-        sb.append(",minecraft:attribute_modifiers=").append(ctx.v.snbtText() ? list : "{modifiers:" + list + "}");
+        appendAttrModifiers(ctx, it, mods, sb);
+        if (!ctx.components()) return;
         sb.append(",minecraft:max_damage=").append(m.durabilityOf(it.kind));
         if (ctx.registryKeys()) {
             sb.append(",minecraft:equippable={slot:\"").append(slot(it.kind)).append("\",asset_id:\"").append(ctx.id(m.name))
                     .append("\",equip_sound:\"").append(sound(m)).append("\"}");
             sb.append(",minecraft:enchantable={value:").append(Math.max(1, m.enchantability)).append('}');
-            String r = repair(ctx, m);
+            String r = repair(ctx, m.repairItem);
+            if (r != null) sb.append(",minecraft:repairable={items:\"").append(r).append("\"}");
+        }
+    }
+
+    /** Tool components or NBT inside an item stack argument. */
+    private static void toolArg(GenContext ctx, Elements.Item it, StringBuilder sb) {
+        if (!it.isTool()) return;
+        ToolTierStats ts = toolStats(ctx.p, it.tier);
+        java.util.List<String> mods = java.util.List.of(
+                attrSnbt(ctx, it, "tool", "attack_damage", "mainhand", Math.max(0.5, it.attackDamage + ts.attackDamageBonus())),
+                attrSnbt(ctx, it, "tool", "attack_speed", "mainhand", it.attackSpeed));
+        appendAttrModifiers(ctx, it, mods, sb);
+        if (!ctx.components()) return;
+        sb.append(",minecraft:max_damage=").append(it.maxDamage > 0 ? it.maxDamage : ts.durability());
+        if (!it.kind.equals("sword")) {
+            sb.append(",minecraft:tool={rules:[{blocks:\"#minecraft:mineable/").append(it.kind)
+                    .append("\",speed:").append(Src.f(ts.speed())).append(",correct_for_drops:true}],damage_per_block:1}");
+        }
+        if (ctx.registryKeys()) {
+            int ench = it.enchantability >= 0 ? it.enchantability : ts.enchantability();
+            sb.append(",minecraft:enchantable={value:").append(Math.max(1, ench)).append('}');
+            String r = repair(ctx, !it.repairItem.isBlank() ? it.repairItem : ts.repairItem());
             if (r != null) sb.append(",minecraft:repairable={items:\"").append(r).append("\"}");
         }
     }
@@ -196,6 +271,7 @@ public final class ItemSpec {
         }
         if (!it.damageable() && it.maxStack != 64) c.addProperty("minecraft:max_stack_size", Math.max(1, Math.min(99, it.maxStack)));
         armorComponents(ctx, it, c);
+        toolComponents(ctx, it, c);
         if (!it.rarity.equals("common")) c.addProperty("minecraft:rarity", it.rarity);
         if (it.fireResistant) {
             if (ctx.registryKeys()) c.add("minecraft:damage_resistant", J.obj("types", "#minecraft:is_fire"));
@@ -248,6 +324,7 @@ public final class ItemSpec {
             }
             if (!it.damageable() && it.maxStack != 64) sb.append(",minecraft:max_stack_size=").append(Math.max(1, Math.min(99, it.maxStack)));
             armorArg(ctx, it, sb);
+            toolArg(ctx, it, sb);
             if (!it.rarity.equals("common")) sb.append(",minecraft:rarity=\"").append(it.rarity).append('"');
             if (it.fireResistant) {
                 sb.append(ctx.registryKeys() ? ",minecraft:damage_resistant={types:\"#minecraft:is_fire\"}" : ",minecraft:fire_resistant={}");
@@ -279,6 +356,7 @@ public final class ItemSpec {
         sb.append("},CustomModelData:").append(modelData(it));
         if (it.glint) sb.append(",Enchantments:[{}]");
         armorArg(ctx, it, sb);
+        toolArg(ctx, it, sb);
         sb.append(",PublicBukkitValues:{\"").append(ctx.ns).append(":item_id\":\"").append(it.name).append("\"}}");
         return sb.toString();
     }

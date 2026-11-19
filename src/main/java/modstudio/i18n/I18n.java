@@ -71,4 +71,9 @@ public final class I18n {
     public static String tOr(String key, String def) {
         return has(key) ? t(key) : def;
     }
+
+    /** Looks up key with MessageFormat arguments, falling back to default text when absent. */
+    public static String tOr(String key, String def, Object... args) {
+        return has(key) ? t(key, args) : def;
+    }
 }

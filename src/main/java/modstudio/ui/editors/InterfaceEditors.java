@@ -202,6 +202,10 @@ final class InterfaceEditors {
                     l.getStyleClass().add("slot-text");
                     l.setWrapText(true);
                     l.setMaxWidth(40);
+                    l.setMaxHeight(40);
+                    l.setAlignment(Pos.CENTER);
+                    l.setTextAlignment(javafx.scene.text.TextAlignment.CENTER);
+                    l.setPadding(new javafx.geometry.Insets(2));
                     cell.getChildren().add(l);
                 }
             }
@@ -323,9 +327,18 @@ final class InterfaceEditors {
 
     static final class HudEditor extends EditorBase<Hud> {
         private final StackPane preview = new StackPane();
+        private String previewLang = "en_us";
 
         HudEditor(Ctx c, Hud e) {
             super(c, e);
+        }
+
+        private List<String> nonEnLangs() {
+            List<String> langs = new ArrayList<>();
+            for (String l : c.p.meta.languages) {
+                if (l != null && !l.isBlank() && !"en_us".equals(l)) langs.add(l);
+            }
+            return langs;
         }
 
         @Override
@@ -338,11 +351,32 @@ final class InterfaceEditors {
             f.section(t("section.general"), t("help.hud"));
             nameRow();
             f.choice(t("field.hud.kind"), List.of("sidebar", "bossbar", "actionbar"), x -> t("hud.kind." + x), () -> e.kind, v -> e.kind = v);
+            List<String> langs = nonEnLangs();
+            if (!langs.isEmpty()) {
+                List<String> choices = new ArrayList<>();
+                choices.add("en_us");
+                choices.addAll(langs);
+                f.choice(t("translations.preview_lang"), choices, x -> x, () -> previewLang, v -> { previewLang = v; refresh(); });
+            }
             f.text(t("field.hud.title"), () -> e.title, v -> e.title = v, t("help.color_codes"));
+            for (String lang : langs) {
+                f.text(t("field.hud.title") + " [" + lang + "]", () -> e.loc("title", lang), v -> e.setLoc("title", lang, v), t("help.color_codes"));
+            }
             f.area(t("field.hud.lines"), () -> String.join("\n", e.lines), v -> {
                 e.lines.clear();
                 if (!v.isEmpty()) e.lines.addAll(List.of(v.split("\n", -1)));
             }, 6, t("help.hud.lines"));
+            for (String lang : langs) {
+                f.area(t("field.hud.lines") + " [" + lang + "]", () -> {
+                    List<String> locLines = new ArrayList<>();
+                    for (int i = 0; i < e.lines.size(); i++) locLines.add(e.loc("line." + i, lang));
+                    return String.join("\n", locLines);
+                }, v -> {
+                    String[] parts = v.isEmpty() ? new String[0] : v.split("\n", -1);
+                    int n = Math.max(e.lines.size(), parts.length);
+                    for (int i = 0; i < n; i++) e.setLoc("line." + i, lang, i < parts.length ? parts[i] : "");
+                }, 6, t("help.hud.lines"));
+            }
             f.choice(t("field.hud.color"), SystemEditors.BOSS_COLORS, x -> t("choice." + x), () -> e.color, v -> e.color = v);
             f.showIf(() -> e.kind.equals("bossbar"));
             f.choice(t("field.hud.style"), SystemEditors.BOSS_STYLES, x -> t("choice." + x), () -> e.style, v -> e.style = v);
@@ -373,8 +407,15 @@ final class InterfaceEditors {
         @Override
         protected void refresh() {
             preview.getChildren().clear();
-            String title = e.title.isBlank() ? Ids.titleCase(e.name) : e.title;
-            List<String> lines = e.lines.stream().filter(l -> !l.isBlank()).collect(Collectors.toList());
+            String rawTitle = "en_us".equals(previewLang) || e.loc("title", previewLang).isBlank() ? e.title : e.loc("title", previewLang);
+            String title = rawTitle.isBlank() ? Ids.titleCase(e.name) : rawTitle;
+            List<String> shownLines = new ArrayList<>();
+            for (int i = 0; i < e.lines.size(); i++) {
+                String orig = e.lines.get(i);
+                String tr = "en_us".equals(previewLang) ? "" : e.loc("line." + i, previewLang);
+                shownLines.add(tr.isBlank() ? orig : tr);
+            }
+            List<String> lines = shownLines.stream().filter(l -> !l.isBlank()).collect(Collectors.toList());
             String bar = lines.isEmpty() ? title : String.join("  ", lines);
             switch (e.kind) {
                 case "sidebar" -> {
@@ -383,7 +424,7 @@ final class InterfaceEditors {
                     TextFlow head = McText.flow(sample(title), Color.WHITE, 12);
                     head.setTextAlignment(javafx.scene.text.TextAlignment.CENTER);
                     box.getChildren().add(head);
-                    for (String l : e.lines.subList(0, Math.min(15, e.lines.size()))) box.getChildren().add(McText.flow(sample(l.isEmpty() ? " " : l), Color.WHITE, 12));
+                    for (String l : shownLines.subList(0, Math.min(15, shownLines.size()))) box.getChildren().add(McText.flow(sample(l.isEmpty() ? " " : l), Color.WHITE, 12));
                     box.setMaxSize(Region.USE_PREF_SIZE, Region.USE_PREF_SIZE);
                     StackPane.setAlignment(box, Pos.CENTER_RIGHT);
                     StackPane.setMargin(box, new Insets(0, 8, 0, 0));

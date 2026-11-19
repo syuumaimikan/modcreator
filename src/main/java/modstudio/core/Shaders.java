@@ -17,7 +17,7 @@ import java.util.zip.ZipFile;
 public final class Shaders {
     private Shaders() {}
 
-    public static final List<String> KINDS = List.of("core", "include");
+    public static final List<String> KINDS = List.of("core", "post", "include");
     private static final Properties LISTS = new Properties();
 
     static {
@@ -37,6 +37,11 @@ public final class Shaders {
         return list("core." + v.id);
     }
 
+    /** Post-processing shader program names. */
+    public static List<String> postPrograms() {
+        return list("post.all");
+    }
+
     /** Include files (names without .glsl) of a version. */
     public static List<String> includes(McVersion v) {
         return list("include." + v.id);
@@ -44,8 +49,9 @@ public final class Shaders {
 
     /** Program or include names over all versions the project exports, for the editor's suggestions. */
     public static List<String> names(Project p, String kind) {
+        if ("post".equals(kind)) return postPrograms();
         TreeSet<String> r = new TreeSet<>();
-        for (McVersion v : p.mcVersions()) r.addAll(kind.equals("include") ? includes(v) : programs(v));
+        for (McVersion v : p.mcVersions()) r.addAll("include".equals(kind) ? includes(v) : programs(v));
         return new ArrayList<>(r);
     }
 
@@ -212,8 +218,12 @@ public final class Shaders {
         }
     }
 
-    /** Path of a shader file inside the game: core/name.vsh, core/name.fsh or include/name.glsl. */
+    /** Path of a shader file inside the game: core/name.vsh, program/name.fsh or include/name.glsl. */
     public static String gamePath(String kind, String name, String ext) {
-        return "assets/minecraft/shaders/" + (kind.equals("include") ? "include/" + name + ".glsl" : "core/" + name + "." + ext);
+        return "assets/minecraft/shaders/" + switch (kind) {
+            case "include" -> "include/" + name + ".glsl";
+            case "post" -> "program/" + name + "." + ext;
+            default -> "core/" + name + "." + ext;
+        };
     }
 }

@@ -102,11 +102,15 @@ public final class TextureField extends HBox {
         copy.width = t.width;
         copy.height = t.height;
         copy.png = t.png;
+        copy.frameTime = t.frameTime;
+        copy.interpolate = t.interpolate;
         if (TextureEditor.edit(owner, copy, template, n -> nameCheck(n, t))) {
             t.name = copy.name;
             t.width = copy.width;
             t.height = copy.height;
             t.png = copy.png;
+            t.frameTime = copy.frameTime;
+            t.interpolate = copy.interpolate;
             ws.structureChanged();
             reloadItems();
             updatePreview();

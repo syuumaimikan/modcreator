@@ -1,5 +1,6 @@
 package modstudio.ui.pages;
 
+import javafx.beans.binding.Bindings;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.collections.transformation.FilteredList;
@@ -54,6 +55,7 @@ public final class ElementsPage extends SplitPane implements WorkspaceView.Page 
 
         list.setCellFactory(lv -> new ElementCell());
         list.setPlaceholder(Ui.muted(I18n.t("elements.empty_list")));
+        list.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
         list.getSelectionModel().selectedItemProperty().addListener((o, a, b) -> {
             if (!reloading) showEditor(b);
         });
@@ -70,7 +72,8 @@ public final class ElementsPage extends SplitPane implements WorkspaceView.Page 
         HBox tools = Ui.hbox(2, dup, del, Ui.spacer(), up, down);
         tools.setPadding(new Insets(6, 8, 6, 8));
         tools.getStyleClass().add("list-tools");
-        for (Button b : new Button[]{dup, del, up, down}) b.disableProperty().bind(list.getSelectionModel().selectedItemProperty().isNull());
+        for (Button b : new Button[]{dup, del}) b.disableProperty().bind(list.getSelectionModel().selectedItemProperty().isNull());
+        for (Button b : new Button[]{up, down}) b.disableProperty().bind(Bindings.size(list.getSelectionModel().getSelectedItems()).isNotEqualTo(1));
 
         VBox left = new VBox(header, search, list, tools);
         left.getStyleClass().add("element-list-pane");
@@ -108,9 +111,13 @@ public final class ElementsPage extends SplitPane implements WorkspaceView.Page 
         if (now != current) showEditor(now);
     }
 
+    public String selectedUid() {
+        return current == null ? null : current.uid;
+    }
+
     public void select(Element e) {
         search.clear();
-        list.getSelectionModel().select(e);
+        list.getSelectionModel().clearAndSelect(items.indexOf(e));
         list.scrollTo(e);
     }
 
@@ -154,29 +161,36 @@ public final class ElementsPage extends SplitPane implements WorkspaceView.Page 
     }
 
     private void duplicate() {
-        Element e = list.getSelectionModel().getSelectedItem();
-        if (e == null) return;
-        Element c = ProjectIO.copy(e);
-        c.name = view.ws.project.uniqueName(type, e.name.replace('/', '_') + "_copy");
-        if (type.allowsPath() && e.name.contains("/")) {
-            String dir = e.name.substring(0, e.name.lastIndexOf('/') + 1);
-            String base = e.name.substring(e.name.lastIndexOf('/') + 1) + "_copy";
-            String n = dir + base;
-            int i = 2;
-            while (view.ws.project.nameTaken(type, n)) n = dir + base + "_" + i++;
-            c.name = n;
+        var sel = java.util.List.copyOf(list.getSelectionModel().getSelectedItems());
+        if (sel.isEmpty()) return;
+        Element lastCopy = null;
+        for (Element e : sel) {
+            Element c = ProjectIO.copy(e);
+            c.name = view.ws.project.uniqueName(type, e.name.replace('/', '_') + "_copy");
+            if (type.allowsPath() && e.name.contains("/")) {
+                String dir = e.name.substring(0, e.name.lastIndexOf('/') + 1);
+                String base = e.name.substring(e.name.lastIndexOf('/') + 1) + "_copy";
+                String n = dir + base;
+                int i = 2;
+                while (view.ws.project.nameTaken(type, n)) n = dir + base + "_" + i++;
+                c.name = n;
+            }
+            int idx = view.ws.project.elements.indexOf(e);
+            view.ws.project.elements.add(idx + 1, c);
+            lastCopy = c;
         }
-        int idx = view.ws.project.elements.indexOf(e);
-        view.ws.project.elements.add(idx + 1, c);
         view.ws.structureChanged();
-        select(c);
+        if (lastCopy != null) select(lastCopy);
     }
 
     private void delete() {
-        Element e = list.getSelectionModel().getSelectedItem();
-        if (e == null) return;
-        if (!Ui.confirm(view.window(), I18n.t("elements.delete_title", e.name), I18n.t("elements.delete_text"))) return;
-        view.ws.project.elements.remove(e);
+        var sel = java.util.List.copyOf(list.getSelectionModel().getSelectedItems());
+        if (sel.isEmpty()) return;
+        String header = sel.size() == 1
+                ? I18n.t("elements.delete_title", sel.get(0).name)
+                : I18n.t("elements.delete_multi_title", sel.size());
+        if (!Ui.confirm(view.window(), header, I18n.t("elements.delete_text"))) return;
+        view.ws.project.elements.removeAll(sel);
         view.ws.structureChanged();
     }
 

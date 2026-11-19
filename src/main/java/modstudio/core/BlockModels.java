@@ -101,18 +101,54 @@ public final class BlockModels {
                     for (Element e : project.elements) if (e instanceof Elements.Model x && x.name.equals(blk.model)) m = x;
                     if (m != null) return fromModel(m);
                 }
+                case "slab" -> {
+                    return boxShape(blk, false, false, box(blk, 0, 0, 0, 16, 8, 16));
+                }
+                case "stairs" -> {
+                    return boxShape(blk, false, false, box(blk, 0, 0, 0, 16, 8, 16), box(blk, 0, 8, 8, 16, 16, 16));
+                }
+                case "fence" -> {
+                    return boxShape(blk, false, false, box(blk, 6, 0, 6, 10, 16, 10), box(blk, 7, 12, 0, 9, 15, 16), box(blk, 7, 6, 0, 9, 9, 16));
+                }
+                case "wall" -> {
+                    return boxShape(blk, false, false, box(blk, 4, 0, 4, 12, 16, 12), box(blk, 5, 0, 0, 11, 14, 16));
+                }
+                case "door" -> {
+                    return boxShape(blk, false, false, box(blk, 0, 0, 0, 16, 16, 3));
+                }
+                case "trapdoor" -> {
+                    return boxShape(blk, false, false, box(blk, 0, 0, 0, 16, 3, 16));
+                }
+                case "button" -> {
+                    return boxShape(blk, false, false, box(blk, 5, 0, 6, 11, 2, 10));
+                }
+                case "pressure_plate" -> {
+                    return boxShape(blk, false, false, box(blk, 1, 0, 1, 15, 1, 15));
+                }
+                case "carpet" -> {
+                    return boxShape(blk, false, false, box(blk, 0, 0, 0, 16, 1, 16));
+                }
                 default -> {
                 }
             }
-            Cube c = Models.cube("block", 0, 0, 0, 16, 16, 16);
-            for (String d : Cube.FACES) {
-                c.face(d).texture = d.equals("up") ? blk.face("top") : d.equals("down") ? blk.face("bottom") : blk.face("side");
-                c.face(d).cullface = d;
-            }
+            Cube c = box(blk, 0, 0, 0, 16, 16, 16);
+            for (String d : Cube.FACES) c.face(d).cullface = d;
             return new Shape(quads(List.of(c), k -> k, 0, 0, false, -1), true, !blk.transparent, blk.face("top"));
         }
         if (model != null) return fromModel(model);
         return null;
+    }
+
+    private static Cube box(Elements.Block blk, double x1, double y1, double z1, double x2, double y2, double z2) {
+        Cube c = Models.cube("block", x1, y1, z1, x2, y2, z2);
+        for (String d : Cube.FACES) {
+            c.face(d).texture = d.equals("up") ? blk.face("top") : d.equals("down") ? blk.face("bottom") : blk.face("side");
+        }
+        return c;
+    }
+
+    private Shape boxShape(Elements.Block blk, boolean fullCube, boolean occludes, Cube... cubes) {
+        return new Shape(quads(List.of(cubes), k -> k, 0, 0, false, -1), fullCube, occludes, blk.face("top"));
     }
 
     private Shape fromModel(Elements.Model m) {

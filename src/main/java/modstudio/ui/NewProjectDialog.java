@@ -35,9 +35,9 @@ public final class NewProjectDialog {
 
     static {
         KINDS.put("mod", List.of(Target.FABRIC, Target.NEOFORGE));
-        KINDS.put("datapack", List.of(Target.DATAPACK, Target.RESOURCEPACK));
+        KINDS.put("datapack", List.of(Target.DATAPACK));
         KINDS.put("resourcepack", List.of(Target.RESOURCEPACK));
-        KINDS.put("plugin", List.of(Target.PAPER, Target.RESOURCEPACK));
+        KINDS.put("plugin", List.of(Target.PAPER));
         KINDS.put("bedrock", List.of(Target.BEDROCK));
         KINDS.put("custom", List.of());
     }
@@ -191,8 +191,29 @@ public final class NewProjectDialog {
         c1.setHgrow(Priority.ALWAYS);
         c1.setPrefWidth(460);
         g.getColumnConstraints().addAll(c0, c1);
+        ComboBox<String> template = new ComboBox<>();
+        template.getItems().setAll(ProjectTemplates.forKind(ProjectScope.Kind.MOD));
+        template.setValue("empty");
+        Label templateHelp = Ui.help(I18n.t("newproject.template.empty.desc"));
+        template.setCellFactory(lv -> new ListCell<>() {
+            @Override protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : I18n.t("newproject.template." + item));
+            }
+        });
+        template.setButtonCell(new ListCell<>() {
+            @Override protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : I18n.t("newproject.template." + item));
+            }
+        });
+        template.valueProperty().addListener((o, a, b) -> {
+            if (b != null) templateHelp.setText(I18n.t("newproject.template." + b + ".desc"));
+        });
+
         int r = 0;
         r = row(g, r, I18n.t("newproject.kind"), new VBox(4, kindBox, kindHelp), null);
+        r = row(g, r, I18n.t("newproject.template"), new VBox(4, template, templateHelp), null);
         r = row(g, r, I18n.t("field.project_name"), name, null);
         Label idLabel = new Label(I18n.t("field.mod_id"));
         Label idHelp = Ui.help(I18n.t("help.mod_id"));
@@ -229,6 +250,12 @@ public final class NewProjectDialog {
                 n.setVisible(code);
                 n.setManaged(code);
             }
+            List<String> tpls = ProjectTemplates.forKind(k);
+            if (!tpls.equals(template.getItems())) {
+                String keep = template.getValue();
+                template.getItems().setAll(tpls);
+                template.setValue(tpls.contains(keep) ? keep : tpls.get(0));
+            }
             if (!nameEdited[0] && !chosen.isEmpty()) {
                 syncing[0] = true;
                 name.setText(defaultName(k));
@@ -237,6 +264,7 @@ public final class NewProjectDialog {
             var scene = d.getDialogPane().getScene();
             if (scene != null && scene.getWindow() != null) scene.getWindow().sizeToScene();
         };
+        kindGroup.selectedToggleProperty().addListener((o, a, b) -> Platform.runLater(wording));
         targets.values().forEach(cb -> cb.selectedProperty().addListener((o, a, b) -> Platform.runLater(wording)));
         r = row(g, r, I18n.t("field.location"), new VBox(4, locRow, fileLabel), null);
         g.add(err, 1, r);
@@ -289,6 +317,7 @@ public final class NewProjectDialog {
                 default -> null;
             };
             if (gameLang != null) p.meta.languages.add(gameLang);
+            ProjectTemplates.apply(p, template.getValue());
             Path file = Path.of(location.getText().trim()).resolve(p.meta.modId).resolve(p.meta.modId + ".msproj");
             return new Result(p, file);
         });

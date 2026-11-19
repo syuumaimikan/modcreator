@@ -8,7 +8,7 @@ import java.util.List;
 final class AdvancementEditor extends EditorBase<Advancement> {
     private static final List<String> TRIGGERS = List.of("inventory_changed", "placed_block", "consume_item", "enchanted_item",
             "filled_bucket", "player_killed_entity", "player_hurt_entity", "changed_dimension", "enter_block",
-            "item_used_on_block", "recipe_unlocked", "sleeping_in_bed", "tick", "impossible");
+            "item_used_on_block", "recipe_unlocked", "slept_in_bed", "tick", "impossible");
     private IdField value;
 
     AdvancementEditor(Ctx c, Advancement e) {

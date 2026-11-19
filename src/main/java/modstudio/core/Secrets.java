@@ -61,19 +61,23 @@ public final class Secrets {
     }
 
     public void save() throws IOException {
-        Files.createDirectories(file.getParent());
+        if (file.getParent() != null) Files.createDirectories(file.getParent());
         try (Writer w = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
             w.write("# Local secrets for this project. Never commit or share this file.\n");
             Properties p = new Properties() {
                 @Override
                 public synchronized Set<Map.Entry<Object, Object>> entrySet() {
-                    return Collections.synchronizedSet(new TreeMap<Object, Object>(this).entrySet());
+                    TreeMap<Object, Object> sorted = new TreeMap<>();
+                    for (Map.Entry<Object, Object> en : super.entrySet()) {
+                        sorted.put(en.getKey(), en.getValue());
+                    }
+                    return Collections.synchronizedSet(sorted.entrySet());
                 }
             };
             p.putAll(values);
             p.store(w, null);
         }
-        ignoreInGit(file.getParent());
+        if (file.getParent() != null) ignoreInGit(file.getParent());
     }
 
     /** Adds the secrets file to the project's .gitignore so it is not committed by accident. */

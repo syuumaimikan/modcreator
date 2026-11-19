@@ -141,13 +141,14 @@ public final class ScreenGen {
         s.l("private ModUiCommand() {").l("}");
         s.blank();
         s.l("public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {");
+        if (ctx.permissionSet()) s.imp("net.minecraft.server.permissions.Permissions", "net.minecraft.server.permissions.PermissionSet");
         s.l("dispatcher.register(Commands.literal(" + Src.str(command(ctx)) + ")");
         s.l(".then(Commands.literal(\"click\").then(Commands.argument(\"button\", StringArgumentType.word()).executes(c -> {");
         s.l("String function = BUTTONS.get(StringArgumentType.getString(c, \"button\"));");
         s.l("if (function != null && c.getSource().getEntity() != null) ModProcedures.run(c.getSource(), function);");
         s.l("return 1;");
         s.l("})))");
-        s.l(".then(Commands.literal(\"time\").requires(source -> source.hasPermission(2)).then(Commands.argument(\"objective\", StringArgumentType.word()).executes(c -> {");
+        s.l(".then(Commands.literal(\"time\").requires(source -> " + ctx.hasPermissionExpr("source", 2, false) + ").then(Commands.argument(\"objective\", StringArgumentType.word()).executes(c -> {");
         s.l("time(c.getSource(), StringArgumentType.getString(c, \"objective\"));");
         s.l("return 1;");
         s.l("}))));");
@@ -158,7 +159,7 @@ public final class ScreenGen {
         s.l("java.time.LocalDateTime now = java.time.LocalDateTime.now();");
         s.l("String[] names = {\"#year\", \"#month\", \"#day\", \"#hour\", \"#minute\", \"#second\", \"#weekday\", \"#day_of_year\"};");
         s.l("int[] values = {now.getYear(), now.getMonthValue(), now.getDayOfMonth(), now.getHour(), now.getMinute(), now.getSecond(), now.getDayOfWeek().getValue(), now.getDayOfYear()};");
-        s.l("CommandSourceStack quiet = source.withPermission(4).withSuppressedOutput();");
+        s.l("CommandSourceStack quiet = source." + ctx.withAllPermissions() + ".withSuppressedOutput();");
         s.l("for (int i = 0; i < names.length; i++) {");
         s.l("source.getServer().getCommands().performPrefixedCommand(quiet, \"scoreboard players set \" + names[i] + \" \" + objective + \" \" + values[i]);");
         s.l("}");
@@ -183,7 +184,7 @@ public final class ScreenGen {
         s.imp("net.minecraft.client.Minecraft", "net.minecraft.client.gui.Font", "net.minecraft.client.gui.GuiGraphics",
                 "net.minecraft.client.gui.screens.Screen", "net.minecraft.client.gui.screens.inventory.InventoryScreen",
                 "net.minecraft.client.resources.sounds.SimpleSoundInstance", "net.minecraft.network.chat.Component",
-                "net.minecraft.network.chat.contents.TranslatableContents", "net.minecraft.resources.ResourceLocation",
+                "net.minecraft.network.chat.contents.TranslatableContents", ctx.rlImport(),
                 "net.minecraft.sounds.SoundEvents", "net.minecraft.world.entity.EntityType", "net.minecraft.world.entity.LivingEntity",
                 "net.minecraft.world.entity.player.Player", "net.minecraft.world.item.ItemStack", "net.minecraft.world.level.Level",
                 "net.minecraft.Util", "java.io.BufferedReader", "java.io.InputStreamReader", "java.nio.charset.StandardCharsets",
@@ -194,16 +195,21 @@ public final class ScreenGen {
         else s.imp("com.mojang.blaze3d.systems.RenderSystem");
         if (ctx.registryKeys()) s.imp("net.minecraft.world.entity.EntitySpawnReason");
 
+        if (ctx.v.atLeast(McVersion.V1_21_9)) {
+            s.imp("net.minecraft.client.input.CharacterEvent", "net.minecraft.client.input.KeyEvent",
+                    "net.minecraft.client.input.MouseButtonEvent");
+        }
         s.l("/** Custom screens and HUD overlays, drawn on the client. The server opens them with a chat message that is hidden here. */");
         s.l("public final class ModScreens {");
         s.l("private static final String KEY = " + Src.str(ctx.ns + ".ui") + ";");
+        s.l("private static final String MODID = " + Src.str(ctx.ns) + ";");
         s.l("private static final String COMMAND = " + Src.str(command(ctx)) + ";");
-        s.l("private static final int PANEL = 0, IMAGE = 1, TEXT = 2, BUTTON = 3, BAR = 4, ITEM = 5, ENTITY = 6;");
+        s.l("private static final int PANEL = 0, IMAGE = 1, TEXT = 2, BUTTON = 3, BAR = 4, ITEM = 5, ENTITY = 6, TEXTFIELD = 7, SLIDER = 8, CHECKBOX = 9, SCROLL_LIST = 10, SLOT_DISPLAY = 11;");
         s.blank();
         s.l("/** A widget: kind, anchor (0 to 8, rows of left, middle, right), position, size and look. */");
         s.l("record W(int kind, int anchor, int x, int y, int w, int h, String text, int color, int color2, float alpha, String tex, int texW, int texH,");
         s.l("int frames, int frameTime, String item, String entity, float scale, String value, String max, String action, String target,");
-        s.l("String tooltip, String anim, float speed, int align, boolean shadow) {");
+        s.l("String tooltip, String anim, float speed, int align, boolean shadow, double min, double maxVal, boolean checked, String placeholder, String options) {");
         s.l("}");
         s.blank();
         s.l("record S(String name, boolean overlay, String title, boolean dim, boolean pause, W[] widgets) {");
@@ -214,7 +220,7 @@ public final class ScreenGen {
         s.l("private static final Map<String, Long> OVERLAYS = new ConcurrentHashMap<>();");
         s.l("private static final Map<String, LivingEntity> ENTITIES = new HashMap<>();");
         s.l("private static final Map<String, ItemStack> STACKS = new HashMap<>();");
-        s.l("private static final Map<String, ResourceLocation> TEXTURES = new HashMap<>();");
+        s.l("private static final Map<String, " + ctx.rlType() + "> TEXTURES = new HashMap<>();");
         s.l("private static Level entityLevel;");
         s.l("private static volatile String mediaTitle = \"\";");
         s.l("private static volatile String mediaArtist = \"\";");
@@ -227,8 +233,26 @@ public final class ScreenGen {
         s.l("private ModScreens() {").l("}");
         s.blank();
         registration(s, loader, forgeEventBus7, layers);
+        boolean modernInput = ctx.v.atLeast(McVersion.V1_21_9);
+        boolean scroll4 = ctx.v.atLeast(McVersion.V1_20_4);
+        String scrollMethod = scroll4
+                ? "@Override public boolean mouseScrolled(double mx, double my, double hx, double vy) { return handleScroll(mx, my, vy) || super.mouseScrolled(mx, my, hx, vy); }"
+                : "@Override public boolean mouseScrolled(double mx, double my, double d) { return handleScroll(mx, my, d) || super.mouseScrolled(mx, my, d); }";
         String body = CLIENT_BODY
-                .replace("%RL%", GenContext.rlNew(ctx.singular(), ctx.mainClass + ".MODID", "\"textures/gui/screen/\" + name + \".png\""))
+                .replace("%VIEW_INPUT%", (modernInput
+                        ? "@Override public boolean mouseClicked(MouseButtonEvent e, boolean d) { return handleClick(e.x(), e.y(), e.button()) || super.mouseClicked(e, d); }\n"
+                        + "@Override public boolean mouseDragged(MouseButtonEvent e, double dx, double dy) { return handleDrag(e.x(), e.y(), e.button()) || super.mouseDragged(e, dx, dy); }\n"
+                        + "@Override public boolean mouseReleased(MouseButtonEvent e) { draggingSlider = -1; return super.mouseReleased(e); }\n"
+                        + "@Override public boolean keyPressed(KeyEvent e) { return handleKey(e.key()) || super.keyPressed(e); }\n"
+                        + "@Override public boolean charTyped(CharacterEvent e) { return handleChar((char) e.codepoint()) || super.charTyped(e); }\n"
+                        : "@Override public boolean mouseClicked(double mx, double my, int button) { return handleClick(mx, my, button) || super.mouseClicked(mx, my, button); }\n"
+                        + "@Override public boolean mouseDragged(double mx, double my, int button, double dx, double dy) { return handleDrag(mx, my, button) || super.mouseDragged(mx, my, button, dx, dy); }\n"
+                        + "@Override public boolean mouseReleased(double mx, double my, int button) { draggingSlider = -1; return super.mouseReleased(mx, my, button); }\n"
+                        + "@Override public boolean keyPressed(int keyCode, int scanCode, int modifiers) { return handleKey(keyCode) || super.keyPressed(keyCode, scanCode, modifiers); }\n"
+                        + "@Override public boolean charTyped(char codePoint, int modifiers) { return handleChar(codePoint) || super.charTyped(codePoint, modifiers); }\n") + scrollMethod)
+                .replace("%RLTYPE%", ctx.rlType())
+                .replace("%RL%", ctx.rlFrom(ctx.mainClass + ".MODID", "\"textures/gui/screen/\" + name + \".png\""))
+                .replace("%DIM_PATH%", ctx.unobf() ? "mc.level.dimension().identifier().getPath()" : "mc.level.dimension().location().getPath()")
                 .replace("%CREATE%", ctx.registryKeys() ? "type.create(mc.level, EntitySpawnReason.LOAD)" : "type.create(mc.level)")
                 .replace("%ENTITY%", v1201
                         ? "InventoryScreen.renderEntityInInventoryFollowsMouse(g, x + w.w() / 2, y + w.h() - 2, size, x + w.w() / 2.0F - lx, y + w.h() / 3.0F - ly, e);"
@@ -342,7 +366,8 @@ public final class ScreenGen {
                     + Src.str(w.entity == null || w.entity.isBlank() || w.entity.trim().equals("player") ? "player" : Ids.full(w.entity.trim())) + ", "
                     + Src.f(Math.max(0.1, Math.min(10, w.scale))) + ", " + Src.str(w.value == null ? "" : w.value.trim()) + ", "
                     + Src.str(w.max == null ? "" : w.max.trim()) + ", " + Src.str(w.action) + ", " + Src.str(target) + ", " + Src.str(GenContext.legacy(w.tooltip)) + ", "
-                    + Src.str(w.animation) + ", " + Src.f(Math.max(0.05, Math.min(20, w.speed))) + ", " + align(w.align) + ", " + w.shadow + ")"
+                    + Src.str(w.animation) + ", " + Src.f(Math.max(0.05, Math.min(20, w.speed))) + ", " + align(w.align) + ", " + w.shadow + ", "
+                    + Src.d(w.min) + ", " + Src.d(w.maxVal) + ", " + w.checked + ", " + Src.str(w.placeholder) + ", " + Src.str(w.options) + ")"
                     + (i + 1 < sc.widgets.size() ? "," : ""));
         }
         s.l("}));");
@@ -356,6 +381,11 @@ public final class ScreenGen {
             case "bar" -> 4;
             case "item" -> 5;
             case "entity" -> 6;
+            case "textfield" -> 7;
+            case "slider" -> 8;
+            case "checkbox" -> 9;
+            case "scroll_list" -> 10;
+            case "slot_display" -> 11;
             default -> 2;
         };
     }
@@ -456,14 +486,40 @@ public final class ScreenGen {
             }
             }
 
+            private static String tr(String key, String fallback) {
+            net.minecraft.locale.Language lang = net.minecraft.locale.Language.getInstance();
+            if (lang.has(key)) {
+            return lang.getOrDefault(key, fallback).replaceAll("&([0-9a-fA-Fk-oK-OrR])", "\u00a7$1");
+            }
+            return fallback;
+            }
+
+            private static String trTitle(S s) { return tr("screen." + MODID + "." + s.name() + ".title", s.title()); }
+            private static String trText(String sn, int idx, W w) { return tr("screen." + MODID + "." + sn + ".w." + idx + ".text", w.text()); }
+            private static String trTooltip(String sn, int idx, W w) { return tr("screen." + MODID + "." + sn + ".w." + idx + ".tooltip", w.tooltip()); }
+            private static String trPlaceholder(String sn, int idx, W w) { return tr("screen." + MODID + "." + sn + ".w." + idx + ".placeholder", w.placeholder()); }
+            private static String trOptions(String sn, int idx, W w) { return tr("screen." + MODID + "." + sn + ".w." + idx + ".options", w.options()); }
+
             /** An opened custom screen. */
             static final class View extends Screen {
             private final S spec;
             private final long opened = System.nanoTime();
+            private int focusedField = -1;
+            private int draggingSlider = -1;
 
             View(S spec) {
-            super(Component.literal(spec.title()));
+            super(Component.literal(trTitle(spec)));
             this.spec = spec;
+            for (int i = 0; i < spec.widgets().length; i++) {
+            W w = spec.widgets()[i];
+            if (w.kind() == TEXTFIELD) VALUES.putIfAbsent("ui.text." + spec.name() + "." + i, trText(spec.name(), i, w));
+            else if (w.kind() == SLIDER) VALUES.putIfAbsent("ui.slider." + spec.name() + "." + i, number((float) ((w.min() + w.maxVal()) / 2.0)));
+            else if (w.kind() == CHECKBOX) VALUES.putIfAbsent("ui.check." + spec.name() + "." + i, String.valueOf(w.checked()));
+            else if (w.kind() == SCROLL_LIST) {
+            VALUES.putIfAbsent("ui.scroll." + spec.name() + "." + i, "0");
+            VALUES.putIfAbsent("ui.scroll_sel." + spec.name() + "." + i, "0");
+            }
+            }
             }
 
             @Override
@@ -473,20 +529,100 @@ public final class ScreenGen {
 
             %VIEW_RENDER%
 
-            @Override
-            public boolean mouseClicked(double mx, double my, int button) {
-            if (button == 0) {
+            %VIEW_INPUT%
+
+            private boolean handleClick(double mx, double my, int button) {
+            if (button != 0) return false;
             float t = age();
-            for (W w : spec.widgets()) {
-            if (w.kind() != BUTTON) continue;
+            W[] ws = spec.widgets();
+            focusedField = -1;
+            for (int i = 0; i < ws.length; i++) {
+            W w = ws[i];
+            int x = left(w, width) + offX(w, t), y = top(w, height) + offY(w, t);
+            if (mx < x || my < y || mx >= x + w.w() || my >= y + w.h()) continue;
+            switch (w.kind()) {
+            case BUTTON -> { click(w); return true; }
+            case TEXTFIELD -> { focusedField = i; return true; }
+            case SLIDER -> {
+            draggingSlider = i;
+            updateSlider(spec.name(), i, w, x, mx);
+            if (!w.target().isEmpty()) click(w);
+            return true;
+            }
+            case CHECKBOX -> {
+            String key = "ui.check." + spec.name() + "." + i;
+            boolean next = !"true".equals(VALUES.getOrDefault(key, String.valueOf(w.checked())));
+            VALUES.put(key, String.valueOf(next));
+            Minecraft.getInstance().getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+            if (!w.target().isEmpty()) click(w);
+            return true;
+            }
+            case SCROLL_LIST -> {
+            int off = Math.round(parse(VALUES.getOrDefault("ui.scroll." + spec.name() + "." + i, "0"), 0));
+            int row = off + (int) ((my - y - 2) / 14);
+            String[] opts = trOptions(spec.name(), i, w).split("\\\\R");
+            if (row >= 0 && row < opts.length) {
+            VALUES.put("ui.scroll_sel." + spec.name() + "." + i, String.valueOf(row));
+            Minecraft.getInstance().getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+            if (!w.target().isEmpty()) click(w);
+            }
+            return true;
+            }
+            default -> { }
+            }
+            }
+            return false;
+            }
+
+            private boolean handleDrag(double mx, double my, int button) {
+            if (button != 0 || draggingSlider < 0 || draggingSlider >= spec.widgets().length) return false;
+            W w = spec.widgets()[draggingSlider];
+            int x = left(w, width) + offX(w, age());
+            updateSlider(spec.name(), draggingSlider, w, x, mx);
+            return true;
+            }
+
+            private boolean handleScroll(double mx, double my, double vy) {
+            float t = age();
+            W[] ws = spec.widgets();
+            for (int i = 0; i < ws.length; i++) {
+            W w = ws[i];
+            if (w.kind() != SCROLL_LIST) continue;
             int x = left(w, width) + offX(w, t), y = top(w, height) + offY(w, t);
             if (mx >= x && my >= y && mx < x + w.w() && my < y + w.h()) {
-            click(w);
+            int off = Math.round(parse(VALUES.getOrDefault("ui.scroll." + spec.name() + "." + i, "0"), 0));
+            int maxOff = Math.max(0, trOptions(spec.name(), i, w).split("\\\\R").length - Math.max(1, (w.h() - 4) / 14));
+            off = Math.max(0, Math.min(maxOff, off + (vy > 0 ? -1 : 1)));
+            VALUES.put("ui.scroll." + spec.name() + "." + i, String.valueOf(off));
             return true;
             }
             }
+            return false;
             }
-            return super.mouseClicked(mx, my, button);
+
+            private boolean handleKey(int keyCode) {
+            if (focusedField < 0 || focusedField >= spec.widgets().length) return false;
+            if (keyCode == 259) {
+            String key = "ui.text." + spec.name() + "." + focusedField;
+            String cur = VALUES.getOrDefault(key, "");
+            if (!cur.isEmpty()) VALUES.put(key, cur.substring(0, cur.length() - 1));
+            return true;
+            }
+            return keyCode != 256;
+            }
+
+            private boolean handleChar(char ch) {
+            if (focusedField < 0 || focusedField >= spec.widgets().length || ch < 32 || ch == 127) return false;
+            String key = "ui.text." + spec.name() + "." + focusedField;
+            String cur = VALUES.getOrDefault(key, "");
+            if (cur.length() < 128) VALUES.put(key, cur + ch);
+            return true;
+            }
+
+            private static void updateSlider(String sname, int idx, W w, int x, double mx) {
+            double ratio = Math.max(0.0, Math.min(1.0, (mx - x) / Math.max(1.0, w.w())));
+            double val = w.min() + ratio * (w.maxVal() - w.min());
+            VALUES.put("ui.slider." + sname + "." + idx, number((float) val));
             }
 
             private float age() {
@@ -518,7 +654,9 @@ public final class ScreenGen {
             static void draw(GuiGraphics g, S s, int sw, int sh, int mx, int my, float t, boolean screen) {
             Font font = Minecraft.getInstance().font;
             String tip = null;
-            for (W w : s.widgets()) {
+            W[] ws = s.widgets();
+            for (int i = 0; i < ws.length; i++) {
+            W w = ws[i];
             float a = w.alpha() * fade(w, t);
             if (a < 0.03F) continue;
             int x = left(w, sw) + offX(w, t), y = top(w, sh) + offY(w, t);
@@ -529,16 +667,22 @@ public final class ScreenGen {
             switch (w.kind()) {
             case PANEL -> panel(g, w, x, y, a, t);
             case IMAGE -> image(g, w, x, y, w.w(), w.h(), a, t);
-            case TEXT -> text(g, font, w, fill(w.text()), x, y, a);
-            case BUTTON -> button(g, font, w, x, y, a, t, over);
-            case BAR -> bar(g, font, w, x, y, a, t);
+            case TEXT -> text(g, font, w, fill(trText(s.name(), i, w)), x, y, a);
+            case BUTTON -> button(g, font, s.name(), i, w, x, y, a, t, over);
+            case BAR -> bar(g, font, s.name(), i, w, x, y, a, t);
             case ITEM -> g.renderItem(stack(w.item()), x + (w.w() - 16) / 2, y + (w.h() - 16) / 2);
+            case SLOT_DISPLAY -> slotDisplay(g, w, x, y, a);
+            case TEXTFIELD -> textfield(g, font, s.name(), i, w, x, y, a, t);
+            case SLIDER -> slider(g, font, s.name(), i, w, x, y, a);
+            case CHECKBOX -> checkbox(g, font, s.name(), i, w, x, y, a);
+            case SCROLL_LIST -> scrollList(g, font, s.name(), i, w, x, y, a);
             case ENTITY -> entity(g, w, x, y, mx, my, t, k);
             default -> {
             }
             }
             if (scaled) pop(g);
-            if (over && !w.tooltip().isEmpty()) tip = fill(w.tooltip());
+            String wtip = trTooltip(s.name(), i, w);
+            if (over && !wtip.isEmpty()) tip = fill(wtip);
             }
             if (tip != null) tooltip(g, font, tip, mx, my);
             }
@@ -631,18 +775,70 @@ public final class ScreenGen {
             }
             }
 
-            private static void button(GuiGraphics g, Font font, W w, int x, int y, float a, float t, boolean over) {
+            private static void slotDisplay(GuiGraphics g, W w, int x, int y, float a) {
+            g.fill(x, y, x + w.w(), y + w.h(), argb(0x8B8B8B, a));
+            g.fill(x, y, x + w.w() - 1, y + 1, argb(0x373737, a));
+            g.fill(x, y, x + 1, y + w.h() - 1, argb(0x373737, a));
+            g.renderItem(stack(w.item()), x + (w.w() - 16) / 2, y + (w.h() - 16) / 2);
+            }
+
+            private static void textfield(GuiGraphics g, Font font, String sn, int idx, W w, int x, int y, float a, float t) {
+            Screen cur = Minecraft.getInstance().screen;
+            boolean focused = cur instanceof View v && v.focusedField == idx;
+            g.fill(x, y, x + w.w(), y + w.h(), argb(focused ? 0xFFFFFF : 0xA0A0A0, a));
+            g.fill(x + 1, y + 1, x + w.w() - 1, y + w.h() - 1, argb(w.color2(), a));
+            String txt = VALUES.getOrDefault("ui.text." + sn + "." + idx, trText(sn, idx, w));
+            String ph = trPlaceholder(sn, idx, w);
+            String shown = txt.isEmpty() ? ph : txt + (focused && ((int) (t * 2.0F) % 2 == 0) ? "_" : "");
+            g.drawString(font, shown, x + 4, y + (w.h() - 8) / 2, argb(txt.isEmpty() ? 0x808080 : w.color(), a), w.shadow());
+            }
+
+            private static void slider(GuiGraphics g, Font font, String sn, int idx, W w, int x, int y, float a) {
+            double val = parse(VALUES.getOrDefault("ui.slider." + sn + "." + idx, number((float) ((w.min() + w.maxVal()) / 2.0))), (float) w.min());
+            double span = Math.max(1e-6, w.maxVal() - w.min());
+            double ratio = Math.max(0.0, Math.min(1.0, (val - w.min()) / span));
+            g.fill(x, y, x + w.w(), y + w.h(), argb(0x000000, a));
+            g.fill(x + 1, y + 1, x + w.w() - 1, y + w.h() - 1, argb(w.color2(), a));
+            int kx = x + 1 + (int) Math.round((w.w() - 10) * ratio);
+            g.fill(kx, y + 1, kx + 8, y + w.h() - 1, argb(0xCCCCCC, a));
+            String stxt = trText(sn, idx, w);
+            String lbl = (stxt.isEmpty() ? "" : stxt + ": ") + number((float) val);
+            g.drawString(font, lbl, x + (w.w() - font.width(lbl)) / 2, y + (w.h() - 8) / 2, argb(w.color(), a), w.shadow());
+            }
+
+            private static void checkbox(GuiGraphics g, Font font, String sn, int idx, W w, int x, int y, float a) {
+            boolean ch = "true".equals(VALUES.getOrDefault("ui.check." + sn + "." + idx, String.valueOf(w.checked())));
+            int b = Math.min(16, Math.max(10, w.h() - 2));
+            int by = y + (w.h() - b) / 2;
+            g.fill(x, by, x + b, by + b, argb(0xFFFFFF, a));
+            g.fill(x + 1, by + 1, x + b - 1, by + b - 1, argb(0x202020, a));
+            if (ch) g.drawString(font, "x", x + b / 2 - 2, y + (w.h() - 8) / 2, argb(0x55FF55, a), true);
+            g.drawString(font, fill(trText(sn, idx, w)), x + b + 5, y + (w.h() - 8) / 2, argb(w.color(), a), w.shadow());
+            }
+
+            private static void scrollList(GuiGraphics g, Font font, String sn, int idx, W w, int x, int y, float a) {
+            g.fill(x, y, x + w.w(), y + w.h(), argb(w.color2(), a));
+            String[] opts = trOptions(sn, idx, w).split("\\\\R");
+            int off = Math.max(0, Math.round(parse(VALUES.getOrDefault("ui.scroll." + sn + "." + idx, "0"), 0)));
+            int sel = Math.round(parse(VALUES.getOrDefault("ui.scroll_sel." + sn + "." + idx, "0"), 0));
+            for (int r = off, py = 4; r < opts.length && py + 10 <= w.h(); r++, py += 14) {
+            if (r == sel) g.fill(x + 2, y + py - 2, x + w.w() - 6, y + py + 10, argb(0x4A76A8, a * 0.6F));
+            g.drawString(font, opts[r].trim(), x + 5, y + py, argb(w.color(), a), w.shadow());
+            }
+            }
+
+            private static void button(GuiGraphics g, Font font, String sn, int idx, W w, int x, int y, float a, float t, boolean over) {
             if (!w.tex().isEmpty()) {
             image(g, w, x, y, w.w(), w.h(), over ? a : a * 0.85F, t);
             } else {
             g.fill(x, y, x + w.w(), y + w.h(), argb(over ? 0xFFFFFF : 0x000000, a));
             g.fill(x + 1, y + 1, x + w.w() - 1, y + w.h() - 1, argb(over ? lighter(w.color2()) : w.color2(), a));
             }
-            String label = fill(w.text());
+            String label = fill(trText(sn, idx, w));
             g.drawString(font, label, x + (w.w() - font.width(label)) / 2, y + (w.h() - 8) / 2, argb(w.color(), a), w.shadow());
             }
 
-            private static void bar(GuiGraphics g, Font font, W w, int x, int y, float a, float t) {
+            private static void bar(GuiGraphics g, Font font, String sn, int idx, W w, int x, int y, float a, float t) {
             float[] vm = values(w);
             float ratio = vm[1] <= 0.0F ? 0.0F : Math.max(0.0F, Math.min(1.0F, vm[0] / vm[1]));
             int fw = Math.round((w.w() - 2) * ratio);
@@ -656,8 +852,9 @@ public final class ScreenGen {
             g.fill(x + 1, y + 1, x + 1 + fw, y + w.h() - 1, argb(w.color(), a));
             }
             }
-            if (!w.text().isEmpty()) {
-            String label = fill(w.text()).replace("{value}", number(vm[0])).replace("{max}", number(vm[1]));
+            String btxt = trText(sn, idx, w);
+            if (!btxt.isEmpty()) {
+            String label = fill(btxt).replace("{value}", number(vm[0])).replace("{max}", number(vm[1]));
             g.drawString(font, label, x + (w.w() - font.width(label)) / 2, y + (w.h() - 8) / 2, argb(0xFFFFFF, a), true);
             }
             }
@@ -715,11 +912,11 @@ public final class ScreenGen {
             return new float[] {v, m};
             }
 
-            private static ResourceLocation texture(String name) {
+            private static %RLTYPE% texture(String name) {
             return TEXTURES.computeIfAbsent(name, n -> rl(n));
             }
 
-            private static ResourceLocation rl(String name) {
+            private static %RLTYPE% rl(String name) {
             return %RL%;
             }
 
@@ -729,7 +926,7 @@ public final class ScreenGen {
             blit(g, texture(w.tex()), x, y, dw, dh, 0.0F, frame * fh, w.texW(), fh, w.texW(), w.texH(), a);
             }
 
-            private static void blit(GuiGraphics g, ResourceLocation rl, int x, int y, int w, int h, float u, float v, int uw, int vh, int tw, int th, float a) {
+            private static void blit(GuiGraphics g, %RLTYPE% rl, int x, int y, int w, int h, float u, float v, int uw, int vh, int tw, int th, float a) {
             %BLIT%
             }
 
@@ -842,7 +1039,7 @@ public final class ScreenGen {
             case "x" -> String.valueOf(p.getBlockX());
             case "y" -> String.valueOf(p.getBlockY());
             case "z" -> String.valueOf(p.getBlockZ());
-            case "dimension" -> mc.level.dimension().location().getPath();
+            case "dimension" -> %DIM_PATH%;
             case "day" -> String.valueOf(mc.level.getDayTime() / 24000L);
             case "game_time" -> {
             long d = (mc.level.getDayTime() + 6000L) % 24000L;

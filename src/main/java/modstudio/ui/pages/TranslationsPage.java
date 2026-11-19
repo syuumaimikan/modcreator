@@ -21,6 +21,8 @@ public final class TranslationsPage extends BorderPane implements WorkspaceView.
     private final Project p;
     private final TableView<Row> table = new TableView<>();
     private final ObservableList<Row> rows = FXCollections.observableArrayList();
+    private final javafx.collections.transformation.FilteredList<Row> filteredRows = new javafx.collections.transformation.FilteredList<>(rows);
+    private final TextField search = new TextField();
     private final ComboBox<String> addLang = new ComboBox<>();
     private final Label summary = Ui.help("");
 
@@ -30,6 +32,10 @@ public final class TranslationsPage extends BorderPane implements WorkspaceView.
     public TranslationsPage(WorkspaceView view) {
         this.view = view;
         this.p = view.ws.project;
+
+        search.setPromptText(t("action.search"));
+        search.setPrefWidth(200);
+        search.textProperty().addListener((o, a, b) -> applyFilter());
 
         addLang.setPromptText(t("translations.add_language"));
         addLang.setPrefWidth(200);
@@ -46,11 +52,11 @@ public final class TranslationsPage extends BorderPane implements WorkspaceView.
         addLang.setEditable(true);
         Button addKey = Ui.button(t("translations.add_key"), "mdi2k-key-plus", this::addKey);
         VBox head = new VBox(4, Ui.label(t("page.translations"), "title-2"), Ui.muted(t("translations.subtitle")));
-        HBox bar = Ui.hbox(8, head, Ui.spacer(), addLang, add, addKey);
+        HBox bar = Ui.hbox(8, head, Ui.spacer(), search, addLang, add, addKey);
         bar.setPadding(new Insets(20, 24, 12, 24));
         setTop(bar);
 
-        table.setItems(rows);
+        table.setItems(filteredRows);
         table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         table.setPlaceholder(Ui.muted(t("translations.empty")));
         table.getStyleClass().add("translations-table");
@@ -59,6 +65,22 @@ public final class TranslationsPage extends BorderPane implements WorkspaceView.
         center.setPadding(new Insets(0, 24, 16, 24));
         setCenter(center);
         rebuild();
+    }
+
+    private void applyFilter() {
+        String q = search.getText() == null ? "" : search.getText().trim().toLowerCase(Locale.ROOT);
+        if (q.isEmpty()) {
+            filteredRows.setPredicate(null);
+            return;
+        }
+        List<String> ls = langs();
+        filteredRows.setPredicate(r -> {
+            if (r.key().toLowerCase(Locale.ROOT).contains(q)) return true;
+            for (String lang : ls) {
+                if (get(r, lang).toLowerCase(Locale.ROOT).contains(q)) return true;
+            }
+            return false;
+        });
     }
 
     private static String t(String k, Object... a) {
@@ -157,11 +179,42 @@ public final class TranslationsPage extends BorderPane implements WorkspaceView.
 
     private String source(Localization.Entry e) {
         return switch (e.element()) {
-            case Elements.Item it -> it.displayName;
+            case Elements.Item it -> switch (e.field()) {
+                case "tooltip" -> it.tooltip;
+                case "shift_tooltip" -> it.shiftTooltip;
+                default -> it.displayName;
+            };
             case Elements.Block b -> b.displayName;
+            case Elements.Fluid fl -> e.field().equals("bucket") ? e.english() : fl.displayName;
             case Elements.CreativeTab tab -> tab.displayName;
             case Elements.Sound s -> s.subtitle;
+            case Systems.Mob m -> m.displayName;
+            case Elements.StatusEffect se -> e.field().equals("potion")
+                    ? (se.potionName.isBlank() ? e.english() : se.potionName) : se.displayName;
+            case Elements.Potion po -> switch (e.field()) {
+                case "splash" -> po.splashName.isBlank() ? e.english() : po.splashName;
+                case "lingering" -> po.lingeringName.isBlank() ? e.english() : po.lingeringName;
+                case "arrow" -> po.arrowName.isBlank() ? e.english() : po.arrowName;
+                default -> po.displayName;
+            };
+            case Elements.Enchantment en -> en.displayName;
+            case Elements.DamageType d -> e.field().equals("death_attacker") ? d.deathMessageAttacker : d.deathMessage;
+            case Elements.Painting pa -> e.field().equals("author") ? pa.author : pa.title;
+            case Elements.Song so -> so.description;
+            case Systems.KeyBind k -> e.field().equals("category") ? e.english() : k.displayName;
             case Elements.Advancement a -> e.field().equals("title") ? a.title : a.description;
+            case Systems.Dialog d -> e.field().equals("body") ? d.body : d.title;
+            case Systems.Menu mn -> e.field().equals("deny") ? mn.denyMessage : mn.title;
+            case Systems.Hud h -> e.field().startsWith("line.") ? e.english() : h.title;
+            case Systems.CustomScreen sc -> e.field().startsWith("w.") ? e.english() : sc.title;
+            case Systems.Trader tr -> tr.displayName;
+            case Systems.Resource res -> res.displayName;
+            case ModElements.Container ct -> ct.displayName;
+            case ModElements.CustomEntity ce -> e.field().equals("spawn_egg") ? e.english() : ce.displayName;
+            case ModElements.Portal pt -> e.field().equals("igniter") ? e.english() : pt.displayName;
+            case ModElements.Profession pf -> pf.displayName;
+            case ModElements.ArmorTrim at -> e.field().equals("template") ? e.english() : at.displayName;
+            case ModElements.BannerPattern bp -> bp.displayName;
             default -> e.english();
         };
     }
@@ -169,21 +222,89 @@ public final class TranslationsPage extends BorderPane implements WorkspaceView.
     private void set(Row r, String lang, String v) {
         if (r.entry() != null) {
             Element el = r.entry().element();
+            String f = r.entry().field();
             if (lang.equals("en_us")) {
                 switch (el) {
-                    case Elements.Item it -> it.displayName = v;
+                    case Elements.Item it -> {
+                        switch (f) {
+                            case "tooltip" -> it.tooltip = v;
+                            case "shift_tooltip" -> it.shiftTooltip = v;
+                            default -> it.displayName = v;
+                        }
+                    }
                     case Elements.Block b -> b.displayName = v;
+                    case Elements.Fluid fl -> {
+                        if (!f.equals("bucket")) fl.displayName = v;
+                    }
                     case Elements.CreativeTab tab -> tab.displayName = v;
                     case Elements.Sound s -> s.subtitle = v;
+                    case Systems.Mob m -> m.displayName = v;
+                    case Elements.StatusEffect se -> {
+                        if (f.equals("potion")) se.potionName = v;
+                        else se.displayName = v;
+                    }
+                    case Elements.Potion po -> {
+                        switch (f) {
+                            case "splash" -> po.splashName = v;
+                            case "lingering" -> po.lingeringName = v;
+                            case "arrow" -> po.arrowName = v;
+                            default -> po.displayName = v;
+                        }
+                    }
+                    case Elements.Enchantment en -> en.displayName = v;
+                    case Elements.DamageType d -> {
+                        if (f.equals("death_attacker")) d.deathMessageAttacker = v;
+                        else d.deathMessage = v;
+                    }
+                    case Elements.Painting pa -> {
+                        if (f.equals("author")) pa.author = v;
+                        else pa.title = v;
+                    }
+                    case Elements.Song so -> so.description = v;
+                    case Systems.KeyBind k -> {
+                        if (!f.equals("category")) k.displayName = v;
+                    }
                     case Elements.Advancement a -> {
-                        if (r.entry().field().equals("title")) a.title = v;
+                        if (f.equals("title")) a.title = v;
                         else a.description = v;
                     }
+                    case Systems.Dialog d -> {
+                        if (f.equals("body")) d.body = v;
+                        else d.title = v;
+                    }
+                    case Systems.Menu mn -> {
+                        if (f.equals("deny")) mn.denyMessage = v;
+                        else mn.title = v;
+                    }
+                    case Systems.Hud h -> {
+                        if (f.startsWith("line.")) {
+                            int idx = parseLineIndex(f.substring(5));
+                            if (idx >= 0 && idx < h.lines.size()) h.lines.set(idx, v);
+                        } else h.title = v;
+                    }
+                    case Systems.CustomScreen sc -> {
+                        if (f.startsWith("w.")) updateWidgetField(sc, f, v);
+                        else sc.title = v;
+                    }
+                    case Systems.Trader tr -> tr.displayName = v;
+                    case Systems.Resource res -> res.displayName = v;
+                    case ModElements.Container ct -> ct.displayName = v;
+                    case ModElements.CustomEntity ce -> {
+                        if (!f.equals("spawn_egg")) ce.displayName = v;
+                    }
+                    case ModElements.Portal pt -> {
+                        if (!f.equals("igniter")) pt.displayName = v;
+                    }
+                    case ModElements.Profession pf -> pf.displayName = v;
+                    case ModElements.ArmorTrim at -> {
+                        if (!f.equals("template")) at.displayName = v;
+                    }
+                    case ModElements.BannerPattern bp -> bp.displayName = v;
                     default -> {
                     }
                 }
             } else {
-                el.setLoc(r.entry().field(), lang, v);
+                el.setLoc(f, lang, v);
             }
         } else {
             Map<String, String> m = p.translations.computeIfAbsent(lang, k -> new LinkedHashMap<>());
@@ -191,6 +312,30 @@ public final class TranslationsPage extends BorderPane implements WorkspaceView.
         }
         view.ws.changed();
         view.invalidatePages(r.entry() == null ? "" : r.entry().element().type().id);
+    }
+
+    private static int parseLineIndex(String s) {
+        try {
+            return Integer.parseInt(s);
+        } catch (NumberFormatException ex) {
+            return -1;
+        }
+    }
+
+    private static void updateWidgetField(Systems.CustomScreen sc, String field, String v) {
+        int dot = field.indexOf('.', 2);
+        if (dot <= 2) return;
+        int idx = parseLineIndex(field.substring(2, dot));
+        if (idx < 0 || idx >= sc.widgets.size()) return;
+        Systems.ScreenWidget w = sc.widgets.get(idx);
+        switch (field.substring(dot + 1)) {
+            case "text" -> w.text = v;
+            case "tooltip" -> w.tooltip = v;
+            case "placeholder" -> w.placeholder = v;
+            case "options" -> w.options = v;
+            default -> {
+            }
+        }
     }
 
     private void addKey() {

@@ -35,8 +35,9 @@ BuildService (Gradle Tooling API): ビルド、runClient、runServer
 
 | クラス | 担当 |
 | --- | --- |
-| `FabricGen` / `ForgeLikeGen` | Mod の Gradle プロジェクトと Java ソース (Forge と NeoForge は共通部分を共有) |
-| `PaperGen` | プラグインの Gradle プロジェクト。データパックを同梱し、起動時にワールドへ入れる |
+| `FabricGen` / `ForgeLikeGen` | Mod の Gradle プロジェクトと Java ソース (Forge/NeoForge と Fabric/Quilt は共通部分を共有し、`26.1` は非難読化 Loom に対応) |
+| `AdvancedModGen` | 高度な Mod 要素 (`Container`, `CustomEntity`, `ModConfig`, `MixinSpec`, `Portal`, `Profession`, `CustomRecipeType`, ネットワークペイロード) |
+| `PaperGen` | Paper / Folia (`folia-supported: true` とリージョンスケジューラ) 対応プラグイン Gradle プロジェクトとデータパック同梱 |
 | `PackGen` | データパックとリソースパック |
 | `BedrockGen` | ビヘイビアパックとリソースパック、Script API |
 | `DataGen` | レシピ、ルートテーブル、進捗、タグ、関数、プロシージャ (全 Java 版で共通) |
@@ -57,6 +58,8 @@ BuildService (Gradle Tooling API): ビルド、runClient、runServer
 | `singular()` | 1.21 からの単数形のフォルダ名 |
 | `registryKeys()` | 1.21.4 からのレジストリキー |
 | `snbtText()` | 1.21.5 からの SNBT テキスト |
+| `minorPackFormat()` | 1.21.9 からの `[major, minor]` 形式 `pack.mcmeta` (`min_format` / `max_format`) |
+| `unobfuscated()` | 26.1 からの Mojang 非難読化構成・Java 25 |
 | `macros()` | 1.20.2 からの関数マクロ |
 
 生成コードは必ずこれらのフラグで分岐します。バージョン番号を直接比較することは避けています。

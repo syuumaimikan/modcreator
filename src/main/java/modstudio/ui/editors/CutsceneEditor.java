@@ -1,7 +1,14 @@
 package modstudio.ui.editors;
 
 import javafx.animation.AnimationTimer;
+import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.AmbientLight;
+import javafx.scene.Group;
+import javafx.scene.PerspectiveCamera;
+import javafx.scene.PointLight;
+import javafx.scene.SceneAntialiasing;
+import javafx.scene.SubScene;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.Button;
@@ -10,10 +17,17 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Slider;
 import javafx.scene.control.TextField;
+import javafx.scene.control.ToggleButton;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
+import javafx.scene.paint.PhongMaterial;
+import javafx.scene.shape.Box;
+import javafx.scene.shape.Sphere;
+import javafx.scene.transform.Rotate;
+import javafx.scene.transform.Translate;
 import modstudio.core.CameraPath;
 import modstudio.core.Logic;
 import modstudio.core.Systems.CameraEvent;
@@ -32,6 +46,15 @@ final class CutsceneEditor extends EditorBase<Cutscene> {
     private final VBox keyRows = new VBox(6);
     private final VBox eventRows = new VBox(6);
     private final Canvas canvas = new Canvas(640, 230);
+    private final Group world3d = new Group();
+    private final Group path3d = new Group();
+    private final PerspectiveCamera cam3d = new PerspectiveCamera(true);
+    private final Translate camPos = new Translate(0, -16, 0);
+    private final Rotate camYaw = new Rotate(0, Rotate.Y_AXIS);
+    private final Rotate camPitch = new Rotate(0, Rotate.X_AXIS);
+    private final Label hud3d = Ui.label("", "text-small", "mono");
+    private final ToggleButton mode3d = new ToggleButton();
+    private StackPane previewStack;
     private final Slider time = new Slider(0, 1, 0);
     private final Label timeLabel = Ui.muted("");
     private AnimationTimer player;
@@ -45,11 +68,39 @@ final class CutsceneEditor extends EditorBase<Cutscene> {
     @Override
     protected void fill() {
         Button play = Ui.button(t("cutscene.play"), "mdi2p-play", this::togglePlay);
+        mode3d.setText(t("cutscene.preview_3d"));
+        mode3d.setGraphic(Ui.icon("mdi2c-camera-outline"));
         time.valueProperty().addListener((o, a, b) -> draw());
         HBox.setHgrow(time, Priority.ALWAYS);
-        HBox bar = new HBox(10, play, time, timeLabel);
+        HBox bar = new HBox(10, play, time, timeLabel, mode3d);
         bar.setAlignment(Pos.CENTER_LEFT);
-        VBox preview = new VBox(8, canvas, bar);
+
+        cam3d.setFieldOfView(70);
+        cam3d.setNearClip(0.5);
+        cam3d.setFarClip(4000);
+        cam3d.getTransforms().addAll(camPos, camYaw, camPitch);
+        world3d.getChildren().addAll(path3d, new AmbientLight(Color.color(0.75, 0.78, 0.85)));
+        PointLight sun = new PointLight(Color.WHITE);
+        sun.setTranslateY(-300);
+        world3d.getChildren().add(sun);
+        SubScene sub3d = new SubScene(world3d, 640, 230, true, SceneAntialiasing.BALANCED);
+        sub3d.setCamera(cam3d);
+        sub3d.setFill(Color.web("#0f1722"));
+        hud3d.setStyle("-fx-background-color: rgba(15, 23, 34, 0.72); -fx-text-fill: #e6edf3; -fx-padding: 6 10; -fx-background-radius: 6;");
+        StackPane pane3d = new StackPane(sub3d, hud3d);
+        StackPane.setAlignment(hud3d, Pos.TOP_LEFT);
+        StackPane.setMargin(hud3d, new Insets(8));
+        pane3d.setVisible(false);
+        pane3d.setManaged(false);
+        mode3d.selectedProperty().addListener((o, a, b) -> {
+            canvas.setVisible(!b);
+            canvas.setManaged(!b);
+            pane3d.setVisible(b);
+            pane3d.setManaged(b);
+            draw();
+        });
+        previewStack = new StackPane(canvas, pane3d);
+        VBox preview = new VBox(8, previewStack, bar);
         preview.getStyleClass().add("preview-strip");
         f.addTop(preview);
 
@@ -222,6 +273,12 @@ final class CutsceneEditor extends EditorBase<Cutscene> {
         }
         playStart = System.nanoTime();
         playFrom = time.getValue() >= time.getMax() - 0.01 ? 0 : time.getValue();
+        canvas.sceneProperty().addListener((obs, oldScene, newScene) -> {
+            if (newScene == null && player != null) {
+                player.stop();
+                player = null;
+            }
+        });
         player = new AnimationTimer() {
             @Override
             public void handle(long now) {
@@ -271,6 +328,70 @@ final class CutsceneEditor extends EditorBase<Cutscene> {
         double pw = (w - 30) / 2, ph = h - 30;
         view(g, 10, 10, pw, ph, path, minX, maxX, minZ, maxZ, false, dark);
         view(g, 20 + pw, 10, pw, ph, path, minX, maxX, minY, maxY, true, dark);
+        if (mode3d.isSelected()) update3d(path);
+    }
+
+    private void update3d(List<CameraPath.Pose> path) {
+        final double S = 10.0;
+        path3d.getChildren().clear();
+        PhongMaterial groundMat = new PhongMaterial(Color.web("#233042"));
+        PhongMaterial gridMat = new PhongMaterial(Color.web("#3a4b63"));
+        Box ground = new Box(400, 0.4, 400);
+        ground.setTranslateY(0.2);
+        ground.setMaterial(groundMat);
+        path3d.getChildren().add(ground);
+        for (int i = -16; i <= 16; i += 2) {
+            Box lx = new Box(320, 0.25, 0.35);
+            lx.setTranslateZ(i * S);
+            lx.setMaterial(gridMat);
+            Box lz = new Box(0.35, 0.25, 320);
+            lz.setTranslateX(i * S);
+            lz.setMaterial(gridMat);
+            path3d.getChildren().addAll(lx, lz);
+        }
+        PhongMaterial pathMat = new PhongMaterial(Color.web("#2f81f7"));
+        for (int i = 0; i < path.size(); i += 2) {
+            CameraPath.Pose pt = path.get(i);
+            Sphere dot = new Sphere(0.9);
+            dot.setMaterial(pathMat);
+            dot.setTranslateX(-pt.x() * S);
+            dot.setTranslateY(-pt.y() * S);
+            dot.setTranslateZ(pt.z() * S);
+            path3d.getChildren().add(dot);
+        }
+        PhongMaterial keyMat = new PhongMaterial(Color.web("#e6edf3"));
+        PhongMaterial targetMat = new PhongMaterial(Color.web("#d29922"));
+        for (CameraKey k : CameraPath.sorted(e)) {
+            Sphere kp = new Sphere(1.8);
+            kp.setMaterial(keyMat);
+            kp.setTranslateX(-k.x * S);
+            kp.setTranslateY(-k.y * S);
+            kp.setTranslateZ(k.z * S);
+            path3d.getChildren().add(kp);
+            if (k.lookAt) {
+                Box tb = new Box(4, 4, 4);
+                tb.setMaterial(targetMat);
+                tb.setTranslateX(-k.tx * S);
+                tb.setTranslateY(-k.ty * S);
+                tb.setTranslateZ(k.tz * S);
+                path3d.getChildren().add(tb);
+            }
+        }
+        double now = time.getValue();
+        CameraPath.Pose p = CameraPath.at(e, now);
+        camPos.setX(-p.x() * S);
+        camPos.setY(-p.y() * S);
+        camPos.setZ(p.z() * S);
+        camYaw.setAngle(p.yaw());
+        camPitch.setAngle(-p.pitch());
+        StringBuilder sb = new StringBuilder(String.format("XYZ (%.1f, %.1f, %.1f)  Yaw %.0f  Pitch %.0f",
+                p.x(), p.y(), p.z(), p.yaw(), p.pitch()));
+        for (CameraEvent ev : e.events) {
+            if (now >= ev.time && now <= ev.time + ev.duration && !ev.text.isBlank()) {
+                sb.append("\n[").append(ev.kind).append("] ").append(ev.text);
+            }
+        }
+        hud3d.setText(sb.toString());
     }
 
     private void view(GraphicsContext g, double ox, double oy, double pw, double ph, List<CameraPath.Pose> path,

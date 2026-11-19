@@ -292,13 +292,42 @@ public final class CutsceneGen {
      */
     public static String bedrockScript(GenContext ctx) {
         List<Cutscene> all = ctx.all(Cutscene.class);
-        StringBuilder sb = new StringBuilder("const cutscenes = {\n");
+        StringBuilder sb = new StringBuilder("const activeCutscenes = new Map();\n\n");
+        sb.append("function stopCutscene(player, runEnd) {\n");
+        sb.append("  if (!player) return;\n");
+        sb.append("  const state = activeCutscenes.get(player.id);\n");
+        sb.append("  if (!state) { cmd(player, \"camera @s clear\"); return; }\n");
+        sb.append("  activeCutscenes.delete(player.id);\n");
+        sb.append("  for (const tid of state.timers) system.clearRun(tid);\n");
+        sb.append("  if (state.skipRun !== undefined) system.clearRun(state.skipRun);\n");
+        sb.append("  cmd(player, \"camera @s clear\");\n");
+        sb.append("  if (state.returnToStart && state.startLoc && state.startDim) {\n");
+        sb.append("    try { player.teleport(state.startLoc, { dimension: state.startDim }); } catch (e) {}\n");
+        sb.append("  }\n");
+        sb.append("  if (runEnd && state.onEnd) state.onEnd(player);\n");
+        sb.append("}\n\n");
+        sb.append("const cutscenes = {\n");
         for (Cutscene c : all) {
             boolean relative = !"absolute".equals(c.space);
             List<modstudio.core.Systems.CameraKey> keys = CameraPath.sorted(c);
             sb.append("  ").append(jsStr(c.name)).append(": (self) => {\n");
             sb.append("    if (!self || self.typeId !== \"minecraft:player\") return;\n");
+            sb.append("    stopCutscene(self, false);\n");
             sb.append("    const o = self.location;\n");
+            sb.append("    const state = { timers: [], returnToStart: ").append(c.returnToStart)
+                    .append(", startLoc: { x: o.x, y: o.y, z: o.z }, startDim: self.dimension, onEnd: ")
+                    .append(c.onEnd.isEmpty() ? "null" : "(p) => cutsceneEnds[" + jsStr(c.name) + "](p)")
+                    .append(" };\n");
+            sb.append("    activeCutscenes.set(self.id, state);\n");
+            if (c.skippable) {
+                sb.append("    let wasSneaking = self.isSneaking === true;\n");
+                sb.append("    state.skipRun = system.runInterval(() => {\n");
+                sb.append("      if (!activeCutscenes.has(self.id)) return;\n");
+                sb.append("      const s = self.isSneaking === true;\n");
+                sb.append("      if (s && !wasSneaking) { stopCutscene(self, true); return; }\n");
+                sb.append("      wasSneaking = s;\n");
+                sb.append("    }, 1);\n");
+            }
             double prev = 0;
             for (int i = 0; i < keys.size(); i++) {
                 var k = keys.get(i);
@@ -317,7 +346,7 @@ public final class CutsceneGen {
                         ? "camera @s set minecraft:free pos " + posExpr + " rot " + num(p.pitch()) + " " + num(p.yaw())
                         : "camera @s set minecraft:free ease " + num(dur) + " " + ease + " pos " + posExpr + " rot " + num(p.pitch()) + " " + num(p.yaw());
                 int delay = Math.max(0, (int) Math.round((i == 0 ? k.time : prev) * 20));
-                sb.append("    system.runTimeout(() => cmd(self, `").append(cmd).append("`), ").append(delay).append(");\n");
+                sb.append("    state.timers.push(system.runTimeout(() => cmd(self, `").append(cmd).append("`), ").append(delay).append("));\n");
                 prev = k.time;
             }
             for (CameraEvent e : c.events) {
@@ -332,10 +361,10 @@ public final class CutsceneGen {
                     default -> "";
                 };
                 if (cmd.isBlank()) continue;
-                sb.append("    system.runTimeout(() => cmd(self, `").append(cmd.replace("${", "$\\{")).append("`), ").append(delay).append(");\n");
+                sb.append("    state.timers.push(system.runTimeout(() => cmd(self, `").append(cmd.replace("${", "$\\{")).append("`), ").append(delay).append("));\n");
             }
             int end = CameraPath.ticks(c) + 1;
-            sb.append("    system.runTimeout(() => cmd(self, \"camera @s clear\"), ").append(end).append(");\n");
+            sb.append("    state.timers.push(system.runTimeout(() => stopCutscene(self, true), ").append(end).append("));\n");
             sb.append("  },\n");
         }
         sb.append("};\n\n");

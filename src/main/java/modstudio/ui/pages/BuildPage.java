@@ -16,6 +16,7 @@ import modstudio.gen.Exporter;
 import modstudio.gen.FileMap;
 import modstudio.gen.GenContext;
 import modstudio.gen.Generators;
+import modstudio.gen.ModPatcher;
 import modstudio.i18n.I18n;
 import modstudio.ui.Ui;
 import modstudio.ui.WorkspaceView;
@@ -40,8 +41,10 @@ public final class BuildPage extends BorderPane implements WorkspaceView.Page {
     private final CheckBox runGradle = new CheckBox();
     private final TextArea console = new TextArea();
     private final Label jdkLabel = Ui.help("");
+    private Node gradleBox;
     private final Button buildB;
     private final Button exportB;
+    private final Button patchJarB;
     private final Button cancelB;
     private final ProgressBar progress = new ProgressBar(0);
     private final ConcurrentLinkedQueue<String> logQueue = new ConcurrentLinkedQueue<>();
@@ -50,10 +53,12 @@ public final class BuildPage extends BorderPane implements WorkspaceView.Page {
 
     // Preview tab
     private final ComboBox<Build> previewTarget = new ComboBox<>();
+    private final TextField previewFilter = new TextField();
     private final TreeView<String> tree = new TreeView<>();
     private final StackPane viewer = new StackPane();
     private final Label previewInfo = Ui.help("");
     private FileMap previewFiles;
+    private int previewTotalCount;
 
     public BuildPage(WorkspaceView view) {
         this.view = view;
@@ -66,6 +71,7 @@ public final class BuildPage extends BorderPane implements WorkspaceView.Page {
 
         exportB = Ui.button(t("build.export"), "mdi2e-export-variant", () -> start(false));
         buildB = Ui.accent(t("build.build"), "mdi2h-hammer", () -> start(true));
+        patchJarB = Ui.button(t("build.patch_jar"), "mdi2p-package-variant", this::patchOriginalJar);
         cancelB = Ui.button(t("action.cancel"), "mdi2s-stop", () -> {
             if (cancel != null) cancel.cancel();
         });
@@ -84,6 +90,10 @@ public final class BuildPage extends BorderPane implements WorkspaceView.Page {
 
         Timeline flush = new Timeline(new KeyFrame(Duration.millis(120), e -> flushLog()));
         flush.setCycleCount(Timeline.INDEFINITE);
+        sceneProperty().addListener((obs, oldScene, newScene) -> {
+            if (newScene == null) flush.stop();
+            else if (flush.getStatus() != javafx.animation.Animation.Status.RUNNING) flush.play();
+        });
         flush.play();
     }
 
@@ -95,6 +105,33 @@ public final class BuildPage extends BorderPane implements WorkspaceView.Page {
     public void onShow() {
         rebuildTargets();
         updateJdk();
+        boolean canPatch = hasSourceJar();
+        patchJarB.setVisible(canPatch);
+        patchJarB.setManaged(canPatch);
+    }
+
+    private boolean hasSourceJar() {
+        return p.sourceArtifact != null && !p.sourceArtifact.isBlank()
+                && p.sourceArtifact.toLowerCase(Locale.ROOT).endsWith(".jar")
+                && Files.isRegularFile(Path.of(p.sourceArtifact));
+    }
+
+    private void patchOriginalJar() {
+        if (running || !hasSourceJar()) return;
+        List<Build> builds = p.builds();
+        if (builds.isEmpty()) return;
+        Build tg = builds.stream().filter(b -> b.target().isMod()).findFirst().orElse(builds.get(0));
+        try {
+            view.main.save();
+            GenContext ctx = Generators.generate(p, tg);
+            Path src = Path.of(p.sourceArtifact);
+            Path dest = Exporter.distDir(view.ws.dir()).resolve(p.meta.modId + "-" + p.meta.version + "-patched.jar");
+            ModPatcher.Result res = ModPatcher.patchJar(p, ctx, src, dest);
+            log("");
+            log(t("build.patch_done", dest, res.keptEntries(), res.patchedEntries(), res.addedEntries()));
+        } catch (Exception ex) {
+            log(t("build.failed", String.valueOf(ex.getMessage())));
+        }
     }
 
     // ------------------------------------------------------------------ build tab
@@ -110,12 +147,15 @@ public final class BuildPage extends BorderPane implements WorkspaceView.Page {
         });
         jdk.getStyleClass().add("flat");
 
-        VBox targetsCard = Ui.card(t("build.targets"), targetsBox, new Separator(), runGradle, Ui.hbox(8, jdkLabel, jdk),
-                Ui.help(t("build.gradle_help")));
+        gradleBox = new VBox(8, new Separator(), runGradle, Ui.hbox(8, jdkLabel, jdk), Ui.help(t("build.gradle_help")));
+        VBox targetsCard = Ui.card(t("build.targets"), targetsBox, gradleBox);
         progress.setMaxWidth(Double.MAX_VALUE);
         progress.setVisible(false);
-        for (Button b : new Button[]{exportB, buildB, cancelB, openOut, openDist}) b.setMinWidth(Region.USE_PREF_SIZE);
-        VBox actions = new VBox(8, Ui.hbox(8, buildB, exportB, cancelB), Ui.hbox(8, openOut, openDist));
+        for (Button b : new Button[]{exportB, buildB, patchJarB, cancelB, openOut, openDist}) b.setMinWidth(Region.USE_PREF_SIZE);
+        boolean canPatch = hasSourceJar();
+        patchJarB.setVisible(canPatch);
+        patchJarB.setManaged(canPatch);
+        VBox actions = new VBox(8, Ui.hbox(8, buildB, exportB, cancelB), Ui.hbox(8, patchJarB, openOut, openDist));
         VBox left = new VBox(12, targetsCard, actions, progress);
         left.setPrefWidth(520);
         left.setMinWidth(420);
@@ -149,6 +189,15 @@ public final class BuildPage extends BorderPane implements WorkspaceView.Page {
         checks.clear();
         List<Build> builds = p.builds();
         if (builds.isEmpty()) targetsBox.getChildren().add(Ui.help(t("problem.no_targets")));
+        boolean hasCode = ProjectScope.hasCode(p.targets());
+        for (Node n : new Node[]{gradleBox, buildB}) {
+            if (n == null) continue;
+            n.setVisible(hasCode);
+            n.setManaged(hasCode);
+        }
+        buildB.getStyleClass().remove("accent");
+        exportB.getStyleClass().remove("accent");
+        (hasCode ? buildB : exportB).getStyleClass().add("accent");
         for (Build b : builds) {
             Target tg = b.target();
             CheckBox cb = new CheckBox(t("target." + tg.id));
@@ -346,6 +395,9 @@ public final class BuildPage extends BorderPane implements WorkspaceView.Page {
             }
         });
         previewTarget.valueProperty().addListener((o, a, b) -> generatePreview());
+        previewFilter.setPromptText(t("build.filter_files"));
+        previewFilter.setPrefWidth(220);
+        previewFilter.textProperty().addListener((o, a, b) -> rebuildPreviewTree());
         Button refresh = Ui.button(t("build.refresh"), "mdi2r-refresh", this::generatePreview);
         tree.setShowRoot(false);
         tree.getSelectionModel().selectedItemProperty().addListener((o, a, b) -> showFile(b));
@@ -354,7 +406,7 @@ public final class BuildPage extends BorderPane implements WorkspaceView.Page {
         SplitPane split = new SplitPane(tree, viewer);
         split.setDividerPositions(0.3);
         VBox.setVgrow(split, Priority.ALWAYS);
-        VBox box = new VBox(8, Ui.hbox(8, previewTarget, refresh, previewInfo), split);
+        VBox box = new VBox(8, Ui.hbox(8, previewTarget, previewFilter, refresh, previewInfo), split);
         box.setPadding(new Insets(12, 8, 8, 8));
         return box;
     }
@@ -375,44 +427,56 @@ public final class BuildPage extends BorderPane implements WorkspaceView.Page {
         try {
             GenContext ctx = Generators.generate(p, tg);
             previewFiles = ctx.files;
-            TreeItem<String> root = new TreeItem<>("");
-            Map<String, TreeItem<String>> dirs = new HashMap<>();
-            for (String path : ctx.files.paths()) {
-                String[] parts = path.split("/");
-                TreeItem<String> parent = root;
-                StringBuilder acc = new StringBuilder();
-                for (int i = 0; i < parts.length - 1; i++) {
-                    acc.append(parts[i]).append('/');
-                    TreeItem<String> pp = parent;
-                    parent = dirs.computeIfAbsent(acc.toString(), k -> {
-                        TreeItem<String> d = new TreeItem<>(k, Ui.icon("mdi2f-folder-outline"));
-                        pp.getChildren().add(d);
-                        return d;
-                    });
-                }
-                parent.getChildren().add(new TreeItem<>(path, Ui.icon("mdi2f-file-outline")));
-            }
-            tree.setCellFactory(tv -> new TreeCell<>() {
-                @Override
-                protected void updateItem(String s, boolean empty) {
-                    super.updateItem(s, empty);
-                    if (empty || s == null) {
-                        setText(null);
-                        setGraphic(null);
-                        return;
-                    }
-                    String n = s.endsWith("/") ? s.substring(0, s.length() - 1) : s;
-                    setText(n.substring(n.lastIndexOf('/') + 1));
-                    setGraphic(getTreeItem() == null ? null : getTreeItem().getGraphic());
-                }
-            });
-            expand(root, 3);
-            tree.setRoot(root);
+            previewTotalCount = ctx.files.size();
+            rebuildPreviewTree();
             String notes = ctx.notes.isEmpty() ? "" : "   |   " + String.join("  ", ctx.notes);
-            previewInfo.setText(t("build.preview_count", ctx.files.size()) + notes);
+            previewInfo.setText(t("build.preview_count", previewTotalCount) + notes);
         } catch (Exception ex) {
             previewInfo.setText(t("build.generate_failed") + ": " + ex.getMessage());
         }
+    }
+
+    private void rebuildPreviewTree() {
+        if (previewFiles == null) return;
+        String q = previewFilter.getText() == null ? "" : previewFilter.getText().trim().toLowerCase(Locale.ROOT);
+        TreeItem<String> root = new TreeItem<>("");
+        Map<String, TreeItem<String>> dirs = new HashMap<>();
+        int shown = 0;
+        for (String path : previewFiles.paths()) {
+            if (!q.isEmpty() && !path.toLowerCase(Locale.ROOT).contains(q)) continue;
+            shown++;
+            String[] parts = path.split("/");
+            TreeItem<String> parent = root;
+            StringBuilder acc = new StringBuilder();
+            for (int i = 0; i < parts.length - 1; i++) {
+                acc.append(parts[i]).append('/');
+                TreeItem<String> pp = parent;
+                parent = dirs.computeIfAbsent(acc.toString(), k -> {
+                    TreeItem<String> d = new TreeItem<>(k, Ui.icon("mdi2f-folder-outline"));
+                    pp.getChildren().add(d);
+                    return d;
+                });
+            }
+            parent.getChildren().add(new TreeItem<>(path, Ui.icon("mdi2f-file-outline")));
+        }
+        tree.setCellFactory(tv -> new TreeCell<>() {
+            @Override
+            protected void updateItem(String s, boolean empty) {
+                super.updateItem(s, empty);
+                if (empty || s == null) {
+                    setText(null);
+                    setGraphic(null);
+                    return;
+                }
+                String n = s.endsWith("/") ? s.substring(0, s.length() - 1) : s;
+                setText(n.substring(n.lastIndexOf('/') + 1));
+                setGraphic(getTreeItem() == null ? null : getTreeItem().getGraphic());
+            }
+        });
+        expand(root, q.isEmpty() ? 3 : 10);
+        tree.setRoot(root);
+        if (!q.isEmpty()) previewInfo.setText(shown + " / " + t("build.preview_count", previewTotalCount));
+        else previewInfo.setText(t("build.preview_count", previewTotalCount));
     }
 
     private static void expand(TreeItem<String> item, int depth) {

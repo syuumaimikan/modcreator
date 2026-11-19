@@ -4,7 +4,10 @@ import modstudio.core.Logic.PType;
 import modstudio.core.Logic.Param;
 
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 
 /**
  * The larger set of procedure steps and conditions: text and chat, item editing, entity data, displays, world and
@@ -58,27 +61,55 @@ public final class LogicExtra {
                 + or(s.get("z2"), "~");
     }
 
+    /** Custom plugin-registered Bedrock command emitters keyed by step kind. */
+    private static final Map<String, Function<Elements.Step, String>> CUSTOM_BEDROCK_COMMANDS = new ConcurrentHashMap<>();
+
+    /** Registers or overrides the Bedrock command template for a step kind. */
+    public static void registerBedrockCommand(String kind, Function<Elements.Step, String> handler) {
+        if (kind != null && !kind.isBlank() && handler != null) CUSTOM_BEDROCK_COMMANDS.put(kind, handler);
+    }
+
     /**
-     * The Bedrock command of a step from the larger set whose command reads the same in Bedrock (an empty string when it
-     * does nothing there), or null when the step has no Bedrock form.
+     * The Bedrock command of a step from the larger set or custom extensions whose command runs in Bedrock
+     * (an empty string when it does nothing there), or null when the step has no Bedrock form.
      */
     public static String bedrockCommand(Elements.Step s) {
+        if (s == null || s.kind == null) return null;
+        Function<Elements.Step, String> custom = CUSTOM_BEDROCK_COMMANDS.get(s.kind);
+        if (custom != null) return custom.apply(s);
         if (!isExtra(s.kind)) return null;
         String t = or(s.get("target"), "@s");
         return switch (s.kind) {
             case "say" -> "say " + or(s.get("text"), "Hello!").replaceAll("\\s*\\R\\s*", " ");
             case "tell" -> "tell " + t + " " + or(s.get("text"), "Hello!").replaceAll("\\s*\\R\\s*", " ");
+            case "tellraw_raw" -> "tellraw " + t + " {\"rawtext\":[{\"text\":" + jsonQuote(or(s.get("json"), "{}")) + "}]}";
             case "title_times" -> "title " + t + " times " + or(s.get("fade_in"), "10") + " " + or(s.get("stay"), "70") + " " + or(s.get("fade_out"), "20");
             case "title_clear" -> "title " + t + " clear";
+            case "message_score" -> "tellraw " + t + " {\"rawtext\":[{\"text\":" + jsonQuote(or(s.get("text"), "Points: "))
+                    + "},{\"score\":{\"name\":\"*\",\"objective\":" + jsonQuote(or(s.get("objective"), "points")) + "}}]}";
+            case "actionbar_score" -> "titleraw " + t + " actionbar {\"rawtext\":[{\"text\":" + jsonQuote(or(s.get("text"), "Coins: "))
+                    + "},{\"score\":{\"name\":\"*\",\"objective\":" + jsonQuote(or(s.get("objective"), "coins")) + "}}]}";
+            case "clear_chat" -> "";
             case "clear_all" -> "clear " + t;
             case "time_add" -> "time add " + or(s.get("ticks"), "1000");
             case "time_set" -> "time set " + or(s.get("ticks"), "6000");
+            case "weather_for" -> "weather " + or(s.get("weather"), "rain") + " " + or(s.get("seconds"), "300");
             case "teleport_to" -> "tp " + t + " " + or(s.get("destination"), "@p");
             case "teleport_forward" -> "execute as " + t + " at @s run tp @s ^ ^ ^" + or(s.get("distance"), "5");
+            case "teleport_random" -> "spreadplayers ~ ~ 1 " + or(s.get("radius"), "50") + " " + t;
             case "face_position" -> "execute as " + t + " at @s run tp @s ~ ~ ~ facing " + pos(s);
+            case "face_entity" -> "execute as " + t + " at @s run tp @s ~ ~ ~ facing " + or(s.get("other"), "@p");
             case "rotate" -> "execute as " + t + " at @s run tp @s ~ ~ ~ " + or(s.get("yaw"), "~") + " " + or(s.get("pitch"), "~");
             case "lightning_at" -> "execute at " + t + " run summon lightning_bolt ~ ~ ~";
+            case "explode_at" -> "execute at " + t + " run summon creeper ~ ~ ~ minecraft:start_exploding_forced";
+            case "particle_at" -> "execute at " + t + " run particle " + Ids.path(or(s.get("particle"), "minecraft:heart")) + " ~ ~1 ~";
+            case "sound_at" -> "execute as " + t + " at @s run playsound " + Ids.path(or(s.get("sound"), "note.pling")) + " @s ~ ~ ~ 1 " + or(s.get("pitch"), "1");
+            case "playsound_at" -> "playsound " + Ids.path(or(s.get("sound"), "random.explode")) + " @a " + pos(s) + " " + or(s.get("volume"), "1") + " " + or(s.get("pitch"), "1");
+            case "play_music" -> "music play " + Ids.path(or(s.get("sound"), "record.cat"));
             case "full_heal" -> "effect " + t + " instant_health 1 10 true";
+            case "effect_clear_one" -> "effect " + t + " clear";
+            case "damage_by" -> "damage " + t + " " + or(s.get("amount"), "4") + " entity_attack entity " + or(s.get("attacker"), "@p");
+            case "xp_clear" -> "xp -10000L " + t;
             case "set_spawn_here" -> "execute as " + t + " at @s run spawnpoint @s ~ ~ ~";
             case "kill_type" -> "kill @e[type=" + Ids.full(or(s.get("entity"), "minecraft:zombie")) + ",r=" + or(s.get("radius"), "16") + "]";
             case "spread" -> "spreadplayers " + or(s.get("x"), "~") + " " + or(s.get("z"), "~") + " " + or(s.get("distance"), "5") + " " + or(s.get("range"), "100") + " " + t;
@@ -88,16 +119,25 @@ public final class LogicExtra {
             case "fill_replace" -> "fill " + box(s) + " " + Ids.full(or(s.get("block"), "minecraft:stone")) + " replace " + Ids.full(or(s.get("filter"), "minecraft:dirt"));
             case "clone_area" -> "clone " + box(s) + " " + or(s.get("dx"), "~") + " " + or(s.get("dy"), "~") + " " + or(s.get("dz"), "~") + " "
                     + (or(s.get("mode"), "replace").equals("masked") ? "masked" : "replace");
+            case "give_named", "give_enchanted" -> "give " + t + " " + Ids.path(or(s.get("item"), "diamond_sword")) + " " + or(s.get("count"), "1");
+            case "summon_named" -> "summon " + Ids.path(or(s.get("entity"), "villager")) + " " + jsonQuote(or(s.get("name"), "Guide")) + " " + pos(s);
             case "score_operation" -> s.get("objective").isBlank() || s.get("source_objective").isBlank() ? ""
                     : "scoreboard players operation " + t + " " + s.get("objective").trim() + " " + or(s.get("op"), "+=") + " " + or(s.get("source"), "@s") + " "
                     + s.get("source_objective").trim();
+            case "score_random" -> s.get("objective").isBlank() ? ""
+                    : "scoreboard players random " + t + " " + s.get("objective").trim() + " " + or(s.get("min"), "1") + " " + or(s.get("max"), "100");
             case "score_reset" -> "scoreboard players reset " + t + (s.get("objective").isBlank() ? "" : " " + s.get("objective").trim());
             case "objective_add" -> s.get("objective").isBlank() ? ""
-                    : "scoreboard objectives add " + s.get("objective").trim() + " dummy \"" + or(s.get("name"), s.get("objective").trim()).replace("\"", "") + "\"";
+                    : "scoreboard objectives add " + s.get("objective").trim() + " dummy " + jsonQuote(or(s.get("name"), s.get("objective").trim()));
             case "objective_remove" -> s.get("objective").isBlank() ? "" : "scoreboard objectives remove " + s.get("objective").trim();
+            case "objective_rename" -> "";
             case "sidebar_clear" -> "scoreboard objectives setdisplay " + (or(s.get("slot"), "sidebar").startsWith("sidebar") ? "sidebar" : or(s.get("slot"), "sidebar"));
             default -> null;
         };
+    }
+
+    private static String jsonQuote(String raw) {
+        return "\"" + raw.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
     }
 
     private static void add() {

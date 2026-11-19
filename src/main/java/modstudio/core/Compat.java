@@ -68,13 +68,13 @@ public final class Compat {
     }
 
     private static void rules(Project p, Element e, Target t, boolean old, boolean preComponents, Acc a) {
-        boolean mod = t.isMod(), paper = t == Target.PAPER, pack = t == Target.DATAPACK, bedrock = t == Target.BEDROCK;
+        boolean mod = t.isMod(), paper = t.isPlugin(), pack = t == Target.DATAPACK, bedrock = t == Target.BEDROCK;
         switch (e) {
             case Item it -> {
                 if (paper || pack) a.fallback("compat.item_cmd");
                 if (it.customTooltip) {
                     if (bedrock) a.notes.add(I18n.t("compat.tooltip_bedrock"));
-                    else if ((t == Target.FABRIC || paper || pack) && p.mcVersions().stream().anyMatch(v -> !v.atLeast(McVersion.V1_21_4)))
+                    else if ((t == Target.FABRIC || t == Target.QUILT || paper || pack) && p.mcVersions().stream().anyMatch(v -> !v.atLeast(McVersion.V1_21_4)))
                         a.notes.add(I18n.t("compat.tooltip_old"));
                 }
                 if (it.isArmor() && (paper || pack) && p.mcVersions().stream().anyMatch(v -> !v.atLeast(McVersion.V1_21_4)))
@@ -126,9 +126,19 @@ public final class Compat {
                 }
                 if (bedrock) a.notes.add(I18n.t("compat.armor_bedrock"));
             }
+            case Elements.ToolMaterial tm -> {
+                if (pack) a.none("compat.mod_only");
+                else if (paper) a.fallback("compat.item_cmd");
+                else if (bedrock) a.fallback("compat.tool_material_bedrock");
+            }
             case Block b -> {
                 if (paper || pack) a.none("compat.block_pack");
                 if (bedrock && b.isCrop()) a.none("compat.crop_bedrock");
+                for (List<Step> l : List.of(b.onUse, b.onStep, b.onRandomTick, b.onNeighborChanged)) steps(p, l, t, old, a);
+            }
+            case Elements.Fluid fl -> {
+                if (!mod) a.none("compat.mods_only");
+                steps(p, fl.onEntityInside, t, old, a);
             }
             case Elements.Model m -> {
                 if (paper || pack) a.fallback("compat.model_rp");
@@ -147,7 +157,9 @@ public final class Compat {
             case Recipe r when r.recipeType.equals("brewing") -> {
                 boolean custom = !Ids.full(r.input.trim()).startsWith("minecraft:") || !Ids.full(r.result.trim()).startsWith("minecraft:");
                 if (pack) a.none("compat.brewing_pack");
-                else if ((paper || bedrock) && custom) a.none("compat.brewing_custom_potion");
+                else if (bedrock && custom) a.none("compat.brewing_custom_potion");
+                else if (paper && custom && !Ids.ns(Ids.full(r.input.trim())).equals(p.meta.modId) && !Ids.ns(Ids.full(r.result.trim())).equals(p.meta.modId))
+                    a.none("compat.brewing_custom_potion");
                 else if (bedrock && (Ids.path(Ids.full(r.input.trim())).equals("luck") || Ids.path(Ids.full(r.result.trim())).equals("luck"))) a.none("compat.brewing_luck");
             }
             case Recipe r -> {
@@ -193,7 +205,7 @@ public final class Compat {
                 for (CommandBranch b : c.branches) steps(p, b.steps, t, old, a);
             }
             case CodeFile cf -> {
-                if (!cf.target.equals(t.id)) a.none("compat.codefile", cf.target);
+                if (!Target.matchesSelector(cf.target, t)) a.none("compat.codefile", cf.target);
             }
             case Systems.Mob m -> {
                 if (bedrock) a.none("compat.java_only");
@@ -215,7 +227,7 @@ public final class Compat {
             case Systems.Menu m -> {
                 if (bedrock) a.none("compat.java_only");
                 else if (pack) a.fallback("compat.menu_chat");
-                else if (t == Target.PAPER && MenuArt.active(p, m)) a.fallback("compat.menu_art_pack");
+                else if (paper && MenuArt.active(p, m)) a.fallback("compat.menu_art_pack");
                 for (Systems.MenuSlot sl : m.slots) steps(p, sl.steps, t, old, a);
             }
             case Systems.Hud h -> {
@@ -234,7 +246,7 @@ public final class Compat {
             }
             case Systems.Multiblock mb -> {
                 if (bedrock) a.none("compat.java_only");
-                else if (mb.assemble && !mb.model.isBlank() && (t == Target.PAPER || t == Target.DATAPACK)) a.fallback("compat.rig_pack");
+                else if (mb.assemble && !mb.model.isBlank() && (paper || pack)) a.fallback("compat.rig_pack");
                 for (List<Step> l : List.of(mb.onAssemble, mb.onUse, mb.onFinish, mb.onDisassemble)) steps(p, l, t, old, a);
             }
             case Elements.Predicate pr -> {
@@ -247,7 +259,7 @@ public final class Compat {
                 if (bedrock) a.none("compat.java_only");
             }
             case Systems.Dialog d -> {
-                if (bedrock) a.none("compat.java_only");
+                if (bedrock) a.fallback("compat.dialog_bedrock");
                 else {
                     if (p.mcVersions().stream().anyMatch(v -> !v.dialogs())) a.fallback("compat.dialog_chat");
                     if (paper && p.mcVersions().stream().anyMatch(McVersion::dialogs)) a.notes.add(I18n.t("compat.dialog_restart"));
@@ -271,6 +283,40 @@ public final class Compat {
                 else if ((paper || pack) && Ids.full(m.block).startsWith(p.meta.modId + ":")) a.none("compat.machine_block");
                 for (List<Step> l : List.of(m.onCycle, m.onPlace, m.onBreak, m.onOverload)) steps(p, l, t, old, a);
             }
+            case ModElements.Container ct -> {
+                if (!mod) a.none("compat.mods_only");
+                for (List<Step> l : List.of(ct.onOpen, ct.onClose, ct.onCraft)) steps(p, l, t, old, a);
+            }
+            case ModElements.CustomEntity ce -> {
+                if (!mod) a.none("compat.mods_only");
+                for (List<Step> l : List.of(ce.onSpawn, ce.onHurt, ce.onDeath, ce.onInteract)) steps(p, l, t, old, a);
+            }
+            case ModElements.ModConfig cfg -> {
+                if (!mod) a.none("compat.mods_only");
+            }
+            case ModElements.MixinSpec mx -> {
+                if (!mod) a.none("compat.mods_only");
+            }
+            case ModElements.Portal pt -> {
+                if (!mod) a.none("compat.mods_only");
+            }
+            case ModElements.Profession pf -> {
+                if (!mod) a.none("compat.mods_only");
+            }
+            case ModElements.CustomRecipeType rt -> {
+                if (!mod) a.none("compat.mods_only");
+            }
+            case ModElements.WorldFeature wf -> {
+                if (bedrock) a.none("compat.java_only");
+                else if (t == Target.DATAPACK || paper) a.fallback("compat.feature_pack");
+            }
+            case ModElements.ArmorTrim at -> {
+                if (bedrock) a.none("compat.java_only");
+            }
+            case ModElements.BannerPattern bp -> {
+                if (bedrock) a.none("compat.java_only");
+                else if (p.mcVersions().stream().anyMatch(v -> !v.components())) a.none("compat.needs_1205");
+            }
             default -> {
             }
         }
@@ -282,6 +328,16 @@ public final class Compat {
         for (Step s : steps) {
             if (s.kind.equals("if") && s.cond != null && (s.cond.kind.equals("platform") || s.cond.kind.equals("mc_version"))) {
                 a.notes.add(I18n.t("compat.branch"));
+                boolean onlyPlatformCond = s.cond.kind.equals("platform");
+                if (onlyPlatformCond) {
+                    String want = s.cond.get("platform").trim().toLowerCase(java.util.Locale.ROOT);
+                    boolean match = Target.matchesSelector(want, t)
+                            || ("mod".equals(want) && t.isMod())
+                            || ("plugin".equals(want) && t.isPlugin())
+                            || ("pack".equals(want) && t.kind == Target.Kind.PACK);
+                    steps(p, match ? s.then : s.orElse, t, old, a);
+                    continue;
+                }
             }
             if (!bedrock) {
                 switch (s.kind) {
@@ -296,7 +352,7 @@ public final class Compat {
                     }
                     case "effect" -> {
                         String id = Ids.full(s.get("effect"));
-                        if ((pack || t == Target.PAPER) && id.startsWith(p.meta.modId + ":")) a.fallback("compat.effect_emulated");
+                        if ((pack || t.isPlugin()) && id.startsWith(p.meta.modId + ":")) a.fallback("compat.effect_emulated");
                     }
                     case "random_score" -> {
                         if (old) a.fallback("compat.random_shim");
@@ -316,7 +372,7 @@ public final class Compat {
             if (!bedrock && p.mcVersions().stream().anyMatch(v -> !v.components()) && List.of("item_glint", "scale").contains(s.kind)) a.fallback("compat.step_new");
             if (!t.isMod() && LogicExtra.MOD_ONLY.contains(s.kind)) a.fallback("compat.screen_mod_only");
             if (bedrock && s.kind.equals("shoot")) a.fallback("compat.shoot_bedrock");
-            if (bedrock && List.of("modify_item", "give_loot", "show_dialog", "spawn_trader").contains(s.kind)) a.fallback("compat.step_java_only");
+            if (bedrock && List.of("modify_item", "give_loot", "spawn_trader").contains(s.kind)) a.fallback("compat.step_java_only");
             if (bedrock && (s.kind.equals("play_animation") || s.kind.equals("stop_animation"))) a.fallback("compat.animation_bedrock");
             steps(p, s.then, t, old, a);
             steps(p, s.orElse, t, old, a);

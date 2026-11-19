@@ -43,7 +43,11 @@ public final class Catalog {
                     for (String s : Vanilla.BLOCK_TAGS) r.add(new Picker.Entry(s, s, null, tags));
                 }
             }
-            case ENTITY -> Vanilla.ENTITIES.forEach(s -> r.add(vanilla(s, vanilla)));
+            case ENTITY -> {
+                for (ModElements.CustomEntity ce : p.all(ModElements.CustomEntity.class))
+                    r.add(new Picker.Entry(ns + ":" + ce.name, label(ce.displayName, ce.name), ws.texture(ce.texture, 32), project));
+                Vanilla.ENTITIES.forEach(s -> r.add(vanilla(s, vanilla)));
+            }
             case EFFECT -> {
                 for (Elements.StatusEffect s : p.all(Elements.StatusEffect.class))
                     r.add(new Picker.Entry(ns + ":" + s.name, label(s.displayName, s.name), null, project));
@@ -83,9 +87,12 @@ public final class Catalog {
             case ADVANCEMENT -> {
                 for (Elements.Advancement a : p.all(Elements.Advancement.class))
                     r.add(new Picker.Entry(ns + ":" + a.name, label(a.title, a.name), null, project));
-                for (String s : List.of("minecraft:story/root", "minecraft:story/mine_stone", "minecraft:story/smelt_iron",
-                        "minecraft:story/mine_diamond", "minecraft:nether/root", "minecraft:end/root",
-                        "minecraft:adventure/root", "minecraft:husbandry/root")) r.add(new Picker.Entry(s, s, null, vanilla));
+                for (String s : List.of("minecraft:story/root", "minecraft:story/mine_stone", "minecraft:story/upgrade_tools",
+                        "minecraft:story/smelt_iron", "minecraft:story/obtain_armor", "minecraft:story/mine_diamond",
+                        "minecraft:story/enter_the_nether", "minecraft:story/enter_the_end",
+                        "minecraft:nether/root", "minecraft:end/root",
+                        "minecraft:adventure/root", "minecraft:husbandry/root", "minecraft:recipes/root"))
+                    r.add(new Picker.Entry(s, s, null, vanilla));
             }
             case LOOT_TABLE -> {
                 for (Elements.LootTable l : p.all(Elements.LootTable.class))

@@ -28,16 +28,18 @@ public final class Icons {
         for (Systems.IconFont f : p.all(Systems.IconFont.class)) {
             for (Systems.Icon ic : f.icons) {
                 if (ic.name == null || ic.name.isBlank()) continue;
-                char ch = (char) (FIRST + i++);
+                char ch = charOf(i++);
                 r.putIfAbsent(ic.name.trim(), String.valueOf(ch));
             }
         }
         return r;
     }
 
-    /** Character of each icon in order (same numbering as glyphs, duplicates included). */
+    /** Character of each icon in order (same numbering as glyphs, clamped away from SPACE range). */
     public static char charOf(int index) {
-        return (char) (FIRST + index);
+        int raw = FIRST + index;
+        if (raw >= SPACE && raw < 0xF900) return (char) (0xE000 + Math.min(511, raw - SPACE));
+        return (char) Math.min(0xF8FF, Math.max(FIRST, raw));
     }
 
     /** Replaces :name: with the icon characters and {space:N} with space characters. */

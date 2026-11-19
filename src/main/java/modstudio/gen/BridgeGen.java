@@ -31,7 +31,19 @@ public final class BridgeGen {
         try (InputStream in = BridgeGen.class.getResourceAsStream("/modstudio/runtime/" + name + ".java.txt")) {
             if (in == null) throw new IllegalStateException("missing runtime template " + name);
             String s = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-            return s.replace("{{package}}", ctx.pkg).replace("{{modid}}", ctx.ns).replace("{{macros}}", Boolean.toString(ctx.v.macros()));
+            String permImports = ctx.permissionSet()
+                    ? "import net.minecraft.server.permissions.PermissionSet;\nimport net.minecraft.server.permissions.Permissions;\n"
+                    : "";
+            String hasPermBody = ctx.permissionSet()
+                    ? "return switch (Math.max(0, Math.min(4, level))) { case 0 -> true; case 1 -> source.permissions().hasPermission(Permissions.COMMANDS_MODERATOR); case 2 -> source.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER); case 3 -> source.permissions().hasPermission(Permissions.COMMANDS_ADMIN); default -> source.permissions().hasPermission(Permissions.COMMANDS_OWNER); };"
+                    : "return source.hasPermission(level);";
+            return s.replace("{{package}}", ctx.pkg)
+                    .replace("{{modid}}", ctx.ns)
+                    .replace("{{macros}}", Boolean.toString(ctx.v.macros()))
+                    .replace("{{folia}}", Boolean.toString(ctx.target == Target.FOLIA))
+                    .replace("{{perm_imports}}", permImports)
+                    .replace("{{has_perm_body}}", hasPermBody)
+                    .replace("{{with_all_perms}}", ctx.withAllPermissions());
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
@@ -43,6 +55,10 @@ public final class BridgeGen {
 
     private boolean hasWeb() {
         return InterfaceGen.needsWeb(ctx.p);
+    }
+
+    private boolean hasJava() {
+        return !ctx.javaSteps().isEmpty();
     }
 
     private boolean hasTrees() {
@@ -169,7 +185,8 @@ public final class BridgeGen {
         s.l("private ModBridge() {").l("}");
         s.blank();
         s.l("public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {");
-        s.l("dispatcher.register(Commands.literal(" + ctx.mainClass + ".MODID + \"_bridge\").requires(source -> source.hasPermission(2))");
+        if (ctx.permissionSet()) s.imp("net.minecraft.server.permissions.Permissions");
+        s.l("dispatcher.register(Commands.literal(" + ctx.mainClass + ".MODID + \"_bridge\").requires(source -> " + ctx.hasPermissionExpr("source", 2, false) + ")");
         if (web) {
             s.l(".then(Commands.literal(\"init\").executes(c -> {");
             s.l("init(c.getSource().getServer());");
@@ -190,6 +207,12 @@ public final class BridgeGen {
             s.l("if (c.getSource().getEntity() instanceof ServerPlayer player) player.closeContainer();");
             s.l("return 1;");
             s.l("}))");
+        }
+        if (hasJava()) {
+            s.l(".then(Commands.literal(\"java\").then(Commands.argument(\"id\", StringArgumentType.word()).executes(c -> {");
+            s.l("ModJavaHandlers.run(c.getSource(), StringArgumentType.getString(c, \"id\"));");
+            s.l("return 1;");
+            s.l("})))");
         }
         s.l(");");
         s.l("}");
@@ -235,7 +258,7 @@ public final class BridgeGen {
                 "net.minecraft.world.entity.player.Player", "net.minecraft.world.inventory.AbstractContainerMenu",
                 "net.minecraft.world.inventory.ChestMenu", "net.minecraft.world.inventory.ClickType", "net.minecraft.world.inventory.DispenserMenu",
                 "net.minecraft.world.inventory.HopperMenu", "net.minecraft.world.inventory.MenuType", "net.minecraft.world.item.ItemStack",
-                "net.minecraft.network.chat.MutableComponent", "net.minecraft.resources.ResourceLocation",
+                "net.minecraft.network.chat.MutableComponent", ctx.rlImport(),
                 "java.util.HashMap", "java.util.List", "java.util.Map");
         if (ctx.components()) {
             s.imp("net.minecraft.core.component.DataComponents", "net.minecraft.world.item.component.ItemLore", "java.util.ArrayList");
@@ -293,7 +316,10 @@ public final class BridgeGen {
                 String fn = Src.str("menus/" + m.name + "/slot_" + sl.slot);
                 s.l("case " + Src.str(m.name + "#" + sl.slot) + " -> {");
                 if (InterfaceGen.javaPermission(ctx.target, sl)) {
-                    s.l("if (player.hasPermissions(" + sl.permission.trim() + ")) ModProcedures.run(player, " + fn + ");");
+                    int lvl = 2;
+                    try { lvl = Integer.parseInt(sl.permission.trim()); } catch (NumberFormatException ignored) {}
+                    if (ctx.permissionSet() && lvl > 0) s.imp("net.minecraft.server.permissions.Permissions");
+                    s.l("if (" + ctx.hasPermissionExpr("player", lvl, true) + ") ModProcedures.run(player, " + fn + ");");
                     s.l("else player.sendSystemMessage(text(" + Src.str(GenContext.legacy(m.denyMessage)) + "));");
                 } else {
                     s.l("ModProcedures.run(player, " + fn + ");");
@@ -319,7 +345,7 @@ public final class BridgeGen {
         s.l("return out.append(t);");
         s.l("}");
         s.blank();
-        s.l("private static final ResourceLocation MENU_FONT = " + GenContext.rlNew(ctx.singular(), ctx.mainClass + ".MODID", "\"menu\"") + ";");
+        s.l("private static final " + ctx.rlType() + " MENU_FONT = " + ctx.rlFrom(ctx.mainClass + ".MODID", "\"menu\"") + ";");
         s.blank();
         animClass(s, false);
         s.blank();
@@ -553,7 +579,7 @@ public final class BridgeGen {
             }
         }
         List<String> out = new ArrayList<>();
-        out.add("dispatcher.register(Commands.literal(" + Src.str(c.name) + ").requires(source -> source.hasPermission(" + min + "))");
+        out.add("dispatcher.register(Commands.literal(" + Src.str(c.name) + ").requires(source -> " + ctx.hasPermissionExpr("source", min, false) + ")");
         if (root.function != null) {
             out.add("        .executes(c -> ModArgs.run(c, " + Src.str(root.function) + ", " + root.permission + "))");
         }
@@ -589,7 +615,7 @@ public final class BridgeGen {
         return Double.toString(d);
     }
 
-    private static String argType(CommandSpec.Token t) {
+    private String argType(CommandSpec.Token t) {
         return switch (t.type()) {
             case "string" -> "StringArgumentType.string()";
             case "text" -> "StringArgumentType.greedyString()";
@@ -603,7 +629,7 @@ public final class BridgeGen {
             case "entity" -> "EntityArgument.entity()";
             case "entities" -> "EntityArgument.entities()";
             case "blockpos" -> "BlockPosArgument.blockPos()";
-            case "item", "block" -> "ResourceLocationArgument.id()";
+            case "item", "block" -> ctx.identifiers() ? "IdentifierArgument.id()" : "ResourceLocationArgument.id()";
             default -> "StringArgumentType.word()";
         };
     }
@@ -621,11 +647,12 @@ public final class BridgeGen {
         };
     }
 
-    public static void treeImports(Src s) {
+    public static void treeImports(Src s, GenContext ctx) {
         s.imp("com.mojang.brigadier.arguments.BoolArgumentType", "com.mojang.brigadier.arguments.DoubleArgumentType",
                 "com.mojang.brigadier.arguments.IntegerArgumentType", "com.mojang.brigadier.arguments.StringArgumentType",
                 "net.minecraft.commands.SharedSuggestionProvider", "net.minecraft.commands.arguments.EntityArgument",
-                "net.minecraft.commands.arguments.ResourceLocationArgument", "net.minecraft.commands.arguments.coordinates.BlockPosArgument",
+                ctx.identifiers() ? "net.minecraft.commands.arguments.IdentifierArgument" : "net.minecraft.commands.arguments.ResourceLocationArgument",
+                "net.minecraft.commands.arguments.coordinates.BlockPosArgument",
                 "net.minecraft.core.registries.BuiltInRegistries");
     }
 
@@ -673,11 +700,12 @@ public final class BridgeGen {
     }
 
     private void paperBridge(String main) {
-        boolean web = hasWeb(), menus = hasMenus();
+        boolean web = hasWeb(), menus = hasMenus(), java = hasJava(), folia = ctx.target == Target.FOLIA;
         Src s = new Src(ctx.pkg);
         s.imp("org.bukkit.Bukkit", "org.bukkit.entity.Player", "org.bukkit.plugin.java.JavaPlugin", "java.util.ArrayList");
-        if (web) s.imp("org.bukkit.scoreboard.Objective", "org.bukkit.scoreboard.Score", "java.nio.file.Path");
-        s.l("/** Picks up menu and web requests that functions leave as player tags and scores. */");
+        if (web || java) s.imp("org.bukkit.scoreboard.Objective", "org.bukkit.scoreboard.Score");
+        if (web) s.imp("java.nio.file.Path");
+        s.l("/** Picks up menu, inline Java and web requests that functions leave as player tags and scores. */");
         s.l("public final class Bridge" + (web ? " implements WebBridge.Host" : "") + " {");
         s.l("private static final String PREFIX = " + main + ".MODID + \".q.\";");
         s.l("private final JavaPlugin plugin;");
@@ -688,7 +716,8 @@ public final class BridgeGen {
         s.blank();
         s.l("public static void start(JavaPlugin plugin) {");
         if (menus) s.l("plugin.getServer().getPluginManager().registerEvents(new Menus(), plugin);");
-        s.l("plugin.getServer().getScheduler().runTaskTimer(plugin, Bridge::poll, 1L, 1L);");
+        if (folia) s.l("Bukkit.getGlobalRegionScheduler().runAtFixedRate(plugin, task -> poll(plugin), 1L, 1L);");
+        else s.l("plugin.getServer().getScheduler().runTaskTimer(plugin, () -> poll(plugin), 1L, 1L);");
         if (web) {
             s.l("WebSpecs.register();");
             s.l("WebBridge.start(new Bridge(plugin));");
@@ -699,39 +728,89 @@ public final class BridgeGen {
         if (web) s.l("WebBridge.stop();");
         s.l("}");
         s.blank();
-        s.l("private static void poll() {");
-        s.l("for (Player p : Bukkit.getOnlinePlayers()) {");
-        s.l("if (p.getScoreboardTags().isEmpty()) continue;");
-        s.l("for (String tag : new ArrayList<>(p.getScoreboardTags())) {");
-        s.l("if (!tag.startsWith(PREFIX)) continue;");
-        s.l("p.removeScoreboardTag(tag);");
-        s.l("String rest = tag.substring(PREFIX.length());");
-        s.l("if (rest.equals(\"close\")) p.closeInventory();");
-        if (menus) s.l("else if (rest.startsWith(\"menu.\")) Menus.open(p, rest.substring(5));");
-        if (web) s.l("else if (rest.startsWith(\"http.\")) WebBridge.request(rest.substring(5), p.getUniqueId().toString(), p.getName());");
-        s.l("}");
-        s.l("}");
-        if (web) {
-            s.l("Objective q = Bukkit.getScoreboardManager().getMainScoreboard().getObjective(" + main + ".MODID + \".q\");");
-            s.l("if (q == null) return;");
-            s.l("for (String name : WebBridge.names()) {");
-            s.l("Score score = q.getScore(\"#http.\" + name);");
-            s.l("if (!score.isScoreSet() || score.getScore() <= 0) continue;");
-            s.l("score.setScore(0);");
-            s.l("WebBridge.request(name, \"\", \"\");");
+        if (folia) {
+            s.l("private static void poll(JavaPlugin plugin) {");
+            s.l("for (Player p : Bukkit.getOnlinePlayers()) {");
+            s.l("p.getScheduler().run(plugin, task -> pollPlayer(p, plugin), null);");
+            s.l("}");
+            if (web) {
+                s.l("Objective q = Bukkit.getScoreboardManager().getMainScoreboard().getObjective(" + main + ".MODID + \".q\");");
+                s.l("if (q == null) return;");
+                s.l("for (String name : WebBridge.names()) {");
+                s.l("Score score = q.getScore(\"#http.\" + name);");
+                s.l("if (!score.isScoreSet() || score.getScore() <= 0) continue;");
+                s.l("score.setScore(0);");
+                s.l("WebBridge.request(name, \"\", \"\");");
+                s.l("}");
+            }
+            if (java) {
+                s.l("Objective jq = Bukkit.getScoreboardManager().getMainScoreboard().getObjective(" + main + ".MODID + \".q\");");
+                s.l("if (jq != null) {");
+                for (var je : ctx.javaSteps().entries()) {
+                    s.l("{ Score js = jq.getScore(" + Src.str("#java." + je.id()) + "); if (js.isScoreSet() && js.getScore() > 0) { js.setScore(0); JavaHandlers.run(plugin, null, " + Src.str(je.id()) + "); } }");
+                }
+                s.l("}");
+            }
+            s.l("}");
+            s.blank();
+            s.l("private static void pollPlayer(Player p, JavaPlugin plugin) {");
+            s.l("if (p.getScoreboardTags().isEmpty()) return;");
+            s.l("for (String tag : new ArrayList<>(p.getScoreboardTags())) {");
+            s.l("if (!tag.startsWith(PREFIX)) continue;");
+            s.l("p.removeScoreboardTag(tag);");
+            s.l("String rest = tag.substring(PREFIX.length());");
+            s.l("if (rest.equals(\"close\")) p.closeInventory();");
+            if (menus) s.l("else if (rest.startsWith(\"menu.\")) Menus.open(p, rest.substring(5));");
+            if (web) s.l("else if (rest.startsWith(\"http.\")) WebBridge.request(rest.substring(5), p.getUniqueId().toString(), p.getName());");
+            if (java) s.l("else if (rest.startsWith(\"java.\")) JavaHandlers.run(plugin, p, rest.substring(5));");
+            s.l("}");
+            s.l("}");
+        } else {
+            s.l("private static void poll(JavaPlugin plugin) {");
+            s.l("for (Player p : Bukkit.getOnlinePlayers()) {");
+            s.l("if (p.getScoreboardTags().isEmpty()) continue;");
+            s.l("for (String tag : new ArrayList<>(p.getScoreboardTags())) {");
+            s.l("if (!tag.startsWith(PREFIX)) continue;");
+            s.l("p.removeScoreboardTag(tag);");
+            s.l("String rest = tag.substring(PREFIX.length());");
+            s.l("if (rest.equals(\"close\")) p.closeInventory();");
+            if (menus) s.l("else if (rest.startsWith(\"menu.\")) Menus.open(p, rest.substring(5));");
+            if (web) s.l("else if (rest.startsWith(\"http.\")) WebBridge.request(rest.substring(5), p.getUniqueId().toString(), p.getName());");
+            if (java) s.l("else if (rest.startsWith(\"java.\")) JavaHandlers.run(plugin, p, rest.substring(5));");
+            s.l("}");
+            s.l("}");
+            if (web) {
+                s.l("Objective q = Bukkit.getScoreboardManager().getMainScoreboard().getObjective(" + main + ".MODID + \".q\");");
+                s.l("if (q == null) return;");
+                s.l("for (String name : WebBridge.names()) {");
+                s.l("Score score = q.getScore(\"#http.\" + name);");
+                s.l("if (!score.isScoreSet() || score.getScore() <= 0) continue;");
+                s.l("score.setScore(0);");
+                s.l("WebBridge.request(name, \"\", \"\");");
+                s.l("}");
+            }
+            if (java) {
+                s.l("Objective jq = Bukkit.getScoreboardManager().getMainScoreboard().getObjective(" + main + ".MODID + \".q\");");
+                s.l("if (jq != null) {");
+                for (var je : ctx.javaSteps().entries()) {
+                    s.l("{ Score js = jq.getScore(" + Src.str("#java." + je.id()) + "); if (js.isScoreSet() && js.getScore() > 0) { js.setScore(0); JavaHandlers.run(plugin, null, " + Src.str(je.id()) + "); } }");
+                }
+                s.l("}");
+            }
             s.l("}");
         }
-        s.l("}");
         if (web) {
             s.blank();
             s.l("@Override");
             s.l("public void runOnMain(Runnable task) {");
-            s.l("if (plugin.isEnabled()) Bukkit.getScheduler().runTask(plugin, task);");
+            if (folia) s.l("if (plugin.isEnabled()) Bukkit.getGlobalRegionScheduler().execute(plugin, task);");
+            else s.l("if (plugin.isEnabled()) Bukkit.getScheduler().runTask(plugin, task);");
             s.l("}");
             s.blank();
             s.l("@Override");
             s.l("public void command(String command) {");
-            s.l("Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);");
+            if (folia) s.l("Bukkit.getGlobalRegionScheduler().execute(plugin, () -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command));");
+            else s.l("Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);");
             s.l("}");
             s.blank();
             s.l("@Override");
@@ -818,18 +897,29 @@ public final class BridgeGen {
         s.l("if (anim != null) {");
         s.l("Anim running = anim;");
         s.l("Inventory shown = inv;");
-        s.l("new BukkitRunnable() {");
-        s.l("int t;");
-        s.blank();
-        s.l("@Override");
-        s.l("public void run() {");
-        s.l("if (!player.isOnline() || player.getOpenInventory().getTopInventory() != shown) {");
-        s.l("cancel();");
-        s.l("return;");
-        s.l("}");
-        s.l("running.tick(shown, t++);");
-        s.l("}");
-        s.l("}.runTaskTimer(JavaPlugin.getProvidingPlugin(Menus.class), 0L, 1L);");
+        if (ctx.target == Target.FOLIA) {
+            s.l("final int[] t = {0};");
+            s.l("player.getScheduler().runAtFixedRate(JavaPlugin.getProvidingPlugin(Menus.class), task -> {");
+            s.l("if (!player.isOnline() || player.getOpenInventory().getTopInventory() != shown) {");
+            s.l("task.cancel();");
+            s.l("return;");
+            s.l("}");
+            s.l("running.tick(shown, t[0]++);");
+            s.l("}, null, 1L, 1L);");
+        } else {
+            s.l("new BukkitRunnable() {");
+            s.l("int t;");
+            s.blank();
+            s.l("@Override");
+            s.l("public void run() {");
+            s.l("if (!player.isOnline() || player.getOpenInventory().getTopInventory() != shown) {");
+            s.l("cancel();");
+            s.l("return;");
+            s.l("}");
+            s.l("running.tick(shown, t++);");
+            s.l("}");
+            s.l("}.runTaskTimer(JavaPlugin.getProvidingPlugin(Menus.class), 0L, 1L);");
+        }
         s.l("}");
         s.l("}");
         s.blank();

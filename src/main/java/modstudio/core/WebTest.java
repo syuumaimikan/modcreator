@@ -24,6 +24,10 @@ public final class WebTest {
 
     private static final Pattern PLACEHOLDER = Pattern.compile("\\{(secret|player|uuid|uuid_plain|time)(?::([A-Za-z0-9_.-]+))?\\}");
     private static final Pattern PATH = Pattern.compile("([^.\\[\\]]+)|\\[(\\d+)\\]");
+    private static final HttpClient SHARED_CLIENT = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
 
     public record Result(int status, String body, long millis, String error, Map<String, String> extracted) {}
 
@@ -40,9 +44,11 @@ public final class WebTest {
             String v;
             if (m.group(1).equals("secret")) {
                 String name = m.group(2) == null ? "" : m.group(2);
-                v = mask ? "****" : secrets == null ? "" : secrets.get(name);
+                v = mask ? "****" : (secrets == null ? "" : secrets.get(name));
             } else {
-                v = vars.getOrDefault(m.group(1), "");
+                v = vars == null ? "" : vars.getOrDefault(m.group(1), "");
+            }
+            if (!mask || !m.group(1).equals("secret")) {
                 v = switch (mode) {
                     case 'u' -> java.net.URLEncoder.encode(v, StandardCharsets.UTF_8).replace("+", "%20");
                     case 'j' -> jsonEscape(v);
@@ -74,11 +80,14 @@ public final class WebTest {
     public static Result send(Systems.ApiRequest r, Secrets secrets, Map<String, String> vars) {
         long start = System.currentTimeMillis();
         try {
-            HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NORMAL).build();
-            HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(fill(r.url.trim(), vars, secrets, false, 'u')))
+            String rawUrl = r.url == null ? "" : r.url.trim();
+            if (rawUrl.isEmpty()) return new Result(-1, "", 0, "Empty request URL", Map.of());
+            String method = (r.method == null || r.method.isBlank()) ? "GET" : r.method.trim().toUpperCase(Locale.ROOT);
+            HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(fill(rawUrl, vars, secrets, false, 'u')))
                     .timeout(Duration.ofSeconds(Math.max(1, r.timeout)));
             boolean contentType = false;
-            for (String line : r.headers.split("\\R")) {
+            String hdrs = r.headers == null ? "" : r.headers;
+            for (String line : hdrs.split("\\R")) {
                 int c = line.indexOf(':');
                 if (c <= 0) continue;
                 String key = line.substring(0, c).trim();
@@ -87,13 +96,13 @@ public final class WebTest {
             }
             String rawBody = r.body == null ? "" : r.body.trim();
             String body = fill(r.body, vars, secrets, false, rawBody.startsWith("{") || rawBody.startsWith("[") ? 'j' : 'r');
-            boolean hasBody = !body.isEmpty() && !r.method.equals("GET") && !r.method.equals("DELETE");
+            boolean hasBody = !body.isEmpty() && !method.equals("GET") && !method.equals("DELETE");
             if (hasBody && !contentType) {
                 String t = body.trim();
                 b.header("Content-Type", t.startsWith("{") || t.startsWith("[") ? "application/json" : "text/plain; charset=utf-8");
             }
-            b.method(r.method, hasBody ? HttpRequest.BodyPublishers.ofString(body) : HttpRequest.BodyPublishers.noBody());
-            HttpResponse<String> res = client.send(b.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            b.method(method, hasBody ? HttpRequest.BodyPublishers.ofString(body) : HttpRequest.BodyPublishers.noBody());
+            HttpResponse<String> res = SHARED_CLIENT.send(b.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             String text = res.body() == null ? "" : res.body();
             return new Result(res.statusCode(), text, System.currentTimeMillis() - start, "", extract(r, text));
         } catch (Exception e) {
@@ -129,8 +138,13 @@ public final class WebTest {
             } else {
                 if (!cur.isJsonArray()) return null;
                 JsonArray a = cur.getAsJsonArray();
-                int i = Integer.parseInt(m.group(2));
-                cur = i < a.size() ? a.get(i) : null;
+                int i;
+                try {
+                    i = Integer.parseInt(m.group(2));
+                } catch (NumberFormatException ex) {
+                    return null;
+                }
+                cur = i >= 0 && i < a.size() ? a.get(i) : null;
             }
         }
         return cur;
@@ -146,9 +160,24 @@ public final class WebTest {
         for (int i = 0; i < 5; i++) {
             for (String part : f[i].split(",")) {
                 if (!part.matches("(\\*|\\d+(-\\d+)?)(/\\d+)?")) return false;
+                String rangePart = part.contains("/") ? part.substring(0, part.indexOf('/')) : part;
+                if (rangePart.contains("-")) {
+                    String[] bounds = rangePart.split("-");
+                    try {
+                        int a = Integer.parseInt(bounds[0]), b = Integer.parseInt(bounds[1]);
+                        if (a > b || a < ranges[i][0] || b > ranges[i][1]) return false;
+                    } catch (NumberFormatException ex) {
+                        return false;
+                    }
+                }
                 for (String n : part.split("[-/*]")) {
                     if (n.isEmpty()) continue;
-                    int v = Integer.parseInt(n);
+                    int v;
+                    try {
+                        v = Integer.parseInt(n);
+                    } catch (NumberFormatException ex) {
+                        return false;
+                    }
                     if (part.indexOf('/') >= 0 && part.endsWith("/" + n)) {
                         if (v < 1) return false;
                         continue;
@@ -205,7 +234,7 @@ public final class WebTest {
         List<LocalDateTime> r = new ArrayList<>();
         if (!cronValid(expr)) return r;
         LocalDateTime t = from.withSecond(0).withNano(0).plusMinutes(1);
-        for (int i = 0; i < 527_040 && r.size() < count; i++, t = t.plusMinutes(1)) {
+        for (int i = 0; i < 2_103_840 && r.size() < count; i++, t = t.plusMinutes(1)) {
             if (cronMatches(expr, t)) r.add(t);
         }
         return r;

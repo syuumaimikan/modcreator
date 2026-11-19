@@ -688,6 +688,18 @@ public final class ShaderNodes {
                     + function(s.nodes, fn);
         }
         String src = s.fragment;
+        if (s.kind.equals("post") && !patchable(src)) {
+            return "#version 150\n\n"
+                    + "uniform sampler2D DiffuseSampler;\n"
+                    + "uniform vec2 OutSize;\n"
+                    + "uniform float Time;\n\n"
+                    + "in vec2 texCoord;\n"
+                    + "out vec4 fragColor;\n\n"
+                    + function(s.nodes, "ms_graph").replace("Sampler0", "DiffuseSampler") + "\n"
+                    + "void main() {\n"
+                    + "    fragColor = ms_graph(texture(DiffuseSampler, texCoord), texCoord, Time, OutSize);\n"
+                    + "}\n";
+        }
         if (!patchable(src)) return src;
         Matcher main = MAIN.matcher(src);
         main.find();
@@ -701,10 +713,15 @@ public final class ShaderNodes {
             end = m.end();
             expr = m.group(1).trim();
         }
-        String uv = Pattern.compile("\\bin\\s+vec2\\s+texCoord0\\b").matcher(src).find() ? "texCoord0" : "vec2(0.0)";
-        String time = src.contains("GameTime") || src.contains("globals.glsl") ? "GameTime * 1200.0" : "0.0";
-        String call = "fragColor = ms_graph(" + expr + ", " + uv + ", " + time + ", gl_FragCoord.xy);";
-        return head + "\n" + function(s.nodes, "ms_graph") + "\n" + body.substring(0, start) + call + body.substring(end);
+        String uv = Pattern.compile("\\bin\\s+vec2\\s+texCoord0\\b").matcher(src).find() ? "texCoord0"
+                : Pattern.compile("\\bin\\s+vec2\\s+texCoord\\b").matcher(src).find() ? "texCoord" : "vec2(0.0)";
+        String time = src.contains("GameTime") || src.contains("globals.glsl") ? "GameTime * 1200.0"
+                : src.contains("uniform float Time") ? "Time" : "0.0";
+        String sizeExpr = s.kind.equals("post") && src.contains("OutSize") ? "OutSize" : "gl_FragCoord.xy";
+        String fn = function(s.nodes, "ms_graph");
+        if (s.kind.equals("post")) fn = fn.replace("Sampler0", "DiffuseSampler");
+        String call = "fragColor = ms_graph(" + expr + ", " + uv + ", " + time + ", " + sizeExpr + ");";
+        return head + "\n" + fn + "\n" + body.substring(0, start) + call + body.substring(end);
     }
 
     /** Problems of a graph as i18n keys. */
@@ -731,7 +748,8 @@ public final class ShaderNodes {
         private record Step(Def def, int[] src, VT[] srcType, double[][] constants, double[][] ins, double[][] outs, String[] defaults) {}
 
         private final List<Step> steps = new ArrayList<>();
-        private int result = -1;
+        private int resultStep = -1;
+        private int resultPort = 0;
         private VT resultType = VT.V4;
         private String resultDefault = "@color";
         private final List<double[][]> outsByStep = new ArrayList<>();
@@ -766,7 +784,8 @@ public final class ShaderNodes {
                 }
                 if (n.type.equals("output")) {
                     if (src[0] >= 0) {
-                        result = src[0] * 8 + src[1];
+                        resultStep = src[0];
+                        resultPort = src[1];
                         resultType = srcType[0];
                     } else {
                         resultDefault = defaults[0] != null ? defaults[0] : "@color";
@@ -800,7 +819,7 @@ public final class ShaderNodes {
                 }
                 st.def.eval().run(st.ins, st.outs, env);
             }
-            if (result >= 0) cast(outsByStep.get(result / 8)[result % 8], resultType, VT.V4, out);
+            if (resultStep >= 0) cast(outsByStep.get(resultStep)[resultPort], resultType, VT.V4, out);
             else {
                 double[] v = parse(resultDefault, VT.V4, env);
                 System.arraycopy(v, 0, out, 0, 4);

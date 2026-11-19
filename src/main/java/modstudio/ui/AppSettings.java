@@ -21,6 +21,11 @@ public final class AppSettings {
     public double width = 1320;
     public double height = 860;
     public boolean maximized;
+    /** AI Assistant / MCP configuration: builtin, openai, gemini, anthropic. */
+    public String aiProvider = "builtin";
+    public String aiBaseUrl = "https://api.openai.com/v1";
+    public String aiModel = "gpt-4o-mini";
+    public String aiApiKey = "";
     /** When true (snapshot runs), nothing is written to disk. */
     public transient boolean transientMode;
 

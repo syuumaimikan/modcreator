@@ -18,6 +18,10 @@ import modstudio.core.Systems.Volume;
 import modstudio.i18n.I18n;
 import modstudio.ui.Ui;
 
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -42,6 +46,11 @@ public final class VoxelEditor extends VBox {
     private final Label info = Ui.muted("");
     private int brush = 0;
     private final String keepLabel;
+    private final Deque<Snap> undo = new ArrayDeque<>();
+    private final Deque<Snap> redo = new ArrayDeque<>();
+    private boolean strokeSaved;
+
+    private record Snap(int sx, int sy, int sz, int[] cells, List<String> palette) {}
 
     public VoxelEditor(IdField.Env env, Volume v, Runnable onChange, String keepLabel) {
         super(10);
@@ -69,7 +78,12 @@ public final class VoxelEditor extends VBox {
         Button fill = Ui.button(I18n.t("voxel.fill_layer"), "mdi2f-format-color-fill", () -> fillLayer(brush));
         Button clear = Ui.button(I18n.t("voxel.clear_layer"), "mdi2e-eraser", () -> fillLayer(-1));
         Button copy = Ui.button(I18n.t("voxel.copy_below"), "mdi2c-content-copy", this::copyBelow);
-        HBox layerRow = Ui.hbox(8, layerLabel, layer, fill, clear, copy);
+        Button undoB = Ui.iconButton("mdi2u-undo", I18n.t("action.undo"), this::undo);
+        Button redoB = Ui.iconButton("mdi2r-redo", I18n.t("action.redo"), this::redo);
+        Button flipX = Ui.iconButton("mdi2f-flip-horizontal", I18n.t("voxel.flip_x"), this::flipX);
+        Button flipZ = Ui.iconButton("mdi2f-flip-vertical", I18n.t("voxel.flip_z"), this::flipZ);
+        Button rotY = Ui.iconButton("mdi2r-rotate-right", I18n.t("voxel.rotate_y"), this::rotateY);
+        HBox layerRow = Ui.hbox(6, layerLabel, layer, fill, clear, copy, undoB, redoB, flipX, flipZ, rotY);
         layerRow.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(layer, Priority.ALWAYS);
 
@@ -116,16 +130,22 @@ public final class VoxelEditor extends VBox {
         paletteBox.setPrefWidth(260);
         paletteBox.setMinWidth(250);
 
-        grid.setOnMousePressed(this::paint);
+        grid.setOnMousePressed(e -> {
+            strokeSaved = false;
+            paint(e);
+        });
         grid.setOnMouseDragged(this::paint);
-        VBox gridBox = new VBox(6, Ui.label(I18n.t("voxel.layer_view"), "param-label"), new ScrollPane(grid));
+        grid.setOnMouseReleased(e -> strokeSaved = false);
+        Label layerTitle = Ui.label(I18n.t("voxel.layer_view"), "param-label");
+        layerTitle.setWrapText(true);
+        VBox gridBox = new VBox(6, layerTitle, new ScrollPane(grid));
         ((ScrollPane) gridBox.getChildren().get(1)).setPrefViewportHeight(300);
         ((ScrollPane) gridBox.getChildren().get(1)).setPrefViewportWidth(320);
         upToLayer.selectedProperty().addListener((o, a, b) -> drawView());
         Button home = Ui.iconButton("mdi2f-fit-to-screen-outline", I18n.t("voxel.view_home"), view::home);
         HBox viewBar = Ui.hbox(8, Ui.label(I18n.t("voxel.view_3d"), "param-label"), Ui.spacer(), upToLayer, home);
         viewBar.setAlignment(Pos.CENTER_LEFT);
-        gridBox.setMinWidth(Math.min(340, v.sx * CELL + 24));
+        gridBox.setMinWidth(Math.max(220, Math.min(340, v.sx * CELL + 24)));
         viewNote.setWrapText(true);
         VBox isoBox = new VBox(6, viewBar, view, viewNote);
         isoBox.setMinWidth(320);
@@ -157,6 +177,7 @@ public final class VoxelEditor extends VBox {
     private void removePaletteEntry() {
         Integer sel = palette.getSelectionModel().getSelectedItem();
         if (sel == null || sel < 0) return;
+        pushUndo();
         v.palette.remove((int) sel);
         for (int i = 0; i < v.cells.length; i++) {
             if (v.cells[i] == sel) v.cells[i] = -1;
@@ -168,6 +189,7 @@ public final class VoxelEditor extends VBox {
     }
 
     private void resize(int x, int y, int z) {
+        pushUndo();
         v.resize(x, y, z);
         updateLayerRange();
         changed();
@@ -183,6 +205,7 @@ public final class VoxelEditor extends VBox {
     }
 
     private void fillLayer(int value) {
+        pushUndo();
         int y = y();
         for (int z = 0; z < v.sz; z++) for (int x = 0; x < v.sx; x++) v.set(x, y, z, value);
         changed();
@@ -191,8 +214,77 @@ public final class VoxelEditor extends VBox {
     private void copyBelow() {
         int y = y();
         if (y == 0) return;
+        pushUndo();
         for (int z = 0; z < v.sz; z++) for (int x = 0; x < v.sx; x++) v.set(x, y, z, v.get(x, y - 1, z));
         changed();
+    }
+
+    private void flipX() {
+        pushUndo();
+        int[] src = v.cells.clone();
+        for (int y = 0; y < v.sy; y++)
+            for (int z = 0; z < v.sz; z++)
+                for (int x = 0; x < v.sx; x++)
+                    v.set(v.sx - 1 - x, y, z, src[(y * v.sz + z) * v.sx + x]);
+        changed();
+    }
+
+    private void flipZ() {
+        pushUndo();
+        int[] src = v.cells.clone();
+        for (int y = 0; y < v.sy; y++)
+            for (int z = 0; z < v.sz; z++)
+                for (int x = 0; x < v.sx; x++)
+                    v.set(x, y, v.sz - 1 - z, src[(y * v.sz + z) * v.sx + x]);
+        changed();
+    }
+
+    private void rotateY() {
+        pushUndo();
+        int osX = v.sx, osZ = v.sz;
+        int[] src = v.cells.clone();
+        v.sx = osZ;
+        v.sz = osX;
+        v.cells = new int[v.sx * v.sy * v.sz];
+        for (int y = 0; y < v.sy; y++)
+            for (int z = 0; z < osZ; z++)
+                for (int x = 0; x < osX; x++)
+                    v.set(osZ - 1 - z, y, x, src[(y * osZ + z) * osX + x]);
+        changed();
+    }
+
+    private Snap snap() {
+        return new Snap(v.sx, v.sy, v.sz, v.cells.clone(), new ArrayList<>(v.palette));
+    }
+
+    private void applySnap(Snap s) {
+        v.sx = s.sx;
+        v.sy = s.sy;
+        v.sz = s.sz;
+        v.cells = s.cells.clone();
+        v.palette.clear();
+        v.palette.addAll(s.palette);
+        refreshPalette();
+        updateLayerRange();
+        changed();
+    }
+
+    private void pushUndo() {
+        undo.push(snap());
+        if (undo.size() > 40) undo.removeLast();
+        redo.clear();
+    }
+
+    private void undo() {
+        if (undo.isEmpty()) return;
+        redo.push(snap());
+        applySnap(undo.pop());
+    }
+
+    private void redo() {
+        if (redo.isEmpty()) return;
+        undo.push(snap());
+        applySnap(redo.pop());
     }
 
     private void paint(MouseEvent e) {
@@ -200,6 +292,10 @@ public final class VoxelEditor extends VBox {
         if (x < 0 || z < 0 || x >= v.sx || z >= v.sz) return;
         int value = e.getButton() == MouseButton.SECONDARY ? -1 : brush;
         if (v.get(x, y(), z) == value) return;
+        if (!strokeSaved) {
+            pushUndo();
+            strokeSaved = true;
+        }
         v.set(x, y(), z, value);
         changed();
     }

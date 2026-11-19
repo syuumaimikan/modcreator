@@ -9,6 +9,7 @@ import javafx.stage.FileChooser;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import modstudio.core.CodeTemplates;
 import modstudio.core.CommandSpec;
 import modstudio.core.Elements;
 import modstudio.core.Elements.*;
@@ -236,18 +237,54 @@ final class SimpleEditors {
         protected void fill() {
             f.section(t("section.general"), t("help.code_file"));
             nameRow();
-            f.choice(t("field.code_target"), List.of("mods", "forge", "neoforge", "fabric", "paper"), x -> t("target." + x),
+            ComboBox<String> targetBox = f.choice(t("field.code_target"),
+                    List.of("all", "mods", "forge", "neoforge", "fabric", "quilt", "paper", "folia", "bedrock", "datapack", "resourcepack"),
+                    x -> x.equals("all") ? t("target.all") : t("target." + x),
                     () -> e.target, v -> e.target = v);
-            f.text(t("field.path"), () -> e.path, v -> e.path = v, t("help.code_path"));
+            ComboBox<String> langBox = f.choice(t("field.code_language"),
+                    List.of("auto", "java", "kotlin", "scala", "groovy", "typescript", "javascript", "python", "lua", "glsl", "json", "toml", "yaml", "mcfunction", "xml", "properties", "text"),
+                    x -> t("codelang." + x),
+                    () -> e.language == null || e.language.isBlank() ? "auto" : e.language,
+                    v -> e.language = v);
+            TextField pathField = f.text(t("field.path"), () -> e.path, v -> e.path = v, t("help.code_path"));
+            ComboBox<String> hookBox = f.choice(t("field.code_hook"), List.of("none", "common_init", "client_init", "event_bus", "register_commands", "server_tick"),
+                    x -> t("codehook." + x), () -> e.hook == null || e.hook.isBlank() ? "none" : e.hook, v -> {
+                        e.hook = v;
+                        f.changed();
+                    });
+            TextField methodField = f.text(t("field.code_hook_method"), () -> e.hookMethod == null || e.hookMethod.isBlank() ? "init" : e.hookMethod,
+                    v -> e.hookMethod = v.trim(), t("help.code_hook_method"));
+            f.showIf(() -> e.hook != null && !e.hook.equals("none"));
+
+            ComboBox<CodeTemplates.CodePreset> presetBox = Ui.combo(CodeTemplates.CODE_PRESETS,
+                    p -> p == null ? "" : t("codepreset." + p.id()));
+            presetBox.setValue(CodeTemplates.CODE_PRESETS.get(0));
             f.section(t("section.code"), t("help.code_placeholders"));
-            String lang = e.path.endsWith(".java") ? "java" : e.path.endsWith(".json") ? "json" : e.path.endsWith(".js") ? "js" : "plain";
-            CodeEditor code = new CodeEditor(lang);
+            CodeEditor code = new CodeEditor(e.resolvedLanguage());
+            langBox.valueProperty().addListener((o, a, b) -> code.setLanguage(e.resolvedLanguage()));
+            pathField.textProperty().addListener((o, a, b) -> code.setLanguage(e.resolvedLanguage()));
             code.setText(e.content);
             code.setPrefHeight(480);
             code.setOnTextChanged(v -> {
                 e.content = v;
                 f.changed();
             });
+            Button applyBtn = Ui.button(t("code.apply_template"), "mdi2f-file-code-outline", () -> {
+                CodeTemplates.CodePreset p = presetBox.getValue();
+                if (p == null) return;
+                CodeTemplates.applyCodePreset(e, p);
+                e.language = "auto";
+                langBox.setValue("auto");
+                targetBox.setValue(e.target);
+                pathField.setText(e.path);
+                hookBox.setValue(e.hook);
+                methodField.setText(e.hookMethod);
+                code.setLanguage(e.resolvedLanguage());
+                code.setText(e.content);
+                f.changed();
+            });
+            HBox presetBar = Ui.hbox(8, presetBox, applyBtn, Ui.help(t("help.code_template")));
+            f.add(presetBar);
             f.add(code);
         }
     }

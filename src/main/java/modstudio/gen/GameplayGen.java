@@ -181,8 +181,8 @@ public final class GameplayGen {
         };
     }
 
-    /** Item stack argument for /give of a potion bottle or tipped arrow. */
-    String potionStack(Potion p, String bottle) {
+    /** Item stack argument for /give of a potion bottle or tipped arrow, usable with Paper's createItemStack too. */
+    public String potionStack(Potion p, String bottle) {
         String item = "minecraft:" + bottle;
         String bukkit = "PublicBukkitValues:{\"" + ns + ":potion\":\"" + p.name + "\"}";
         // vanilla effects the bottle can carry (project effects are emulated outside mods)

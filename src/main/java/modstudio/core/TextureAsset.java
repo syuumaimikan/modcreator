@@ -57,6 +57,10 @@ public final class TextureAsset {
         if (png == null || png.isEmpty()) {
             return Images.decodeBase64(Images.encode(new int[width * height], width, height));
         }
-        return Images.decodeBase64(png);
+        try {
+            return Images.decodeBase64(png);
+        } catch (IllegalArgumentException ex) {
+            return Images.decodeBase64(Images.encode(new int[Math.max(1, width) * Math.max(1, height)], Math.max(1, width), Math.max(1, height)));
+        }
     }
 }

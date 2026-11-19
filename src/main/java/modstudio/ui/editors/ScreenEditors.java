@@ -54,7 +54,8 @@ import java.util.regex.Pattern;
 final class ScreenEditors {
     private ScreenEditors() {}
 
-    static final List<String> KINDS = List.of("panel", "image", "text", "button", "bar", "item", "entity");
+    static final List<String> KINDS = List.of("panel", "image", "text", "button", "bar", "item", "entity",
+            "textfield", "slider", "checkbox", "scroll_list", "slot_display");
     static final List<String> ANCHORS = List.of("top_left", "top", "top_right", "left", "center", "right", "bottom_left", "bottom", "bottom_right");
     static final List<String> ANIMATIONS = List.of("none", "fade_in", "slide_up", "slide_down", "slide_left", "slide_right", "pop", "pulse", "bob", "blink",
             "look_around");
@@ -69,6 +70,11 @@ final class ScreenEditors {
             case "bar" -> "mdi2p-progress-check";
             case "item" -> "mdi2d-diamond-stone";
             case "entity" -> "mdi2a-account-outline";
+            case "textfield" -> "mdi2f-form-textbox";
+            case "slider" -> "mdi2t-tune-variant";
+            case "checkbox" -> "mdi2c-checkbox-marked-outline";
+            case "scroll_list" -> "mdi2f-format-list-bulleted";
+            case "slot_display" -> "mdi2i-inbox-outline";
             default -> "mdi2f-format-text";
         };
     }
@@ -292,6 +298,9 @@ final class ScreenEditors {
             nameRow();
             f.choice(t("field.screen_mode"), List.of("screen", "overlay"), x -> t("screen_mode." + x), () -> e.mode, v -> e.mode = v);
             f.text(t("field.screen_title"), () -> e.title, v -> e.title = v, t("help.screen_title"));
+            for (String lang : nonEnLangs()) {
+                f.text(t("field.screen_title") + " [" + lang + "]", () -> e.loc("title", lang), v -> e.setLoc("title", lang, v));
+            }
             f.showIf(() -> !e.overlay());
             f.check(t("field.screen_dim"), () -> e.dim, v -> e.dim = v);
             f.showIf(() -> !e.overlay());
@@ -396,9 +405,42 @@ final class ScreenEditors {
                     w.width = 16;
                     w.height = 16;
                 }
+                case "slot_display" -> {
+                    w.width = 18;
+                    w.height = 18;
+                }
                 case "entity" -> {
                     w.width = 40;
                     w.height = 60;
+                }
+                case "textfield" -> {
+                    w.width = 120;
+                    w.height = 20;
+                    w.color = "#FFFFFF";
+                    w.color2 = "#1B1B1B";
+                    w.placeholder = "Type here...";
+                }
+                case "slider" -> {
+                    w.width = 120;
+                    w.height = 20;
+                    w.text = "Volume";
+                    w.min = 0;
+                    w.maxVal = 100;
+                    w.color = "#FFFFFF";
+                    w.color2 = "#4A4A4A";
+                }
+                case "checkbox" -> {
+                    w.width = 110;
+                    w.height = 18;
+                    w.text = "Enable option";
+                    w.checked = true;
+                }
+                case "scroll_list" -> {
+                    w.width = 120;
+                    w.height = 72;
+                    w.color = "#FFFFFF";
+                    w.color2 = "#181818";
+                    w.options = "Option 1\nOption 2\nOption 3\nOption 4";
                 }
                 default -> {
                 }
@@ -420,9 +462,11 @@ final class ScreenEditors {
 
         private String rowText(ScreenWidget w) {
             String detail = switch (w.kind) {
-                case "text", "button" -> w.text;
+                case "text", "button", "checkbox", "slider" -> w.text;
+                case "textfield" -> w.text.isBlank() ? w.placeholder : w.text;
+                case "scroll_list" -> w.options.replace('\n', ',');
                 case "bar" -> w.value + (w.text.isBlank() ? "" : "  " + w.text);
-                case "item" -> w.item;
+                case "item", "slot_display" -> w.item;
                 case "entity" -> w.entity;
                 default -> {
                     TextureAsset tex = c.p.texture(w.texture);
@@ -465,17 +509,21 @@ final class ScreenEditors {
         private void move(int index, int d) {
             int j = index + d;
             if (j < 0 || j >= e.widgets.size()) return;
+            List<ScreenWidget> prev = new ArrayList<>(e.widgets);
             ScreenWidget w = e.widgets.remove(index);
             e.widgets.add(j, w);
+            reindexWidgetLoc(prev);
             rebuildRows();
             f.changed();
         }
 
         private void duplicate(ScreenWidget w) {
+            List<ScreenWidget> prev = new ArrayList<>(e.widgets);
             ScreenWidget copy = new com.google.gson.Gson().fromJson(new com.google.gson.Gson().toJson(w), ScreenWidget.class);
             copy.x += 8;
             copy.y += 8;
             e.widgets.add(e.widgets.indexOf(w) + 1, copy);
+            reindexWidgetLoc(prev);
             selected = copy;
             rebuildRows();
             rebuildProps();
@@ -483,11 +531,50 @@ final class ScreenEditors {
         }
 
         private void remove(ScreenWidget w) {
+            List<ScreenWidget> prev = new ArrayList<>(e.widgets);
             e.widgets.remove(w);
+            reindexWidgetLoc(prev);
             if (selected == w) selected = null;
             rebuildRows();
             rebuildProps();
             f.changed();
+        }
+
+        private List<String> nonEnLangs() {
+            List<String> langs = new ArrayList<>();
+            for (String l : c.p.meta.languages) {
+                if (l != null && !l.isBlank() && !"en_us".equals(l)) langs.add(l);
+            }
+            return langs;
+        }
+
+        private void reindexWidgetLoc(List<ScreenWidget> prev) {
+            if (e.loc.isEmpty()) return;
+            Map<Integer, Integer> remap = new HashMap<>();
+            for (int oi = 0; oi < prev.size(); oi++) {
+                int ni = e.widgets.indexOf(prev.get(oi));
+                if (ni >= 0) remap.put(oi, ni);
+            }
+            for (Map<String, String> langMap : e.loc.values()) {
+                Map<String, String> updated = new LinkedHashMap<>();
+                for (var en : langMap.entrySet()) {
+                    String k = en.getKey();
+                    if (!k.startsWith("w.")) {
+                        updated.put(k, en.getValue());
+                        continue;
+                    }
+                    int dot = k.indexOf('.', 2);
+                    if (dot <= 2) continue;
+                    try {
+                        int oldIdx = Integer.parseInt(k.substring(2, dot));
+                        Integer newIdx = remap.get(oldIdx);
+                        if (newIdx != null) updated.put("w." + newIdx + k.substring(dot), en.getValue());
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+                langMap.clear();
+                langMap.putAll(updated);
+            }
         }
 
         private void select(ScreenWidget w) {
@@ -513,23 +600,47 @@ final class ScreenEditors {
             p.choice(t("field.widget_anchor"), ANCHORS, x -> t("anchor." + x), () -> w.anchor, v -> w.anchor = v, t("help.widget_anchor"));
             p.row(t("field.widget_position"), Ui.hbox(8, spinner(-2000, 2000, w.x, v -> w.x = v), spinner(-2000, 2000, w.y, v -> w.y = v)));
             p.row(t("field.widget_size"), Ui.hbox(8, spinner(1, 2000, w.width, v -> w.width = v), spinner(1, 2000, w.height, v -> w.height = v)));
+            int wIdx = e.widgets.indexOf(w);
+            List<String> langs = nonEnLangs();
             p.area(t("field.widget_text"), () -> w.text, v -> w.text = v, 2, t("help.widget_text"));
-            p.showIf(() -> List.of("text", "button", "bar").contains(w.kind));
+            p.showIf(() -> List.of("text", "button", "bar", "textfield", "slider", "checkbox").contains(w.kind));
+            for (String lang : langs) {
+                p.area(t("field.widget_text") + " [" + lang + "]", () -> e.loc("w." + wIdx + ".text", lang), v -> e.setLoc("w." + wIdx + ".text", lang, v), 2, null);
+                p.showIf(() -> List.of("text", "button", "bar", "textfield", "slider", "checkbox").contains(w.kind));
+            }
+            p.text(t("field.widget_placeholder"), () -> w.placeholder, v -> w.placeholder = v);
+            p.showIf(() -> w.kind.equals("textfield"));
+            for (String lang : langs) {
+                p.text(t("field.widget_placeholder") + " [" + lang + "]", () -> e.loc("w." + wIdx + ".placeholder", lang), v -> e.setLoc("w." + wIdx + ".placeholder", lang, v));
+                p.showIf(() -> w.kind.equals("textfield"));
+            }
+            p.decimal(t("field.widget_min"), () -> w.min, v -> w.min = v);
+            p.showIf(() -> w.kind.equals("slider"));
+            p.decimal(t("field.widget_max_val"), () -> w.maxVal, v -> w.maxVal = v);
+            p.showIf(() -> w.kind.equals("slider"));
+            p.check(t("field.widget_checked"), () -> w.checked, v -> w.checked = v);
+            p.showIf(() -> w.kind.equals("checkbox"));
+            p.area(t("field.widget_options"), () -> w.options, v -> w.options = v, 3, t("help.widget_options"));
+            p.showIf(() -> w.kind.equals("scroll_list"));
+            for (String lang : langs) {
+                p.area(t("field.widget_options") + " [" + lang + "]", () -> e.loc("w." + wIdx + ".options", lang), v -> e.setLoc("w." + wIdx + ".options", lang, v), 3, null);
+                p.showIf(() -> w.kind.equals("scroll_list"));
+            }
             p.choice(t("field.widget_align"), List.of("left", "center", "right"), x -> t("align." + x), () -> w.align, v -> w.align = v);
             p.showIf(() -> w.kind.equals("text"));
             p.check(t("field.widget_shadow"), () -> w.shadow, v -> w.shadow = v);
-            p.showIf(() -> w.kind.equals("text") || w.kind.equals("button"));
+            p.showIf(() -> w.kind.equals("text") || w.kind.equals("button") || w.kind.equals("checkbox") || w.kind.equals("slider"));
             GameplayEditors.colorRow(p, t("field.widget_color"), () -> w.color, v -> w.color = v);
-            p.showIf(() -> List.of("panel", "text", "button", "bar").contains(w.kind));
+            p.showIf(() -> List.of("panel", "text", "button", "bar", "textfield", "slider", "checkbox", "scroll_list").contains(w.kind));
             GameplayEditors.colorRow(p, t("field.widget_color2"), () -> w.color2, v -> w.color2 = v);
-            p.showIf(() -> List.of("panel", "button", "bar").contains(w.kind));
+            p.showIf(() -> List.of("panel", "button", "bar", "textfield", "slider", "scroll_list", "slot_display").contains(w.kind));
             p.row(t("field.widget_texture"), new TextureField(c.ws, c.window(), w.texture, () -> e.name + "_" + w.kind, "block", v -> {
                 w.texture = v;
                 p.changed();
             }), t("help.widget_texture"));
             p.showIf(() -> List.of("panel", "image", "button", "bar").contains(w.kind));
             p.id(t("field.widget_item"), IdField.Kind.ITEM, () -> w.item, v -> w.item = v, env());
-            p.showIf(() -> w.kind.equals("item"));
+            p.showIf(() -> w.kind.equals("item") || w.kind.equals("slot_display"));
             p.text(t("field.widget_entity"), () -> w.entity, v -> w.entity = v, t("help.widget_entity"));
             p.showIf(() -> w.kind.equals("entity"));
             String[] objective = {w.value.startsWith("score:") ? w.value.substring(6) : "points"};
@@ -544,7 +655,7 @@ final class ScreenEditors {
             p.text(t("field.widget_max"), () -> w.max, v -> w.max = v, t("help.widget_max"));
             p.showIf(() -> w.kind.equals("bar"));
             p.choice(t("field.widget_action"), ACTIONS, x -> t("widget_action." + x), () -> w.action, v -> w.action = v);
-            p.showIf(() -> w.kind.equals("button"));
+            p.showIf(() -> List.of("button", "checkbox", "scroll_list", "slider").contains(w.kind));
             ComboBox<String> target = new ComboBox<>();
             target.setEditable(true);
             target.setPrefWidth(260);
@@ -558,9 +669,13 @@ final class ScreenEditors {
                 if (b != null && !b.equals(target.getEditor().getText())) target.getEditor().setText(b);
             });
             p.row(t("field.widget_target"), target, t("help.widget_target"));
-            p.showIf(() -> w.kind.equals("button") && !w.action.equals("close"));
+            p.showIf(() -> List.of("button", "checkbox", "scroll_list", "slider").contains(w.kind) && !w.action.equals("close"));
             p.text(t("field.widget_tooltip"), () -> w.tooltip, v -> w.tooltip = v);
             p.showIf(() -> !e.overlay());
+            for (String lang : langs) {
+                p.text(t("field.widget_tooltip") + " [" + lang + "]", () -> e.loc("w." + wIdx + ".tooltip", lang), v -> e.setLoc("w." + wIdx + ".tooltip", lang, v));
+                p.showIf(() -> !e.overlay());
+            }
             p.integer(t("field.widget_opacity"), 0, 100, () -> w.opacity, v -> w.opacity = v);
             p.decimal(t("field.widget_scale"), () -> w.scale, v -> w.scale = v);
             p.choice(t("field.widget_animation"), ANIMATIONS, x -> t("animation." + x), () -> w.animation, v -> {
@@ -879,6 +994,67 @@ final class ScreenEditors {
                     double ix = x + (w.width - 16) / 2.0, iy = y + (w.height - 16) / 2.0;
                     if (img != null) g.drawImage(img, ix, iy, 16, 16);
                     else missing(g, ix, iy, 16, 16);
+                }
+                case "slot_display" -> {
+                    g.setFill(Color.web("#8B8B8B"));
+                    g.fillRect(x, y, w.width, w.height);
+                    g.setFill(Color.web("#373737"));
+                    g.fillRect(x, y, w.width - 1, 1);
+                    g.fillRect(x, y, 1, w.height - 1);
+                    g.setFill(Color.WHITE);
+                    g.fillRect(x + 1, y + w.height - 1, w.width - 1, 1);
+                    g.fillRect(x + w.width - 1, y + 1, 1, w.height - 1);
+                    String id = w.item == null || w.item.isBlank() ? "minecraft:stone" : w.item.trim();
+                    Image img = c.ws.itemImage(Ids.full(id), 32);
+                    if (img == null) img = c.ws.thumbnails().item(Ids.full(id), 32);
+                    double ix = x + (w.width - 16) / 2.0, iy = y + (w.height - 16) / 2.0;
+                    if (img != null) g.drawImage(img, ix, iy, 16, 16);
+                    else missing(g, ix, iy, 16, 16);
+                }
+                case "textfield" -> {
+                    g.setFill(Color.web("#A0A0A0"));
+                    g.fillRect(x, y, w.width, w.height);
+                    g.setFill(c2);
+                    g.fillRect(x + 1, y + 1, w.width - 2, w.height - 2);
+                    String disp = w.text.isBlank() ? w.placeholder : w.text;
+                    text.line(g, disp, x + 4, y + (w.height - 8) / 2.0, w.text.isBlank() ? Color.web("#808080") : c1, w.shadow);
+                }
+                case "slider" -> {
+                    g.setFill(Color.BLACK);
+                    g.fillRect(x, y, w.width, w.height);
+                    g.setFill(c2);
+                    g.fillRect(x + 1, y + 1, w.width - 2, w.height - 2);
+                    double kw = 8;
+                    double kx = x + 1 + (w.width - kw - 2) * 0.5;
+                    g.setFill(Color.web("#CCCCCC"));
+                    g.fillRect(kx, y + 1, kw, w.height - 2);
+                    String lbl = (w.text.isBlank() ? "Value" : w.text) + ": " + number((w.min + w.maxVal) / 2.0);
+                    text.line(g, lbl, x + (w.width - text.width(lbl)) / 2, y + (w.height - 8) / 2.0, c1, w.shadow);
+                }
+                case "checkbox" -> {
+                    int b = Math.min(16, Math.max(10, w.height - 2));
+                    g.setFill(Color.WHITE);
+                    g.fillRect(x, y + (w.height - b) / 2.0, b, b);
+                    g.setFill(Color.web("#202020"));
+                    g.fillRect(x + 1, y + (w.height - b) / 2.0 + 1, b - 2, b - 2);
+                    if (w.checked) text.line(g, "x", x + b / 2.0 - 2.5, y + (w.height - 8) / 2.0, Color.web("#55FF55"), true);
+                    text.line(g, TextPainter.sample(w.text), x + b + 5, y + (w.height - 8) / 2.0, c1, w.shadow);
+                }
+                case "scroll_list" -> {
+                    g.setFill(c2);
+                    g.fillRect(x, y, w.width, w.height);
+                    g.setStroke(Color.web("#707070"));
+                    g.strokeRect(x, y, w.width, w.height);
+                    String[] opts = w.options.split("\\R");
+                    for (int i = 0; i < opts.length && 4 + i * 14 + 10 < w.height; i++) {
+                        if (i == 0) {
+                            g.setFill(Color.rgb(255, 255, 255, 0.14));
+                            g.fillRect(x + 2, y + 2 + i * 14, w.width - 10, 12);
+                        }
+                        text.line(g, opts[i].trim(), x + 5, y + 4 + i * 14, c1, w.shadow);
+                    }
+                    g.setFill(Color.web("#888888"));
+                    g.fillRect(x + w.width - 5, y + 2, 3, Math.min(20, w.height - 4));
                 }
                 case "entity" -> figure(g, w, x, y, k);
                 default -> {

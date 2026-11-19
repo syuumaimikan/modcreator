@@ -34,8 +34,10 @@ public final class ProjectIO {
         @Override
         public Element deserialize(JsonElement json, Type t, JsonDeserializationContext ctx) {
             JsonObject o = json.getAsJsonObject();
-            ElementType type = ElementType.of(o.get("type").getAsString());
-            if (type == null) throw new JsonParseException("Unknown element type " + o.get("type"));
+            JsonElement rawType = o.get("type");
+            if (rawType == null || !rawType.isJsonPrimitive()) throw new JsonParseException("Missing element type in JSON");
+            ElementType type = ElementType.of(rawType.getAsString());
+            if (type == null) throw new JsonParseException("Unknown element type " + rawType);
             return PLAIN.fromJson(o, type.cls);
         }
     }
@@ -50,15 +52,81 @@ public final class ProjectIO {
     }
 
     /** Upgrades projects written by older versions of the app. */
-    static void migrate(Project p) {
+    public static void migrate(Project p) {
+        if (p == null) return;
+        if (p.meta == null) p.meta = new Project.Meta();
+        if (p.elements == null) p.elements = new java.util.ArrayList<>();
+        p.elements.removeIf(e -> e == null);
+        if (p.textures == null) p.textures = new java.util.ArrayList<>();
+        if (p.versions == null) p.versions = new java.util.LinkedHashMap<>();
+        if (p.translations == null) p.translations = new java.util.LinkedHashMap<>();
         if (p.meta.mcVersions == null) p.meta.mcVersions = new java.util.ArrayList<>();
+        if (p.meta.dependencies == null) p.meta.dependencies = new java.util.ArrayList<>();
+        if (p.meta.mavenRepos == null) p.meta.mavenRepos = new java.util.ArrayList<>();
+        if (p.meta.libraries == null) p.meta.libraries = new java.util.ArrayList<>();
+        if (p.meta.customGradle == null) p.meta.customGradle = "";
+        if (p.meta.jvmArgs == null) p.meta.jvmArgs = "";
         // Toolchain overrides used to be keyed by target only and applied to the single version.
         for (Target t : Target.values()) {
             if (!t.versioned()) continue;
             var old = p.versions.remove(t.id);
             if (old != null && !old.isEmpty()) p.versions.putIfAbsent(Project.versionKey(t, p.mc()), old);
         }
+        for (Element e : p.elements) {
+            if (e instanceof Elements.Advancement a && "sleeping_in_bed".equals(a.trigger)) a.trigger = "slept_in_bed";
+            if (e instanceof Elements.CodeFile cf) {
+                if (cf.hook == null || cf.hook.isBlank()) cf.hook = "none";
+                if (cf.hookMethod == null || cf.hookMethod.isBlank()) cf.hookMethod = "init";
+                if (cf.language == null || cf.language.isBlank()) cf.language = "auto";
+            }
+            if (e instanceof Elements.Item it) {
+                if (it.attributes == null) it.attributes = new java.util.ArrayList<>();
+                if (it.consumeAnimation == null || it.consumeAnimation.isBlank()) it.consumeAnimation = "eat";
+                if (it.wornModel == null) it.wornModel = "";
+                if (it.repairItem == null) it.repairItem = "";
+                if (it.craftRemainder == null) it.craftRemainder = "";
+                if (it.foodEffect == null) it.foodEffect = "";
+                if (it.useReturnItem == null) it.useReturnItem = "";
+            }
+            if (e instanceof Elements.ArmorMaterial am) {
+                if (am.helmetModel == null) am.helmetModel = "";
+                if (am.chestplateModel == null) am.chestplateModel = "";
+                if (am.leggingsModel == null) am.leggingsModel = "";
+                if (am.bootsModel == null) am.bootsModel = "";
+                if (am.armorTexture == null) am.armorTexture = "";
+                if (am.setBonusEffect == null) am.setBonusEffect = "";
+            }
+            if (e instanceof Elements.Block bl) {
+                if (bl.oreDistribution == null || bl.oreDistribution.isBlank()) bl.oreDistribution = "trapezoid";
+                if (bl.oreReplaceTarget == null) bl.oreReplaceTarget = "";
+                if (bl.oreBiomes == null) bl.oreBiomes = "";
+                if (bl.instrument == null || bl.instrument.isBlank()) bl.instrument = "harp";
+                if (bl.pushReaction == null || bl.pushReaction.isBlank()) bl.pushReaction = "normal";
+            }
+            if (e instanceof ModElements.CustomEntity ce) {
+                if (ce.bossColor == null || ce.bossColor.isBlank()) ce.bossColor = "purple";
+                if (ce.bossStyle == null || ce.bossStyle.isBlank()) ce.bossStyle = "progress";
+                if (ce.mainhand == null) ce.mainhand = "";
+                if (ce.head == null) ce.head = "";
+                if (ce.idleAnim == null) ce.idleAnim = "idle";
+                if (ce.walkAnim == null) ce.walkAnim = "walk";
+                if (ce.attackAnim == null) ce.attackAnim = "attack";
+                if (ce.tameItem == null) ce.tameItem = "minecraft:bone";
+            }
+            if (e instanceof Elements.ToolMaterial tm) {
+                if (tm.displayName == null) tm.displayName = "";
+                if (tm.repairItem == null) tm.repairItem = "";
+            }
+            if (e instanceof ModElements.WorldFeature wf) {
+                if (wf.distribution == null || wf.distribution.isBlank()) wf.distribution = "trapezoid";
+            }
+            if (e instanceof ModElements.MixinSpec mx) {
+                if (mx.rawCode == null) mx.rawCode = "";
+                if (mx.code == null) mx.code = "";
+            }
+        }
         p.normalizeVersions();
+        if (p.format < 1) p.format = 1;
     }
 
     public static void save(Project p, Path file) throws IOException {

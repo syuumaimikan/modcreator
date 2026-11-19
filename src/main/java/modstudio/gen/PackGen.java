@@ -8,8 +8,8 @@ public final class PackGen {
     private PackGen() {}
 
     public static void datapack(GenContext ctx) {
-        ctx.files.json("pack.mcmeta", J.obj("pack", J.obj("pack_format", ctx.v.dataFormat,
-                "description", ctx.p.meta.name + (ctx.p.meta.description.isBlank() ? "" : " - " + ctx.p.meta.description))));
+        ctx.files.json("pack.mcmeta", J.packMeta(ctx.v, false,
+                ctx.p.meta.name + (ctx.p.meta.description.isBlank() ? "" : " - " + ctx.p.meta.description)));
         icon(ctx);
         new DataGen(ctx, "", false, false).generate(true);
         if (!ctx.all(Elements.Item.class).isEmpty()) {
@@ -20,8 +20,7 @@ public final class PackGen {
     }
 
     public static void resourcepack(GenContext ctx) {
-        ctx.files.json("pack.mcmeta", J.obj("pack", J.obj("pack_format", ctx.v.resourceFormat,
-                "description", ctx.p.meta.name + " resources")));
+        ctx.files.json("pack.mcmeta", J.packMeta(ctx.v, true, ctx.p.meta.name + " resources"));
         icon(ctx);
         new AssetGen(ctx, "").customModelDataAssets();
         JavaCommon.codeFiles(ctx);

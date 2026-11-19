@@ -5,6 +5,7 @@ import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.*;
 import modstudio.core.Compat;
@@ -21,25 +22,28 @@ import java.util.Map;
  * Compatibility layer overview: which elements work natively on each export target, which use a fallback that
  * ModStudio generates instead, and which are left out, with the reason for each.
  */
-public final class CompatPage extends VBox implements WorkspaceView.Page {
+public final class CompatPage extends BorderPane implements WorkspaceView.Page {
     private final WorkspaceView view;
     private final GridPane grid = new GridPane();
-    private final HBox summary = new HBox(8);
+    private final FlowPane summary = new FlowPane(8, 8);
     private final VBox details = new VBox(6);
     private final CheckBox onlyIssues = new CheckBox(I18n.t("compat.only_issues"));
 
     public CompatPage(WorkspaceView view) {
         this.view = view;
-        getStyleClass().add("page");
-        setSpacing(14);
-        setPadding(new Insets(20, 24, 24, 24));
+        VBox body = new VBox(14);
+        body.getStyleClass().add("page");
+        body.setPadding(new Insets(20, 24, 24, 24));
         grid.setHgap(6);
         grid.setVgap(4);
         grid.getStyleClass().add("compat-grid");
         onlyIssues.setSelected(true);
         onlyIssues.selectedProperty().addListener((o, a, b) -> rebuild());
-        summary.setAlignment(Pos.CENTER_LEFT);
-        VBox card = new VBox(10, Ui.hbox(12, onlyIssues, legend()), grid);
+        ScrollPane gridScroll = new ScrollPane(grid);
+        gridScroll.setFitToHeight(true);
+        gridScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        gridScroll.getStyleClass().add("edge-to-edge");
+        VBox card = new VBox(10, Ui.hbox(12, onlyIssues, legend()), gridScroll);
         card.getStyleClass().add("card");
         card.setPadding(new Insets(14));
         details.getStyleClass().add("card");
@@ -50,7 +54,8 @@ public final class CompatPage extends VBox implements WorkspaceView.Page {
         }
         shims.getStyleClass().add("card");
         shims.setPadding(new Insets(14));
-        getChildren().addAll(Ui.label(I18n.t("page.compat"), "title-2"), Ui.help(I18n.t("compat.intro")), summary, card, details, shims);
+        body.getChildren().addAll(Ui.label(I18n.t("page.compat"), "title-2"), Ui.help(I18n.t("compat.intro")), summary, card, details, shims);
+        setCenter(Ui.scroll(body));
     }
 
     private static Node legend() {

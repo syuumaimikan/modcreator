@@ -92,27 +92,39 @@ final class LootTableEditor extends EditorBase<LootTable> {
             p.predicate = b == null ? "" : b.trim();
             f.changed();
         });
+        javafx.scene.control.TextField bsBlock = new javafx.scene.control.TextField(p.blockStateBlock);
+        bsBlock.setPromptText("minecraft:wheat");
+        bsBlock.setPrefWidth(130);
+        bsBlock.textProperty().addListener((o, a, b) -> { p.blockStateBlock = b.trim(); f.changed(); });
+        javafx.scene.control.TextField bsProp = new javafx.scene.control.TextField(p.blockStateProp);
+        bsProp.setPromptText("age=7");
+        bsProp.setPrefWidth(100);
+        String initialProp = p.blockStateProp.isBlank() ? "" : p.blockStateProp + "=" + p.blockStateVal;
+        bsProp.setText(initialProp);
+        bsProp.textProperty().addListener((o, a, b) -> {
+            String[] kv = b.trim().split("=", 2);
+            p.blockStateProp = kv[0].trim();
+            p.blockStateVal = kv.length > 1 ? kv[1].trim() : "";
+            f.changed();
+        });
         FlowPane settings = new FlowPane(16, 8,
                 labelled(t("field.rolls_min"), rmin), labelled(t("field.rolls_max"), rmax),
                 labelled(t("field.bonus_rolls"), bonus), labelled(t("field.chance"), chance), labelled("", killed),
-                labelled(t("field.loot.predicate"), pred));
+                labelled(t("field.loot.predicate"), pred),
+                labelled(t("field.loot.block_state"), Ui.hbox(4, bsBlock, bsProp)));
 
-        GridPane table = new GridPane();
-        table.setHgap(8);
-        table.setVgap(6);
-        String[] heads = {t("loot.col_kind"), t("loot.col_name"), t("loot.col_weight"), t("loot.col_min"), t("loot.col_max"), t("loot.col_fortune"), t("loot.col_enchant"), ""};
-        for (int i = 0; i < heads.length; i++) table.add(Ui.label(heads[i], "text-muted", "text-small"), i, 0);
-        int row = 1;
+        VBox entriesBox = new VBox(8);
         for (LootEntry en : p.entries) {
             ComboBox<String> kind = Ui.combo(List.of("item", "tag", "loot_table", "empty"), x -> t("lootkind." + x));
             kind.setValue(en.kind);
-            kind.setPrefWidth(112);
+            kind.setPrefWidth(120);
             IdField name = new IdField(env(), kindFor(en.kind), en.name, v -> {
                 en.name = v;
                 f.changed();
             });
-            name.setPrefWidth(230);
+            name.setPrefWidth(210);
             name.setDisable(en.kind.equals("empty"));
+            HBox.setHgrow(name, Priority.ALWAYS);
             kind.valueProperty().addListener((o, a, b) -> {
                 en.kind = b;
                 name.setKind(kindFor(b));
@@ -132,7 +144,7 @@ final class LootTableEditor extends EditorBase<LootTable> {
                 f.changed();
             });
             for (Spinner<Integer> s : List.of(w, mn, mx)) s.setPrefWidth(74);
-            CheckBox fortune = new CheckBox();
+            CheckBox fortune = new CheckBox(t("loot.col_fortune"));
             fortune.setSelected(en.fortune);
             fortune.selectedProperty().addListener((o, a, b) -> {
                 en.fortune = b;
@@ -144,12 +156,71 @@ final class LootTableEditor extends EditorBase<LootTable> {
                 en.enchant = b;
                 f.changed();
             });
+            Spinner<Integer> encMin = Form.intSpinner(0, 100, en.enchantLevelsMin, v -> {
+                en.enchantLevelsMin = v;
+                f.changed();
+            });
+            Spinner<Integer> encMax = Form.intSpinner(0, 100, en.enchantLevelsMax, v -> {
+                en.enchantLevelsMax = v;
+                f.changed();
+            });
+            encMin.setPrefWidth(62);
+            encMax.setPrefWidth(62);
+            encMin.disableProperty().bind(enchant.selectedProperty().not());
+            encMax.disableProperty().bind(enchant.selectedProperty().not());
+            encMin.setTooltip(new javafx.scene.control.Tooltip(t("field.enchant_levels_min")));
+            encMax.setTooltip(new javafx.scene.control.Tooltip(t("field.enchant_levels_max")));
+            HBox enchantBox = Ui.hbox(4, enchant, encMin, encMax);
+            enchantBox.setAlignment(Pos.CENTER_LEFT);
+            CheckBox decay = new CheckBox(t("loot.col_decay"));
+            decay.setSelected(en.explosionDecay);
+            decay.selectedProperty().addListener((o, a, b) -> {
+                en.explosionDecay = b;
+                f.changed();
+            });
+            Spinner<Integer> looting = Form.intSpinner(0, 10, en.lootingBonus, v -> {
+                en.lootingBonus = v;
+                f.changed();
+            });
+            looting.setPrefWidth(70);
+            javafx.scene.control.TextField cname = new javafx.scene.control.TextField(en.customName);
+            cname.setPromptText(t("field.display_name"));
+            cname.setPrefWidth(130);
+            cname.textProperty().addListener((o, a, b) -> {
+                en.customName = b;
+                f.changed();
+            });
+            javafx.scene.control.TextField lore = new javafx.scene.control.TextField(en.lore);
+            lore.setPromptText(t("field.lore"));
+            lore.setPrefWidth(150);
+            lore.textProperty().addListener((o, a, b) -> {
+                en.lore = b;
+                f.changed();
+            });
+            HBox nameLore = Ui.hbox(6, cname, lore);
             Button remove = Ui.iconButton("mdi2c-close", t("action.delete"), () -> {
                 p.entries.remove(en);
                 rebuild();
                 f.changed();
             });
-            table.addRow(row++, kind, name, w, mn, mx, fortune, enchant, remove);
+
+            Node nameField = labelled(t("loot.col_name"), name);
+            HBox.setHgrow(nameField, Priority.ALWAYS);
+            HBox row1 = Ui.hbox(8, labelled(t("loot.col_kind"), kind), nameField,
+                    labelled(t("loot.col_weight"), w), labelled(t("loot.col_min"), mn),
+                    labelled(t("loot.col_max"), mx), remove);
+            row1.setAlignment(Pos.BOTTOM_LEFT);
+
+            FlowPane row2 = new FlowPane(14, 6,
+                    fortune, decay,
+                    labelled(t("loot.col_looting"), looting),
+                    labelled(t("loot.col_enchant"), enchantBox),
+                    labelled(t("loot.col_name_lore"), nameLore));
+            row2.setAlignment(Pos.CENTER_LEFT);
+
+            VBox entryCard = new VBox(8, row1, row2);
+            entryCard.getStyleClass().add("list-card");
+            entriesBox.getChildren().add(entryCard);
         }
         Button add = Ui.button(t("loot.add_entry"), "mdi2p-plus", () -> {
             p.entries.add(new LootEntry());
@@ -158,11 +229,7 @@ final class LootTableEditor extends EditorBase<LootTable> {
         });
         add.getStyleClass().add("flat");
 
-        ScrollPane wrap = new ScrollPane(table);
-        table.setPadding(new javafx.geometry.Insets(0, 0, 14, 0));
-        wrap.getStyleClass().add("edge-to-edge");
-        wrap.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-        VBox card = new VBox(12, head, settings, wrap, add, Ui.help(t("help.loot_weight")));
+        VBox card = new VBox(12, head, settings, entriesBox, add, Ui.help(t("help.loot_weight")));
         card.getStyleClass().add("card");
         return card;
     }

@@ -98,7 +98,8 @@ public final class Exporter {
             out.bytes(path, base.get(path));
             seen.put(path, base.get(path));
         }
-        int min = format(versions.get(0), res), max = format(versions.get(versions.size() - 1), res);
+        McVersion minV = versions.get(0), maxV = versions.get(versions.size() - 1);
+        int max = format(maxV, res);
         com.google.gson.JsonArray entries = new com.google.gson.JsonArray();
         for (int k = 1; k < versions.size(); k++) {
             McVersion v = versions.get(k);
@@ -113,18 +114,23 @@ public final class Exporter {
                 seen.put(path, data);
                 changed++;
             }
-            if (changed > 0) entries.add(J.obj("formats", J.arr(format(v, res), max), "directory", dir));
+            if (changed > 0) {
+                com.google.gson.JsonObject entry = J.obj("formats", J.arr(format(v, res), max), "directory", dir);
+                if (maxV.minorPackFormat()) {
+                    entry.add("min_format", J.arr(v.format(res), v.formatMinor(res)));
+                    entry.add("max_format", J.arr(maxV.format(res), maxV.formatMinor(res)));
+                }
+                entries.add(entry);
+            }
         }
-        com.google.gson.JsonObject meta;
+        String desc = "";
         try {
-            byte[] newest = builds.get(versions.get(versions.size() - 1)).get("pack.mcmeta");
-            meta = com.google.gson.JsonParser.parseString(new String(newest, java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
-        } catch (Exception e) {
-            meta = J.obj("pack", J.obj("description", ""));
+            byte[] newest = builds.get(maxV).get("pack.mcmeta");
+            com.google.gson.JsonObject n = com.google.gson.JsonParser.parseString(new String(newest, java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
+            desc = n.getAsJsonObject("pack").get("description").getAsString();
+        } catch (Exception ignored) {
         }
-        com.google.gson.JsonObject pack = meta.getAsJsonObject("pack");
-        pack.addProperty("pack_format", min);
-        pack.add("supported_formats", J.arr(min, max));
+        com.google.gson.JsonObject meta = J.packMeta(minV, maxV, res, desc);
         if (!entries.isEmpty()) meta.add("overlays", J.obj("entries", entries));
         out.json("pack.mcmeta", meta);
         return out;

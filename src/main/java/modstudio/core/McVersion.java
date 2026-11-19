@@ -5,29 +5,53 @@ package modstudio.core;
  * the Java version and the feature switches the generators need.
  */
 public enum McVersion {
-    V1_20_1("1.20.1", 17, 15, 15, "1.20", "[1.20.1,1.20.2)"),
-    V1_20_4("1.20.4", 17, 26, 22, "1.20", "[1.20.4,1.20.5)"),
-    V1_20_6("1.20.6", 21, 41, 32, "1.20.6", "[1.20.6,1.21)"),
-    V1_21_1("1.21.1", 21, 48, 34, "1.21", "[1.21.1,1.21.2)"),
-    V1_21_4("1.21.4", 21, 61, 46, "1.21.4", "[1.21.4,1.21.5)"),
-    V1_21_8("1.21.8", 21, 81, 64, "1.21.8", "[1.21.8,1.21.9)");
+    V1_20_1("1.20.1", 17, 15, 0, 15, "1.20", "[1.20.1,1.20.2)"),
+    V1_20_4("1.20.4", 17, 26, 0, 22, "1.20", "[1.20.4,1.20.5)"),
+    V1_20_6("1.20.6", 21, 41, 0, 32, "1.20.6", "[1.20.6,1.21)"),
+    V1_21_1("1.21.1", 21, 48, 0, 34, "1.21", "[1.21.1,1.21.2)"),
+    V1_21_4("1.21.4", 21, 61, 0, 46, "1.21.4", "[1.21.4,1.21.5)"),
+    V1_21_8("1.21.8", 21, 81, 0, 64, "1.21.8", "[1.21.8,1.21.9)"),
+    V1_21_9("1.21.9", 21, 88, 0, 69, "1.21.9", "[1.21.9,1.21.10)"),
+    V1_21_10("1.21.10", 21, 88, 0, 69, "1.21.10", "[1.21.10,1.21.11)"),
+    V1_21_11("1.21.11", 21, 94, 1, 75, "1.21.11", "[1.21.11,1.22)"),
+    V26_1("26.1", 25, 101, 1, 84, "26.1", "[26.1,26.2)");
 
     public final String id;
     public final int java;
     public final int dataFormat;
+    public final int dataMinor;
     public final int resourceFormat;
     /** Paper / Spigot plugin.yml api-version. */
     public final String apiVersion;
     /** Version range for Forge / NeoForge metadata. */
     public final String range;
 
-    McVersion(String id, int java, int dataFormat, int resourceFormat, String apiVersion, String range) {
+    McVersion(String id, int java, int dataFormat, int dataMinor, int resourceFormat, String apiVersion, String range) {
         this.id = id;
         this.java = java;
         this.dataFormat = dataFormat;
+        this.dataMinor = dataMinor;
         this.resourceFormat = resourceFormat;
         this.apiVersion = apiVersion;
         this.range = range;
+    }
+
+    public int format(boolean resource) {
+        return resource ? resourceFormat : dataFormat;
+    }
+
+    public int formatMinor(boolean resource) {
+        return resource ? 0 : dataMinor;
+    }
+
+    /** 1.21.9+: pack.mcmeta uses [major, minor] min_format / max_format arrays. */
+    public boolean minorPackFormat() {
+        return atLeast(V1_21_9);
+    }
+
+    /** 26.1+: Mojang unobfuscated releases running on Java 25. */
+    public boolean unobfuscated() {
+        return atLeast(V26_1);
     }
 
     public boolean atLeast(McVersion other) {
